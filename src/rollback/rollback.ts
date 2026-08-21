@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { canonical } from "../canonical.js";
 import { DriftConflict, RollbackHalted, describe } from "../errors.js";
 import type { ActionRow, Journal } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
@@ -86,20 +87,6 @@ const observation = z.union([
 ]);
 
 const toolResult = z.looseObject({ isError: z.boolean().default(false) });
-
-/** Key order is not meaningful in json, so comparison must not depend on it. */
-function canonical(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map(canonical).join(",")}]`;
-  }
-  const entries = Object.entries(value)
-    .filter(([, item]) => item !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
-}
 
 function sameState(a: unknown, b: unknown): boolean {
   return canonical(a) === canonical(b);
@@ -303,16 +290,16 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
         "an inverse was already sent before an interruption and no pre-read is declared, so whether it applied cannot be determined";
       halted = { seq: action.seq, reason, detail: action.error ?? "" };
       steps.push({ ...describeStep(action), kind: "halt", reason, verified: false, plan });
-      journal.markUnrecoverable(action.id, reason);
+      if (!dryRun) {
+        journal.markUnrecoverable(action.id, reason);
+      }
       break;
     }
 
     steps.push({
       ...describeStep(action),
       kind: "revert",
-      reason: verified
-        ? "state matches; applying inverse"
-        : "no pre-read declared, so drift could not be ruled out",
+      reason: verified ? "state matches; applying inverse" : unverifiedBecause(action),
       verified,
       plan,
       ...(rebuilt.inverse === undefined ? {} : { replanned: true }),
@@ -367,6 +354,18 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     steps,
     ...(halted === undefined ? {} : { halted }),
   };
+}
+
+/**
+ * Why drift could not be ruled out. The two cases are not the same thing to
+ * read at the moment you are deciding whether to let an unverified revert
+ * proceed: one is a policy that never claimed it could check, the other is a
+ * check that was supposed to happen and did not.
+ */
+function unverifiedBecause(action: ActionRow): string {
+  return action.verify === undefined
+    ? "no pre-read declared, so drift could not be ruled out"
+    : "the post-state was never captured, so drift could not be ruled out";
 }
 
 function describeStep(action: ActionRow): { seq: number; server: string; tool: string } {

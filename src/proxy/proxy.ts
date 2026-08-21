@@ -36,6 +36,7 @@ import {
   observeState,
   planInverse,
   planRead,
+  refusal,
   runRead,
   toPayload,
   type ResolvedRead,
@@ -224,6 +225,14 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
 
   let inflight = 0;
   const idle: (() => void)[] = [];
+  const enter = (): void => {
+    inflight += 1;
+  };
+  /**
+   * Every decrement goes through here, including the one that parks a call at
+   * the gate. A decrement that reached zero without waking the waiters would
+   * leave a shutdown draining for ever against a counter that is already idle.
+   */
   const leave = (): void => {
     inflight -= 1;
     if (inflight === 0) {
@@ -420,7 +429,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
       const args = request.params.arguments ?? {};
       // Counted from here, not from the forward call: the pre-read is part of
       // the action, and a shutdown that aborts it blocks a legitimate write.
-      inflight += 1;
+      enter();
       try {
         const wantsGate =
           policy.gate === "always" || (policy.gate === "on_write" && shouldGateOnWrite(args));
@@ -443,8 +452,22 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         const inherited =
           granted !== undefined && granted.runId !== activeRun ? granted : undefined;
 
+        // Nobody has answered yet and the agent is asking again. Reusing the
+        // row it is already waiting on keeps one call to one decision, which
+        // is what `synartesis gates` and `approve` both assume.
+        const waiting =
+          granted === undefined && wantsGate
+            ? journal.findGated({
+                runId: activeRun,
+                server: route.upstream.name,
+                tool: route.tool,
+                args,
+              })
+            : undefined;
+
+        const reusable = waiting ?? (inherited === undefined ? granted : undefined);
         const pending =
-          granted === undefined || inherited !== undefined
+          reusable === undefined
             ? journal.recordPending({
                 runId: activeRun,
                 server: route.upstream.name,
@@ -453,14 +476,14 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
                 class: policy.class,
               })
             : {
-                actionId: granted.id,
-                seq: granted.seq,
-                idempotencyKey: granted.idempotencyKey,
+                actionId: reusable.id,
+                seq: reusable.seq,
+                idempotencyKey: reusable.idempotencyKey,
               };
 
         if (inherited !== undefined) {
           journal.adoptApproval(pending.actionId, inherited);
-        } else if (granted !== undefined) {
+        } else if (granted !== undefined && waiting === undefined) {
           // Reusing the approved row itself: from here its outcome stops being
           // known, so it stops being `approved`.
           journal.markInFlight(granted.id);
@@ -475,7 +498,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         const decide = async (why: string): Promise<void> => {
           // Parked, not working: a suspended call must not hold up shutdown,
           // and the drain exists to let real work finish.
-          inflight -= 1;
+          leave();
           let decision;
           try {
             decision = await gate.decide({
@@ -488,7 +511,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
               signal: extra.signal,
             });
           } finally {
-            inflight += 1;
+            enter();
           }
           log?.info(
             { action: pending.actionId, approved: decision.approved },
@@ -588,6 +611,21 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           const result = await route.upstream.client.request(forwarded, PassthroughResult, {
             signal: extra.signal,
           });
+
+          // The server understood the call and did not do it. Recording that
+          // as an action would be worse than not recording it at all: an
+          // inverse resolved from a refusal is a compensating call for
+          // something that never happened, and undo would faithfully carry it
+          // out. The agent still sees the refusal exactly as sent.
+          const refused = refusal(result);
+          if (refused !== undefined) {
+            journal.markFailed(pending.actionId, `the upstream refused the call: ${refused}`);
+            log?.debug(
+              { seq: pending.seq, tool: route.tool, reason: refused },
+              "refused by the upstream",
+            );
+            return result;
+          }
 
           const context = { args, snapshot, result: toPayload(result) };
           const warnings: string[] = [];

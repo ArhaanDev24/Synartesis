@@ -24,6 +24,28 @@ const ToolResult = z.looseObject({
   content: z.array(z.looseObject({ type: z.string() })).default([]),
 });
 
+/**
+ * The message an upstream sent when it refused a call, or undefined when it
+ * did not refuse.
+ *
+ * A tool-level error arrives as an ordinary successful response carrying
+ * `isError`, so nothing on the forward path notices it unless it looks. It
+ * means the server received the call, understood it, and did not do it, which
+ * is the same reading `runRead` gives a refused pre-read and `executeInverse`
+ * gives a refused inverse.
+ */
+export function refusal(result: unknown): string | undefined {
+  const parsed = ToolResult.safeParse(result);
+  if (!parsed.success || !parsed.data.isError) {
+    return undefined;
+  }
+  const said = parsed.data.content
+    .map((block) => (typeof block["text"] === "string" ? block["text"] : ""))
+    .filter((text) => text !== "")
+    .join(" ");
+  return said === "" ? JSON.stringify(result) : said;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

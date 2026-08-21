@@ -210,6 +210,24 @@ tools:
       args: { id: "$.id", plan: "$snapshot.plan" }
 `;
 
+/**
+ * restore_customer treated as reversible: a pre-read that finds nothing where
+ * a write is about to land, followed by a write the server accepts.
+ */
+const CREATES_WHERE_NOTHING_WAS = `version: 1
+servers:
+  crm: { command: node, args: [] }
+tools:
+  - match: "crm.restore_customer"
+    class: reversible
+    snapshot:
+      tool: "crm.get_customer"
+      args: { id: "$.id" }
+    inverse:
+      tool: "crm.delete_customer"
+      args: { id: "$.id" }
+`;
+
 describe("a failed snapshot blocks the write", () => {
   it("does not forward the write when the pre-read cannot run", async () => {
     harness = await createHarness({ manifest: UNREACHABLE_SNAPSHOT });
@@ -259,11 +277,19 @@ describe("a write with no prior state", () => {
   });
 
   it("records that there was nothing to restore when it is allowed through", async () => {
-    harness = await createHarness();
+    // A write that succeeds where the pre-read found nothing. It has to be a
+    // call the server will actually carry out: one it refuses did not happen,
+    // and would be recorded as a refusal rather than as a change with a
+    // reservation attached to it.
+    harness = await createHarness({ manifest: CREATES_WHERE_NOTHING_WAS });
     await harness.proxied
-      .callTool({ name: "update_customer", arguments: { id: "c_absent", plan: "free" } })
+      .callTool({
+        name: "restore_customer",
+        arguments: { id: "c_new", name: "Ada", email: "a@b.c", plan: "free", notes: "" },
+      })
       .catch(() => undefined);
     const action = lastAction(harness);
+    expect(action.status).toBe("applied");
     expect(action.snapshot).toBeUndefined();
     expect(action.inverse).toBeUndefined();
     expect(action.error).toMatch(/no prior state existed/i);

@@ -41,13 +41,13 @@ const COMMANDS = `
                           [--manifest <path>] [--journal <path>]
 
 Ids may be shortened to any unambiguous prefix. show and undo default to the
-most recent run; approve and deny default to the only request waiting.
+most recent run; approve and deny default to the only request waiting. init
+adds to an existing manifest rather than replacing it.
 
   --manifest  default synartesis.yaml
   --journal   default .synartesis/journal.db
   --to        lowest sequence to undo; earlier actions are left alone
   --by        who is deciding; defaults to the logged-in user
-  --force     let init overwrite an existing manifest
   --all       approve or deny everything currently waiting
   --once      watch prints the current state and exits
   --json      machine-readable output for list, show and gates

@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { z } from "zod";
 
+import { canonical } from "../canonical.js";
 import { JournalError } from "../errors.js";
 import { SCHEMA_SQL, SCHEMA_VERSION } from "./schema.js";
 
@@ -214,6 +215,18 @@ export interface Journal {
     args: unknown;
     /** ISO timestamp; approvals older than this are ignored. */
     notBefore: string;
+  }): ActionRow | undefined;
+  /**
+   * A call in this run that is already waiting for a decision. An agent told
+   * to try again will often try again before anyone has answered, and a second
+   * row for one decision is worse than useless: `approve` then refuses to act
+   * without an id, and approving either one leaves its twin waiting for ever.
+   */
+  findGated(query: {
+    runId: string;
+    server: string;
+    tool: string;
+    args: unknown;
   }): ActionRow | undefined;
   getAction(actionId: string): ActionRow | undefined;
   listRuns(): readonly RunRow[];
@@ -493,22 +506,45 @@ class SqliteJournal implements Journal {
       // stranded in a dead session is the same as no approval at all. Bounded
       // by time and by being single use instead, so a decision made this
       // morning cannot silently authorise the same call tomorrow.
-      const raw = this.#db
+      const rows = this.#db
         .prepare(
           `SELECT * FROM actions
-            WHERE server = ? AND tool = ? AND args_json = ?
+            WHERE server = ? AND tool = ?
               AND status = 'approved'
               AND approved_at >= ?
-            ORDER BY approved_at DESC
-            LIMIT 1`,
+            ORDER BY approved_at DESC`,
         )
-        .get(
-          query.server,
-          query.tool,
-          JSON.stringify(query.args ?? {}),
-          query.notBefore,
-        );
-      return raw === undefined ? undefined : toAction(raw);
+        .all(query.server, query.tool, query.notBefore)
+        .map(toAction);
+      // Matched on meaning rather than on spelling: an agent that re-emits the
+      // same arguments in a different key order is making the same call, and
+      // sending a person back to approve what they just approved would teach
+      // them to stop reading what they are approving.
+      const wanted = canonical(query.args ?? {});
+      return rows.find((row) => canonical(row.args) === wanted);
+    });
+  }
+
+  findGated(query: {
+    runId: string;
+    server: string;
+    tool: string;
+    args: unknown;
+  }): ActionRow | undefined {
+    return this.#run("findGated", () => {
+      // Scoped to the run, unlike an approval: a gated row belongs to the run
+      // that raised it, and adopting one from a dead session would hang the
+      // decision on an action that undoing this run would never reach.
+      const rows = this.#db
+        .prepare(
+          `SELECT * FROM actions
+            WHERE run_id = ? AND server = ? AND tool = ? AND status = 'gated'
+            ORDER BY seq`,
+        )
+        .all(query.runId, query.server, query.tool)
+        .map(toAction);
+      const wanted = canonical(query.args ?? {});
+      return rows.find((row) => canonical(row.args) === wanted);
     });
   }
 
