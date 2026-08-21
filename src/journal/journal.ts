@@ -61,6 +61,20 @@ export interface RecordPendingInput {
   readonly class: ActionClass;
 }
 
+export interface AppliedOutcome {
+  readonly result: unknown;
+  /** Fully resolved at capture time (D5); absent when the class has no inverse. */
+  readonly inverse?: unknown;
+  /** Post-state for drift detection; absent when the post-read could not run. */
+  readonly postSnapshot?: unknown;
+  /**
+   * A non-fatal problem. `status` says what happened to the call; `error` says
+   * what went wrong, and the two are independent: an applied call whose inverse
+   * could not be built is both applied and no longer safely reversible.
+   */
+  readonly warning?: string;
+}
+
 export interface PendingAction {
   readonly actionId: string;
   readonly seq: number;
@@ -150,7 +164,8 @@ export interface Journal {
   endRun(runId: string, status: RunStatus): void;
   setRunLabel(runId: string, label: string): void;
   recordPending(input: RecordPendingInput): PendingAction;
-  markApplied(actionId: string, result: unknown): void;
+  attachSnapshot(actionId: string, snapshot: unknown): void;
+  markApplied(actionId: string, outcome: AppliedOutcome): void;
   markFailed(actionId: string, error: string): void;
   markUnknown(actionId: string, error: string): void;
   listRuns(): readonly RunRow[];
@@ -235,11 +250,33 @@ class SqliteJournal implements Journal {
     });
   }
 
-  markApplied(actionId: string, result: unknown): void {
+  attachSnapshot(actionId: string, snapshot: unknown): void {
+    this.#run("attachSnapshot", () => {
+      this.#db
+        .prepare("UPDATE actions SET snapshot_json = ? WHERE id = ?")
+        .run(JSON.stringify(snapshot ?? null), actionId);
+    });
+  }
+
+  markApplied(actionId: string, outcome: AppliedOutcome): void {
     this.#run("markApplied", () => {
       this.#db
-        .prepare("UPDATE actions SET status = 'applied', result_json = ? WHERE id = ?")
-        .run(JSON.stringify(result ?? null), actionId);
+        .prepare(
+          `UPDATE actions
+             SET status = 'applied',
+                 result_json = ?,
+                 inverse_json = ?,
+                 post_snapshot_json = ?,
+                 error = ?
+           WHERE id = ?`,
+        )
+        .run(
+          JSON.stringify(outcome.result ?? null),
+          outcome.inverse === undefined ? null : JSON.stringify(outcome.inverse),
+          outcome.postSnapshot === undefined ? null : JSON.stringify(outcome.postSnapshot),
+          outcome.warning ?? null,
+          actionId,
+        );
     });
   }
 

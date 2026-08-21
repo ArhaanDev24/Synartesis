@@ -9,7 +9,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createToyCrmServer } from "../../fixtures/toy-crm/server.js";
 import { ToyCrmStore } from "../../fixtures/toy-crm/store.js";
 import { openJournal, type Journal } from "../../src/journal/journal.js";
-import { loadManifest } from "../../src/manifest/load.js";
+import { loadManifest, parseManifest } from "../../src/manifest/load.js";
 import { createProxyServer } from "../../src/proxy/proxy.js";
 import type { Upstream } from "../../src/proxy/upstream.js";
 
@@ -42,7 +42,12 @@ export async function inMemoryUpstream(server: McpServer, name: string): Promise
   };
 }
 
-export async function createHarness(): Promise<Harness> {
+export interface HarnessOptions {
+  /** Manifest source to use instead of manifests/toy-crm.yaml. */
+  readonly manifest?: string;
+}
+
+export async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
   const dir = mkdtempSync(join(tmpdir(), "synartesis-test-"));
   const journal = openJournal(join(dir, "journal.db"));
 
@@ -50,7 +55,10 @@ export async function createHarness(): Promise<Harness> {
   const upstream = await inMemoryUpstream(createToyCrmServer(store), "crm");
   const proxy = createProxyServer({
     upstreams: [upstream],
-    manifest: loadManifest("manifests/toy-crm.yaml"),
+    manifest:
+      options.manifest === undefined
+        ? loadManifest("manifests/toy-crm.yaml")
+        : parseManifest(options.manifest, "manifest.yaml"),
     journal,
   });
   const proxied = await link(proxy.server, "test-client");

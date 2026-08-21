@@ -26,6 +26,7 @@ import type { Journal } from "../journal/journal.js";
 import { createPolicyResolver, type PolicyResolver } from "../manifest/match.js";
 import { qualify, type Manifest } from "../manifest/types.js";
 import { createRouter, type Router } from "./routing.js";
+import { observeState, planInverse, readSnapshot, toPayload } from "./snapshot.js";
 import type { Upstream } from "./upstream.js";
 
 export interface ProxyOptions {
@@ -325,13 +326,32 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
       }
 
       const { policy } = policies.resolve(qualify(route.upstream.name, route.tool));
+      const args = request.params.arguments ?? {};
       const pending = journal.recordPending({
         runId,
         server: route.upstream.name,
         tool: route.tool,
-        args: request.params.arguments ?? {},
+        args,
         class: policy.class,
       });
+
+      // The pre-read happens before the write goes out, and a failure stops
+      // the write entirely: a reversible action without a snapshot is silently
+      // irreversible, which is worse than the action not happening at all.
+      let snapshot: unknown;
+      if (policy.snapshot !== undefined) {
+        try {
+          snapshot = await readSnapshot(router, policy.snapshot, { args }, extra.signal);
+        } catch (error: unknown) {
+          const reason = describe(error);
+          journal.markFailed(pending.actionId, reason);
+          throw new McpError(
+            ErrorCode.InternalError,
+            `synartesis blocked ${request.params.name}: ${reason}`,
+          );
+        }
+        journal.attachSnapshot(pending.actionId, snapshot);
+      }
 
       const forwarded: Request = {
         method: "tools/call",
@@ -342,7 +362,39 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         const result = await route.upstream.client.request(forwarded, PassthroughResult, {
           signal: extra.signal,
         });
-        journal.markApplied(pending.actionId, result);
+
+        const context = { args, snapshot, result: toPayload(result) };
+        const warnings: string[] = [];
+
+        // Resolved now rather than at rollback time (D5).
+        let inverse: unknown;
+        if (policy.inverse !== undefined) {
+          try {
+            inverse = planInverse(policy.inverse, context);
+          } catch (error: unknown) {
+            warnings.push(`inverse could not be resolved: ${describe(error)}`);
+          }
+        }
+
+        // Best effort: the write has already applied, so a failed post-read
+        // cannot undo it. Phase 4 fails closed when the post-state is missing,
+        // because drift cannot be ruled out without it. A resource that is now
+        // absent is a captured post-state, not a missing one.
+        let postSnapshot: unknown;
+        if (policy.snapshot !== undefined) {
+          try {
+            postSnapshot = await observeState(router, policy.snapshot, context, extra.signal);
+          } catch (error: unknown) {
+            warnings.push(`post-state could not be captured: ${describe(error)}`);
+          }
+        }
+
+        journal.markApplied(pending.actionId, {
+          result,
+          ...(inverse === undefined ? {} : { inverse }),
+          ...(postSnapshot === undefined ? {} : { postSnapshot }),
+          ...(warnings.length === 0 ? {} : { warning: warnings.join("; ") }),
+        });
         return result;
       } catch (error: unknown) {
         if (extra.signal.aborted) {

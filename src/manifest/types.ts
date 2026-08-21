@@ -46,3 +46,17 @@ export interface Manifest {
 export function qualify(server: string, tool: string): string {
   return `${server}.${tool}`;
 }
+
+export interface QualifiedName {
+  readonly server: string;
+  readonly tool: string;
+}
+
+/** Splits on the first dot only; tool names may contain further dots. */
+export function splitQualified(qualified: string): QualifiedName | undefined {
+  const dot = qualified.indexOf(".");
+  if (dot <= 0 || dot === qualified.length - 1) {
+    return undefined;
+  }
+  return { server: qualified.slice(0, dot), tool: qualified.slice(dot + 1) };
+}

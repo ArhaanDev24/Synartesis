@@ -51,6 +51,31 @@ export class UpstreamError extends SynartesisError {
 }
 
 /**
+ * The pre-read failed, so the action must not proceed. A reversible action
+ * without a snapshot is silently irreversible, which is the one outcome this
+ * product exists to prevent.
+ */
+export class SnapshotError extends SynartesisError {
+  readonly code = "SNAPSHOT_ERROR";
+
+  constructor(
+    readonly tool: string,
+    reason: string,
+    options?: { cause?: unknown; absent?: boolean },
+  ) {
+    super(`snapshot via ${tool} failed: ${reason}`, options);
+    /**
+     * The read reached the server and the server said no such resource, as
+     * opposed to the read not completing at all. Only the former tells us
+     * anything about the resource itself.
+     */
+    this.absent = options?.absent ?? false;
+  }
+
+  readonly absent: boolean;
+}
+
+/**
  * Not in spec 3.5, which covers failures on the proxy's forward path. A journal
  * write failing is different in kind: it means the record of what the agent did
  * is incomplete, so the call must not proceed. Always fatal, never swallowed.
