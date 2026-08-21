@@ -107,6 +107,27 @@ describe("proxy over real stdio", () => {
     journal.close();
   });
 
+  it("answers every request that arrived before the pipe closed", async () => {
+    const space = workspace();
+    const proxied = await spawnClient("node", proxyArgs(space));
+    // Frames delivered in the same chunk as the EOF still have to be served:
+    // the pipe closing means no more are coming, not that these can be
+    // dropped.
+    const [tools, read, write] = await Promise.all([
+      proxied.listTools(),
+      proxied.callTool({ name: "get_customer", arguments: { id: "c_001" } }),
+      proxied.callTool({ name: "update_customer", arguments: { id: "c_002", plan: "free" } }),
+    ]);
+    expect(tools.tools.length).toBeGreaterThan(0);
+    expect(read.isError).toBeFalsy();
+    expect(write.isError).toBeFalsy();
+
+    const journal = openJournal(space.journal);
+    const runId = journal.listRuns()[0]?.id ?? "";
+    expect(journal.getActions(runId).map((a) => a.status)).toEqual(["applied", "applied"]);
+    journal.close();
+  });
+
   it("shuts down promptly when the client closes the pipe", async () => {
     const space = workspace();
     const client = new Client({ name: "stdio-probe", version: "0.0.0" });
