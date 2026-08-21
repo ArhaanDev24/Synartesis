@@ -107,7 +107,9 @@ function checkCall(
   }
 
   for (const reference of referencesIn(call.args)) {
-    const namespace = /^\$(\w*)\./.exec(reference)?.[1] ?? "";
+    // Matches both `$ns.field` and a bare `$ns`, so a whole-value reference is
+    // checked rather than silently treated as `$.` and failing at run time.
+    const namespace = /^\$(\w*)(?:\.|$)/.exec(reference)?.[1] ?? "";
     const label = namespace === "" ? "$." : `$${namespace}.`;
     if (!allowed.includes(label)) {
       source.fail(
@@ -159,9 +161,18 @@ function validate(source: Source, manifest: Manifest): void {
     if (!needsInverse && policy.inverse !== undefined) {
       source.fail([...path, "inverse"], `a ${policy.class} tool must not declare an inverse`);
     }
-    if (policy.class === "reversible" && policy.snapshot === undefined) {
-      // Without a pre-read a reversible action is silently irreversible.
-      source.fail(path, "a reversible tool must declare a snapshot");
+    // A snapshot is required only when the inverse actually depends on one.
+    // Some actions are reversible from their arguments alone: the inverse of
+    // moving a file from A to B is moving it from B to A, and no pre-read
+    // could tell you anything the arguments do not already say.
+    const needsSnapshot =
+      policy.inverse !== undefined &&
+      referencesIn(policy.inverse.args).some(
+        (reference) => reference === "$snapshot" || reference.startsWith("$snapshot."),
+      );
+    if (policy.class === "reversible" && needsSnapshot && policy.snapshot === undefined) {
+      // Without a pre-read such a reversible action is silently irreversible.
+      source.fail(path, "this inverse reads $snapshot, so a snapshot must be declared");
     }
     if (policy.class === "readonly" && policy.snapshot !== undefined) {
       source.fail([...path, "snapshot"], "a readonly tool must not declare a snapshot");

@@ -16,6 +16,14 @@ describe("template resolution", () => {
     expect(resolveTemplate("$result.id", context)).toBe("ch_123");
   });
 
+  it("resolves a bare namespace to the whole value", () => {
+    // A file's contents are not a field of anything, so there has to be a way
+    // to say "all of it".
+    expect(resolveTemplate("$snapshot", context)).toEqual({ plan: "pro", notes: "" });
+    expect(resolveTemplate("$result", context)).toEqual({ id: "ch_123", ok: true });
+    expect(resolveTemplate("$", context)).toEqual(context.args);
+  });
+
   it("walks nested paths and array indices", () => {
     expect(resolveTemplate("$.nested.deep", context)).toBe(7);
     expect(resolveTemplate("$.items[1].id", context)).toBe("second");

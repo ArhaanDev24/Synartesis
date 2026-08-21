@@ -28,6 +28,8 @@ const USAGE = `synartesis - an undo layer for AI agents
   --force     let init overwrite an existing manifest
   --json      machine-readable output for list, show and gates
   --dry-run   read current state and print the plan without changing anything
+  --replan    rebuild each undo from the current manifest, for a run recorded
+              under a policy that turned out to be wrong
 
 Exit codes: 0 complete, 1 halted or partial, 2 bad usage or configuration.
 `;
@@ -269,7 +271,7 @@ function report(result: RollbackReport): number {
         `  ${step.reason}${verified}`,
     );
     if (step.plan !== undefined && step.kind === "revert") {
-      const verb = result.dryRun ? "would call" : "called";
+      const verb = `${step.replanned === true ? "replanned, " : ""}${result.dryRun ? "would call" : "called"}`;
       out(`        ${verb} ${step.plan.server}.${step.plan.tool} ${JSON.stringify(step.plan.args)}`);
     }
   }
@@ -309,6 +311,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
           name,
           command: spec.command,
           args: spec.args,
+          stderr: "ignore",
           ...(spec.env === undefined ? {} : { env: spec.env }),
         }),
       );
@@ -319,6 +322,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
       runId,
       ...(toSeq === undefined ? {} : { toSeq }),
       dryRun: argv.includes("--dry-run"),
+      ...(argv.includes("--replan") ? { replanWith: manifest } : {}),
     });
     return report(result);
   } finally {

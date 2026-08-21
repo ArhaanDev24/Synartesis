@@ -105,17 +105,31 @@ tools:
     expect(error.message).toContain("clas");
   });
 
-  it("requires a snapshot and an inverse for a reversible tool", () => {
-    const noSnapshot = `version: 1
+  it("requires a snapshot only when the inverse actually reads one", () => {
+    const needsOne = `version: 1
 servers: { crm: { command: node, args: [] } }
 tools:
   - match: "crm.update_customer"
     class: reversible
     inverse:
       tool: "crm.update_customer"
-      args: { id: "$.id" }
+      args: { id: "$.id", plan: "$snapshot.plan" }
 `;
-    expect(expectRejection(noSnapshot).message).toMatch(/snapshot/);
+    expect(expectRejection(needsOne).message).toMatch(/snapshot/);
+
+    // Some actions are reversible from their arguments alone: the inverse of
+    // moving a file from A to B is moving it from B to A, and no pre-read
+    // could add anything.
+    const argsOnly = `version: 1
+servers: { fs: { command: node, args: [] } }
+tools:
+  - match: "fs.move_file"
+    class: reversible
+    inverse:
+      tool: "fs.move_file"
+      args: { source: "$.destination", destination: "$.source" }
+`;
+    expect(parseManifest(argsOnly, "manifest.yaml").tools).toHaveLength(1);
 
     const noInverse = `version: 1
 servers: { crm: { command: node, args: [] } }

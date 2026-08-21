@@ -194,14 +194,16 @@ describe("snapshotting", () => {
   });
 });
 
-const BROKEN_SNAPSHOT = `version: 1
+/** The snapshot names a server that is not connected, so the read cannot run. */
+const UNREACHABLE_SNAPSHOT = `version: 1
 servers:
   crm: { command: node, args: [] }
+  ghost: { command: node, args: [] }
 tools:
   - match: "crm.update_customer"
     class: reversible
     snapshot:
-      tool: "crm.no_such_read"
+      tool: "ghost.read"
       args: { id: "$.id" }
     inverse:
       tool: "crm.update_customer"
@@ -209,8 +211,8 @@ tools:
 `;
 
 describe("a failed snapshot blocks the write", () => {
-  it("does not forward the write when the pre-read fails", async () => {
-    harness = await createHarness({ manifest: BROKEN_SNAPSHOT });
+  it("does not forward the write when the pre-read cannot run", async () => {
+    harness = await createHarness({ manifest: UNREACHABLE_SNAPSHOT });
     const before = harness.store.__snapshot();
 
     const thrown = await harness.proxied
@@ -225,7 +227,7 @@ describe("a failed snapshot blocks the write", () => {
   });
 
   it("records the blocked attempt as failed rather than pending", async () => {
-    harness = await createHarness({ manifest: BROKEN_SNAPSHOT });
+    harness = await createHarness({ manifest: UNREACHABLE_SNAPSHOT });
     await harness.proxied
       .callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } })
       .catch(() => undefined);
@@ -236,14 +238,34 @@ describe("a failed snapshot blocks the write", () => {
     expect(action.error).toMatch(/snapshot/i);
     expect(action.snapshot).toBeUndefined();
   });
+});
 
-  it("blocks the write when the pre-read reports a tool-level error", async () => {
-    harness = await createHarness();
-    const before = harness.store.__snapshot();
-    const thrown = await harness.proxied
+describe("a write with no prior state", () => {
+  it("asks instead of refusing, because creating things is not forbidden", async () => {
+    harness = await createHarness({ gate: "journal", gateTimeoutMs: 80 });
+    const active = harness;
+    const before = active.store.__snapshot();
+
+    // There is no c_absent to read, so nothing can be restored afterwards.
+    // That makes this call irreversible, and irreversible means ask.
+    const thrown = await active.proxied
       .callTool({ name: "update_customer", arguments: { id: "c_absent", plan: "free" } })
       .catch((error: unknown) => error);
+
     expect(thrown).toBeInstanceOf(McpError);
-    expect(harness.store.__snapshot()).toEqual(before);
+    expect(String(thrown)).toMatch(/nothing exists here to restore/i);
+    expect(active.store.__snapshot()).toEqual(before);
+    expect(lastAction(active).status).toBe("denied");
+  });
+
+  it("records that there was nothing to restore when it is allowed through", async () => {
+    harness = await createHarness();
+    await harness.proxied
+      .callTool({ name: "update_customer", arguments: { id: "c_absent", plan: "free" } })
+      .catch(() => undefined);
+    const action = lastAction(harness);
+    expect(action.snapshot).toBeUndefined();
+    expect(action.inverse).toBeUndefined();
+    expect(action.error).toMatch(/no prior state existed/i);
   });
 });

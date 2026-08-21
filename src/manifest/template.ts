@@ -23,10 +23,18 @@ function parseReference(raw: string): Reference | undefined {
   if (!raw.startsWith("$")) {
     return undefined;
   }
+  // A bare namespace means the whole value. Writing a file back needs the
+  // entire captured contents, which is not a field of anything.
+  if (raw === "$") {
+    return { namespace: "args", path: "" };
+  }
   if (raw.startsWith("$.")) {
     return { namespace: "args", path: raw.slice(2) };
   }
   for (const namespace of NAMESPACES) {
+    if (raw === `$${namespace}`) {
+      return { namespace, path: "" };
+    }
     const prefix = `$${namespace}.`;
     if (raw.startsWith(prefix)) {
       return { namespace, path: raw.slice(prefix.length) };
@@ -96,7 +104,7 @@ function resolveString(raw: string, context: TemplateContext): unknown {
       `${raw} refers to ${reference.namespace}, which is not available at this point`,
     );
   }
-  return read(root, reference.path, raw);
+  return reference.path === "" ? root : read(root, reference.path, raw);
 }
 
 /** Array.isArray widens a readonly union to any[]; this keeps the element type. */

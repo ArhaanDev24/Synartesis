@@ -6,6 +6,7 @@ import { DEFAULT_GATE_TIMEOUT_MS } from "../gate/gate.js";
 import { createLogger, isLogLevel, LOG_LEVELS, type LogLevel } from "../logging.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
+import { verifyAgainstServers } from "../manifest/verify.js";
 import { createProxyServer } from "./proxy.js";
 import { connectStdioUpstream, type Upstream } from "./upstream.js";
 
@@ -71,6 +72,10 @@ async function main(): Promise<void> {
       }),
     );
   }
+
+  // Never serve a request under a policy that calls tools the servers do not
+  // have: at run time that is indistinguishable from a missing resource.
+  await verifyAgainstServers(upstreams, manifest);
 
   log.info(
     {

@@ -21,7 +21,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
-import { UpstreamError, describe } from "../errors.js";
+import { SnapshotError, UpstreamError, describe } from "../errors.js";
 import { createJournalGate, type Gate } from "../gate/gate.js";
 import { shouldGateOnWrite } from "../gate/heuristic.js";
 import type { Journal } from "../journal/journal.js";
@@ -392,6 +392,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
       if (runId === undefined) {
         throw new UpstreamError("proxy", "tools/call", "no active run");
       }
+      // Captured: narrowing does not survive into the closures below.
+      const activeRun = runId;
       ensureLabel();
       const route = router.route(request.params.name);
       if (route === undefined) {
@@ -401,129 +403,148 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         );
       }
 
-      const { policy } = policies.resolve(
-        qualify(route.upstream.name, route.tool),
-      );
+      const { policy } = policies.resolve(qualify(route.upstream.name, route.tool));
       const args = request.params.arguments ?? {};
       // Counted from here, not from the forward call: the pre-read is part of
       // the action, and a shutdown that aborts it blocks a legitimate write.
       inflight += 1;
       try {
         const pending = journal.recordPending({
-          runId,
+          runId: activeRun,
           server: route.upstream.name,
           tool: route.tool,
           args,
           class: policy.class,
         });
 
-        // D4/3.4: suspend before anything is read or written. A gated action
-      // that had already run its pre-read would be indistinguishable from one
-      // that was allowed.
-      const gated =
-        policy.gate === "always" || (policy.gate === "on_write" && shouldGateOnWrite(args));
-      if (gated) {
-        // Parked, not working: a suspended call must not hold up shutdown, and
-        // the drain exists to let real work finish.
-        inflight -= 1;
-        let decision;
-        try {
-          decision = await gate.decide({
-            actionId: pending.actionId,
-            runId,
-            seq: pending.seq,
-            server: route.upstream.name,
-            tool: route.tool,
-            args,
-            signal: extra.signal,
-          });
-        } finally {
-          inflight += 1;
-        }
-        log?.info(
-          { action: pending.actionId, approved: decision.approved },
-          decision.approved ? "approved" : "denied",
-        );
-        if (!decision.approved) {
-          const who = decision.by === undefined ? "" : ` by ${decision.by}`;
-          throw new McpError(
-            ErrorCode.InvalidRequest,
-            `synartesis blocked ${request.params.name}: this action cannot be undone and was denied${who}. ${decision.reason}`,
+        const decide = async (why: string): Promise<void> => {
+          // Parked, not working: a suspended call must not hold up shutdown,
+          // and the drain exists to let real work finish.
+          inflight -= 1;
+          let decision;
+          try {
+            decision = await gate.decide({
+              actionId: pending.actionId,
+              runId: activeRun,
+              seq: pending.seq,
+              server: route.upstream.name,
+              tool: route.tool,
+              args,
+              signal: extra.signal,
+            });
+          } finally {
+            inflight += 1;
+          }
+          log?.info(
+            { action: pending.actionId, approved: decision.approved },
+            decision.approved ? "approved" : "denied",
           );
-        }
-      }
+          if (!decision.approved) {
+            const who = decision.by === undefined ? "" : ` by ${decision.by}`;
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              `synartesis blocked ${request.params.name}: ${why} and was denied${who}. ${decision.reason}`,
+            );
+          }
+        };
 
-      // The pre-read happens before the write goes out, and a failure stops
-        // the write entirely: a reversible action without a snapshot is silently
-        // irreversible, which is worse than the action not happening at all.
+        // D4/3.4: a policy gate suspends before anything is read or written, so
+        // a gated action never even looks at the resource.
+        // decide() throws on refusal, so getting past this means approved.
+        const askedAlready =
+          policy.gate === "always" || (policy.gate === "on_write" && shouldGateOnWrite(args));
+        if (askedAlready) {
+          await decide("this action cannot be undone");
+        }
+
+        // The pre-read happens before the write goes out, and a failure stops
+        // the write entirely: a reversible action without a snapshot is
+        // silently irreversible, which is worse than the action not happening.
         let snapshot: unknown;
         let verify: ResolvedRead | undefined;
+        let missingPriorState: string | undefined;
         if (policy.snapshot !== undefined) {
           try {
             verify = planRead(policy.snapshot, { args });
             snapshot = await runRead(router, verify, extra.signal);
+            journal.attachSnapshot(pending.actionId, snapshot);
           } catch (error: unknown) {
             const reason = describe(error);
-            journal.markFailed(pending.actionId, reason);
-            throw new McpError(
-              ErrorCode.InternalError,
-              `synartesis blocked ${request.params.name}: ${reason}`,
-            );
+            if (error instanceof SnapshotError && error.absent) {
+              // Nothing exists here yet, so this call creates rather than
+              // replaces and there is nothing to put back. It is an
+              // irreversible action wearing a reversible policy. Refusing
+              // outright would mean an agent could never create anything, so
+              // it falls through to the same question the gate asks.
+              missingPriorState = reason;
+              verify = undefined;
+            } else {
+              journal.markFailed(pending.actionId, reason);
+              log?.error(
+                { seq: pending.seq, tool: route.tool, reason },
+                "write blocked: snapshot failed",
+              );
+              throw new McpError(
+                ErrorCode.InternalError,
+                `synartesis blocked ${request.params.name}: ${reason}`,
+              );
+            }
           }
-          journal.attachSnapshot(pending.actionId, snapshot);
+        }
+
+        if (missingPriorState !== undefined && !askedAlready) {
+          await decide("nothing exists here to restore, so this cannot be undone");
         }
 
         const forwarded: Request = {
           method: "tools/call",
           params: { ...request.params, name: route.tool },
         };
+
         try {
-          const result = await route.upstream.client.request(
-            forwarded,
-            PassthroughResult,
-            {
-              signal: extra.signal,
-            },
-          );
+          const result = await route.upstream.client.request(forwarded, PassthroughResult, {
+            signal: extra.signal,
+          });
 
           const context = { args, snapshot, result: toPayload(result) };
           const warnings: string[] = [];
+          if (missingPriorState !== undefined) {
+            warnings.push(
+              `no prior state existed, so there is nothing to restore: ${missingPriorState}`,
+            );
+          }
 
           // Resolved now rather than at rollback time (D5).
           let inverse: unknown;
-          if (policy.inverse !== undefined) {
+          if (policy.inverse !== undefined && missingPriorState === undefined) {
             try {
               inverse = planInverse(policy.inverse, context);
             } catch (error: unknown) {
-              warnings.push(
-                `inverse could not be resolved: ${describe(error)}`,
-              );
+              warnings.push(`inverse could not be resolved: ${describe(error)}`);
             }
           }
 
           // Best effort: the write has already applied, so a failed post-read
-          // cannot undo it. Phase 4 fails closed when the post-state is missing,
-          // because drift cannot be ruled out without it. A resource that is now
-          // absent is a captured post-state, not a missing one.
+          // cannot undo it. Phase 4 fails closed when the post-state is
+          // missing. A resource that is now absent is a captured post-state,
+          // not a missing one.
           let postSnapshot: unknown;
           if (verify !== undefined) {
             try {
               postSnapshot = await observeState(router, verify, extra.signal);
             } catch (error: unknown) {
-              warnings.push(
-                `post-state could not be captured: ${describe(error)}`,
-              );
+              warnings.push(`post-state could not be captured: ${describe(error)}`);
             }
           }
 
           if (warnings.length > 0) {
-          log?.warn({ seq: pending.seq, tool: route.tool, warnings }, "applied with reservations");
-        }
-        log?.debug(
-          { seq: pending.seq, server: route.upstream.name, tool: route.tool, class: policy.class },
-          "applied",
-        );
-        journal.markApplied(pending.actionId, {
+            log?.warn({ seq: pending.seq, tool: route.tool, warnings }, "applied with reservations");
+          }
+          log?.debug(
+            { seq: pending.seq, server: route.upstream.name, tool: route.tool, class: policy.class },
+            "applied",
+          );
+          journal.markApplied(pending.actionId, {
             result,
             ...(inverse === undefined ? {} : { inverse }),
             ...(verify === undefined ? {} : { verify }),

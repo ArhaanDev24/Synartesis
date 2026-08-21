@@ -3,7 +3,16 @@ import { z } from "zod";
 import { DriftConflict, RollbackHalted, describe } from "../errors.js";
 import type { ActionRow, Journal } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
-import { observeState, type InversePlan, type StateObservation } from "../proxy/snapshot.js";
+import {
+  observeState,
+  planInverse,
+  planRead,
+  toPayload,
+  type InversePlan,
+  type StateObservation,
+} from "../proxy/snapshot.js";
+import { createPolicyResolver } from "../manifest/match.js";
+import { qualify, type Manifest } from "../manifest/types.js";
 
 /**
  * D7. Derived from the action rather than generated, so a retried rollback
@@ -24,6 +33,8 @@ export interface RollbackStep {
   /** Whether drift could be ruled out before acting. */
   readonly verified: boolean;
   readonly plan?: InversePlan;
+  /** True when the inverse came from a corrected manifest, not the journal. */
+  readonly replanned?: boolean;
 }
 
 export interface RollbackHalt {
@@ -47,6 +58,13 @@ export interface RollbackOptions {
   /** Lowest sequence to undo. Sequences below it are left in place. */
   readonly toSeq?: number;
   readonly dryRun?: boolean;
+  /**
+   * Re-resolve each inverse from this manifest instead of using the one
+   * recorded at capture time. For recovering from a policy that was wrong when
+   * the run happened: the captured pre-state and result are replayed through
+   * the corrected template, so no upstream state is re-read and D5 still holds.
+   */
+  readonly replanWith?: Manifest;
   readonly signal?: AbortSignal;
 }
 
@@ -93,7 +111,7 @@ interface Decision {
  * halt, because continuing past them produces a state that is neither the
  * before nor the after (D6).
  */
-function classify(action: ActionRow): Decision | undefined {
+function classify(action: ActionRow, replanning: boolean): Decision | undefined {
   switch (action.status) {
     case "rolled_back":
       return { kind: "already-reverted", reason: "already rolled back", verified: true };
@@ -109,7 +127,12 @@ function classify(action: ActionRow): Decision | undefined {
     case "gated":
       return { kind: "skip", reason: "never applied (awaiting approval)", verified: true };
     case "unrecoverable":
-      return { kind: "halt", reason: "previously marked unrecoverable", verified: false };
+      // A replan is a person saying they have corrected the policy and want it
+      // tried again. Every check still runs: if the resource really has
+      // drifted, the drift check below halts on it a second time.
+      return replanning
+        ? undefined
+        : { kind: "halt", reason: "previously marked unrecoverable", verified: false };
     case "applied":
     case "rolling_back":
       return undefined;
@@ -121,6 +144,36 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
   const dryRun = options.dryRun ?? false;
   const signal = options.signal ?? new AbortController().signal;
 
+  const policies = options.replanWith === undefined ? undefined : createPolicyResolver(options.replanWith);
+
+  /**
+   * Rebuilds an action's inverse and verify read from a corrected policy,
+   * using only what was already captured.
+   */
+  const replan = (
+    action: ActionRow,
+  ): { inverse?: InversePlan; verify?: InversePlan; error?: string } => {
+    if (policies === undefined) {
+      return {};
+    }
+    const policy = policies.resolve(qualify(action.server, action.tool)).policy;
+    const context = {
+      args: action.args,
+      ...(action.snapshot === undefined ? {} : { snapshot: action.snapshot }),
+      ...(action.result === undefined ? {} : { result: toPayload(action.result) }),
+    };
+    try {
+      return {
+        ...(policy.inverse === undefined ? {} : { inverse: planInverse(policy.inverse, context) }),
+        ...(policy.snapshot === undefined
+          ? {}
+          : { verify: planRead(policy.snapshot, { args: action.args }) }),
+      };
+    } catch (error: unknown) {
+      return { error: describe(error) };
+    }
+  };
+
   const all = journal.getActions(runId);
   const inScope = [...all]
     .filter((action) => options.toSeq === undefined || action.seq >= options.toSeq)
@@ -130,7 +183,7 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
   let halted: RollbackHalt | undefined;
 
   for (const action of inScope) {
-    const early = classify(action);
+    const early = classify(action, policies !== undefined);
     if (early?.kind === "halt") {
       halted = { seq: action.seq, reason: early.reason, detail: action.error ?? "" };
       steps.push({ ...describeStep(action), ...early });
@@ -149,7 +202,8 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       continue;
     }
 
-    const parsedPlan = inversePlan.safeParse(action.inverse);
+    const rebuilt = replan(action);
+    const parsedPlan = inversePlan.safeParse(rebuilt.inverse ?? action.inverse);
     if (!parsedPlan.success) {
       // An applied action with nothing to undo. Everything after it is already
       // reverted by now, so halting here loses nothing and names precisely
@@ -169,7 +223,7 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
 
     // Drift check. Only possible where a pre-read was declared, which is what
     // produced both the stored verify call and the post-state.
-    const verifyRead = inversePlan.safeParse(action.verify);
+    const verifyRead = inversePlan.safeParse(rebuilt.verify ?? action.verify);
     const recordedPost = observation.safeParse(action.postSnapshot);
     let verified = false;
 
@@ -235,9 +289,12 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     steps.push({
       ...describeStep(action),
       kind: "revert",
-      reason: verified ? "state matches; applying inverse" : "no pre-read declared, so drift could not be ruled out",
+      reason: verified
+        ? "state matches; applying inverse"
+        : "no pre-read declared, so drift could not be ruled out",
       verified,
       plan,
+      ...(rebuilt.inverse === undefined ? {} : { replanned: true }),
     });
 
     if (dryRun) {

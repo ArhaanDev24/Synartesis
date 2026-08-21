@@ -1,0 +1,94 @@
+# Policy for @modelcontextprotocol/server-filesystem.
+#
+# Verified against version 2026.7.10 with real files. Point the args at the
+# directory you want the agent confined to; the server refuses anything outside
+# it, and this policy governs what it can do inside.
+#
+# The honest limit of this adapter: the filesystem server exposes no delete
+# tool. Anything that brings a new path into existence therefore cannot be
+# taken back by any call this server offers, so it is gated rather than
+# pretended to be reversible.
+version: 1
+
+servers:
+  fs:
+    command: node
+    args: ["node_modules/@modelcontextprotocol/server-filesystem/dist/index.js", "."]
+
+tools:
+  # --- reads -------------------------------------------------------------
+  - match: "fs.read_file"
+    class: readonly
+  - match: "fs.read_text_file"
+    class: readonly
+  - match: "fs.read_media_file"
+    class: readonly
+  - match: "fs.read_multiple_files"
+    class: readonly
+  - match: "fs.list_directory"
+    class: readonly
+  - match: "fs.list_directory_with_sizes"
+    class: readonly
+  - match: "fs.directory_tree"
+    class: readonly
+  - match: "fs.search_files"
+    class: readonly
+  - match: "fs.get_file_info"
+    class: readonly
+  - match: "fs.list_allowed_directories"
+    class: readonly
+
+  # --- writes ------------------------------------------------------------
+
+  # Capture the file, then write it back. read_text_file returns
+  # structuredContent shaped {content: "..."}, so the text lives at
+  # $snapshot.content. This is exactly the sort of thing that is wrong until it
+  # is run against the real server: the first version of this policy said
+  # $snapshot and produced an object where a string was required.
+  #
+  # If the path does not exist yet, the pre-read finds nothing, there is no
+  # prior state to restore, and the call is gated instead. That is not a
+  # limitation being worked around; this server cannot delete, so creating a
+  # file really is irreversible.
+  - match: "fs.write_file"
+    class: reversible
+    snapshot:
+      tool: "fs.read_text_file"
+      args:
+        path: "$.path"
+    inverse:
+      tool: "fs.write_file"
+      args:
+        path: "$.path"
+        content: "$snapshot.content"
+
+  # An edit applies a diff, so the inverse restores the whole prior file rather
+  # than trying to invert the diff. Inverting a diff is only correct if nothing
+  # else touched the file, and drift detection is a better way to know that.
+  - match: "fs.edit_file"
+    class: reversible
+    snapshot:
+      tool: "fs.read_text_file"
+      args:
+        path: "$.path"
+    inverse:
+      tool: "fs.write_file"
+      args:
+        path: "$.path"
+        content: "$snapshot.content"
+
+  # Reversible from its arguments alone: no pre-read could say anything the
+  # arguments do not already. Drift cannot be checked for the same reason, so
+  # undo reports it as unverified.
+  - match: "fs.move_file"
+    class: reversible
+    inverse:
+      tool: "fs.move_file"
+      args:
+        source: "$.destination"
+        destination: "$.source"
+
+  # No rmdir exists on this server, so a directory once created stays.
+  - match: "fs.create_directory"
+    class: irreversible
+    gate: always

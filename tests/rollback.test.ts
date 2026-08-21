@@ -13,6 +13,7 @@ import { loadManifest } from "../src/manifest/load.js";
 import { createProxyServer } from "../src/proxy/proxy.js";
 import { createRouter, type Router } from "../src/proxy/routing.js";
 import { rollback } from "../src/rollback/rollback.js";
+import { parseManifest } from "../src/manifest/load.js";
 import { autoApproveGate, inMemoryUpstream } from "./helpers/harness.js";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -347,5 +348,70 @@ describe("an interrupted rollback", () => {
     });
     expect(report.steps.every((step: { kind: string }) => step.kind !== "revert")).toBe(true);
     expect(JSON.stringify(active.store.__snapshot())).toBe(JSON.stringify(active.before));
+  });
+});
+
+/** A policy whose inverse is wrong: it restores the id but not the fields. */
+const WRONG_POLICY = `version: 1
+servers: { crm: { command: node, args: [] } }
+tools:
+  - match: "crm.update_customer"
+    class: reversible
+    snapshot: { tool: "crm.get_customer", args: { id: "$.id" } }
+    inverse:
+      tool: "crm.update_customer"
+      args: { id: "$.id", plan: "$snapshot.wrong_field" }
+`;
+
+const FIXED_POLICY = WRONG_POLICY.replace("$snapshot.wrong_field", "$snapshot.plan");
+
+describe("recovering from a policy that was wrong at the time", () => {
+  it("rebuilds the inverse from a corrected manifest", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-replan-"));
+    const journal = openJournal(join(dir, "journal.db"));
+    cleanups.push(() => {
+      journal.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    const store = new ToyCrmStore({ now: () => "2026-01-01T00:00:00.000Z" });
+    const before = store.__snapshot();
+    const upstream = await inMemoryUpstream(createToyCrmServer(store), "crm");
+    const manifest = parseManifest(WRONG_POLICY, "manifest.yaml");
+    const proxy = createProxyServer({
+      gate: autoApproveGate,
+      upstreams: [upstream],
+      manifest,
+      journal,
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "agent", version: "0.0.0" });
+    await Promise.all([proxy.server.connect(st), client.connect(ct)]);
+    const runId = await proxy.ready;
+    cleanups.push(async () => {
+      await client.close();
+      await upstream.close();
+    });
+
+    await client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    const router = createRouter([upstream], manifest);
+
+    // The inverse recorded at capture time cannot be resolved, so there is
+    // nothing usable to undo with.
+    const broken = await rollback({ journal, router, runId });
+    expect(broken.status).toBe("partial");
+    expect(store.__snapshot()).not.toEqual(before);
+
+    // Correcting the manifest replays the captured pre-state through the fixed
+    // template. No upstream state is re-read, so D5 still holds.
+    const fixed = await rollback({
+      journal,
+      router,
+      runId,
+      replanWith: parseManifest(FIXED_POLICY, "manifest.yaml"),
+    });
+    expect(fixed.status).toBe("rolled_back");
+    expect(fixed.steps[0]?.replanned).toBe(true);
+    expect(JSON.stringify(store.__snapshot())).toBe(JSON.stringify(before));
   });
 });

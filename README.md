@@ -210,6 +210,25 @@ If nobody answers within the timeout, the call is **denied**. Silence is not
 consent. The agent receives a readable error and can carry on with other work;
 one suspended call does not stall the session.
 
+## A real server
+
+A production manifest for Anthropic's own filesystem server ships in
+[`manifests/filesystem.yaml`](manifests/filesystem.yaml), verified against
+version 2026.7.10 with real files. To see the whole loop against it:
+
+```bash
+./demo/filesystem-demo.sh
+```
+
+It overwrites a file and moves another, restores both, then shows undo refusing
+when a human edited the file in between, and the gate refusing to create a
+directory this server has no way to remove.
+
+That manifest is also where the honest limits show. `move_file` is reversible
+from its arguments alone, so no pre-read is declared and drift cannot be
+checked for it. `create_directory` is `irreversible` not because directories
+are precious but because this server exposes no way to remove one.
+
 ## Writing a manifest
 
 The manifest is the whole product. It should take fifteen minutes for an API
@@ -292,6 +311,7 @@ Other things to know:
 | `approve <actionId>` | Allow a suspended call |
 | `deny <actionId>` | Refuse one |
 | `undo <runId>` | Reverse a run, newest action first |
+| `undo <runId> --replan` | Same, but rebuild each undo from the current manifest |
 
 Useful flags: `--dry-run` and `--to <seq>` on `undo`, `--json` on `list`,
 `show` and `gates`, `--journal` and `--manifest` everywhere they apply.
@@ -314,6 +334,16 @@ protocol traffic.
   stopped. Use `--to` to resume past it deliberately.
 - **A call interrupted mid-flight is recorded as unknown**, not as failed. Undo
   refuses to walk past it, because whether it applied cannot be determined.
+- **An undo is only as good as the policy that recorded it.** Inverses are
+  resolved when the call happens, not when you undo, so a mistake in a manifest
+  is baked into every run made under it. `undo --replan` rebuilds them from a
+  corrected manifest using the state already captured, which is the way out.
+
+## Trust
+
+A manifest names commands and Synartesis runs them. Treat one you did not write
+the way you would treat a shell script from the same source: read it first.
+There is no sandbox here, and there is not meant to be.
 
 ## Development
 

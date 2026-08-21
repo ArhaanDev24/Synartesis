@@ -9,6 +9,13 @@ export interface UpstreamSpec {
   readonly command: string;
   readonly args?: readonly string[];
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Where the server's own stderr goes. The proxy inherits it, so a server
+   * that fails to boot says why in the client's logs. The CLI discards it: its
+   * output is a report for a person, and a startup failure already surfaces as
+   * a typed error rather than as a banner.
+   */
+  readonly stderr?: "inherit" | "ignore";
 }
 
 export interface Upstream {
@@ -24,9 +31,7 @@ export async function connectStdioUpstream(spec: UpstreamSpec): Promise<Upstream
     command: spec.command,
     args: [...(spec.args ?? [])],
     ...(spec.env === undefined ? {} : { env: { ...spec.env } }),
-    // Inherit the child's stderr so a server that fails to boot says why on
-    // our stderr instead of dying silently.
-    stderr: "inherit",
+    stderr: spec.stderr ?? "inherit",
   });
 
   const client = new Client({ ...PROXY_CLIENT_INFO });
