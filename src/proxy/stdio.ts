@@ -21,6 +21,7 @@ import { DEFAULT_GATE_TIMEOUT_MS } from "../gate/gate.js";
 import { cliCommandFrom } from "../invocation.js";
 import { findJournal, findManifest } from "../locate.js";
 import { createLogger, isLogLevel, LOG_LEVELS, type LogLevel } from "../logging.js";
+import { mark } from "../style.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
 import { verifyAgainstServers } from "../manifest/verify.js";
@@ -75,6 +76,11 @@ function parseArgv(argv: readonly string[]): Argv {
 async function main(): Promise<void> {
   const argv = parseArgv(process.argv.slice(2));
   const log = createLogger(argv.logLevel);
+  // Only on a real terminal. A client collecting our stderr into a log file
+  // wants the structured records and nothing else.
+  if (process.stderr.isTTY) {
+    process.stderr.write(mark());
+  }
   // Loaded before anything is spawned: never start with a broken policy.
   const manifest = loadManifest(argv.manifest);
   const journal = openJournal(argv.journal);

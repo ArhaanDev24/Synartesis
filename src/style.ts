@@ -74,6 +74,11 @@ export const GREEK = spaced("\u03a3\u03a5\u039d\u0391\u03a1\u03a4\u0397\u03a3\u0
 export const MEANING = "a fastening together";
 export const TAGLINE = "an undo layer for AI agents";
 
+/** One compact line, for a process whose real output is something else. */
+export function mark(): string {
+  return `\n  ${style.plate(WORDMARK)}  ${style.quiet(MEANING)}\n\n`;
+}
+
 export function banner(): string {
   return [
     "",
