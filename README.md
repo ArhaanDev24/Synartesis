@@ -281,9 +281,24 @@ There are exactly three things a value can refer to:
 | `$snapshot.` | what the pre-read captured | `inverse` |
 | `$result.` | what the forward call returned | `inverse` |
 
-Anything else is a literal. Write `$$` for a literal dollar sign. There are no
-expressions, conditionals or functions, and there will not be: the moment this
-becomes a language it stops being something you can write in fifteen minutes.
+Anything else is a literal. A reference can stand alone, in which case the
+value keeps its type, or sit inside a sentence, in which case it is substituted
+as text:
+
+```yaml
+sha: "$result.content.sha"                 # the value itself
+message: "Revert agent change to $.path"   # text with the path substituted
+```
+
+Write `$$` for a literal dollar sign. There are no expressions, conditionals or
+functions, and there will not be: the moment this becomes a language it stops
+being something you can write in fifteen minutes.
+
+That has a consequence worth knowing before you hit it. A reference copies a
+value; it cannot reshape one. When an API returns a field in a different shape
+than it accepts, as GitHub does with issue labels, there is no way to bridge
+the two, and the honest move is to leave that field out of the inverse and say
+so rather than restore it wrongly.
 
 Other things to know:
 
@@ -312,6 +327,7 @@ Other things to know:
 | `deny <actionId>` | Refuse one |
 | `undo <runId>` | Reverse a run, newest action first |
 | `undo <runId> --replan` | Same, but rebuild each undo from the current manifest |
+| `check` | Load a manifest and verify it against the servers it names |
 
 Useful flags: `--dry-run` and `--to <seq>` on `undo`, `--json` on `list`,
 `show` and `gates`, `--journal` and `--manifest` everywhere they apply.

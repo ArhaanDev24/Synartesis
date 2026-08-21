@@ -1,0 +1,174 @@
+# Policy for GitHub's MCP server.
+#
+# NOT verified against a live account. Everything here is derived from GitHub's
+# documented API shapes, which is exactly the position the filesystem policy was
+# in before it met a real server and turned out to be wrong in one place. Run
+# `synartesis check --manifest manifests/github.yaml` against your own token
+# before trusting it, and expect to correct at least one field.
+#
+# The npm package @modelcontextprotocol/server-github is deprecated. The
+# supported server is github/github-mcp-server. Synartesis speaks stdio only,
+# so use the local binary rather than GitHub's hosted remote server.
+#
+# The honest limit of this adapter: GitHub has no ordinary-scope delete for most
+# things it creates. An issue can be closed but not un-created; a comment is
+# gone only if the author removes it; a published release stays published.
+# Anything that puts a permanent, publicly visible record into the world is
+# gated rather than dressed up as reversible.
+version: 1
+
+servers:
+  github:
+    command: github-mcp-server
+    args: ["stdio"]
+    # Read from your shell; never written into this file.
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+
+tools:
+  # --- reads -------------------------------------------------------------
+  - match: "github.get_*"
+    class: readonly
+  - match: "github.list_*"
+    class: readonly
+  - match: "github.search_*"
+    class: readonly
+
+  # --- issues ------------------------------------------------------------
+
+  # An issue cannot be deleted through the API, only closed. Closing is not
+  # the same as never having existed: people were notified.
+  - match: "github.create_issue"
+    class: irreversible
+    gate: always
+
+  # Title and body only. get_issue returns labels and assignees as objects,
+  # while update_issue expects bare names, and this format deliberately has no
+  # way to reshape a value between the two. Restoring them from the snapshot
+  # would send the wrong type; leaving them out means an undo does not restore
+  # them. Stating that plainly is better than silently corrupting them.
+  - match: "github.update_issue"
+    class: reversible
+    snapshot:
+      tool: "github.get_issue"
+      args:
+        owner: "$.owner"
+        repo: "$.repo"
+        issue_number: "$.issue_number"
+    inverse:
+      tool: "github.update_issue"
+      args:
+        owner: "$.owner"
+        repo: "$.repo"
+        issue_number: "$.issue_number"
+        title: "$snapshot.title"
+        body: "$snapshot.body"
+        state: "$snapshot.state"
+
+  - match: "github.add_issue_comment"
+    class: irreversible
+    gate: always
+
+  # --- pull requests -----------------------------------------------------
+  - match: "github.create_pull_request"
+    class: irreversible
+    gate: always
+
+  - match: "github.update_pull_request"
+    class: reversible
+    snapshot:
+      tool: "github.get_pull_request"
+      args:
+        owner: "$.owner"
+        repo: "$.repo"
+        pull_number: "$.pull_number"
+    inverse:
+      tool: "github.update_pull_request"
+      args:
+        owner: "$.owner"
+        repo: "$.repo"
+        pull_number: "$.pull_number"
+        title: "$snapshot.title"
+        body: "$snapshot.body"
+        state: "$snapshot.state"
+
+  - match: "github.merge_pull_request"
+    class: irreversible
+    gate: always
+  - match: "github.create_pull_request_review"
+    class: irreversible
+    gate: always
+  - match: "github.create_and_submit_pull_request_review"
+    class: irreversible
+    gate: always
+  - match: "github.submit_pending_pull_request_review"
+    class: irreversible
+    gate: always
+
+  # A pending review is a draft only its author can see, so deleting one puts
+  # nothing into the world. Recreating it restores the draft but not the
+  # comments that were inside it, which is a compensation rather than a
+  # reversal, and undo will report it as unverified.
+  - match: "github.delete_pending_pull_request_review"
+    class: compensable
+    inverse:
+      tool: "github.create_pending_pull_request_review"
+      args:
+        owner: "$.owner"
+        repo: "$.repo"
+        pull_number: "$.pull_number"
+
+  - match: "github.create_pending_pull_request_review"
+    class: compensable
+    inverse:
+      tool: "github.delete_pending_pull_request_review"
+      args:
+        owner: "$.owner"
+        repo: "$.repo"
+        pull_number: "$.pull_number"
+
+  # --- file contents -----------------------------------------------------
+
+  # The sha must be the blob being replaced at the moment of the revert, which
+  # is the one this very call created, not the one it replaced. Passing
+  # $snapshot.sha here is the natural mistake and GitHub rejects it as a
+  # conflict.
+  - match: "github.create_or_update_file"
+    class: reversible
+    snapshot:
+      tool: "github.get_file_contents"
+      args:
+        owner: "$.owner"
+        repo: "$.repo"
+        path: "$.path"
+        ref: "$.branch"
+    inverse:
+      tool: "github.create_or_update_file"
+      args:
+        owner: "$.owner"
+        repo: "$.repo"
+        path: "$.path"
+        branch: "$.branch"
+        content: "$snapshot.content"
+        sha: "$result.content.sha"
+        message: "Revert agent change to $.path"
+
+  # A multi-file push is one commit touching many paths. This format captures
+  # one pre-read per action, not one per path, so there is nothing honest to
+  # restore from.
+  - match: "github.push_files"
+    class: irreversible
+    gate: always
+
+  - match: "github.create_branch"
+    class: irreversible
+    gate: always
+  - match: "github.fork_repository"
+    class: irreversible
+    gate: always
+  - match: "github.create_repository"
+    class: irreversible
+    gate: always
+  - match: "github.create_release"
+    class: irreversible
+    gate: always

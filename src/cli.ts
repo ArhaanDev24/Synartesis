@@ -3,9 +3,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 import { ManifestError, SynartesisError, describe } from "./errors.js";
 import { draftManifest } from "./init/draft.js";
-import { parseManifest } from "./manifest/load.js";
+import { loadManifest, parseManifest } from "./manifest/load.js";
 import { openJournal, type ActionClass, type ActionRow, type Journal } from "./journal/journal.js";
-import { loadManifest } from "./manifest/load.js";
+import { verifyAgainstServers } from "./manifest/verify.js";
 import { createRouter } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
@@ -13,6 +13,7 @@ import { rollback, type RollbackReport } from "./rollback/rollback.js";
 const USAGE = `synartesis - an undo layer for AI agents
 
   synartesis init <server> -- <command> [args...]  [--manifest <path>]
+  synartesis check [--manifest <path>]
   synartesis list [--journal <path>]
   synartesis show <runId> [--journal <path>]
   synartesis gates [--journal <path>]
@@ -65,6 +66,51 @@ function positional(argv: readonly string[]): string[] {
     }
   }
   return values;
+}
+
+/**
+ * Loads a manifest and checks it against the servers it names, without
+ * touching a journal or serving anything. This is what you run before wiring
+ * a policy into a client, rather than finding out from a client that will not
+ * start.
+ */
+async function runCheck(argv: readonly string[]): Promise<number> {
+  const path = flag(argv, "--manifest") ?? "synartesis.yaml";
+  const manifest = loadManifest(path);
+
+  const upstreams: Upstream[] = [];
+  try {
+    for (const [name, spec] of Object.entries(manifest.servers)) {
+      upstreams.push(
+        await connectStdioUpstream({
+          name,
+          command: spec.command,
+          args: spec.args,
+          stderr: "ignore",
+          ...(spec.env === undefined ? {} : { env: spec.env }),
+        }),
+      );
+    }
+    await verifyAgainstServers(upstreams, manifest);
+  } finally {
+    for (const upstream of upstreams) {
+      await upstream.close();
+    }
+  }
+
+  const counts = new Map<string, number>();
+  for (const policy of manifest.tools) {
+    counts.set(policy.class, (counts.get(policy.class) ?? 0) + 1);
+  }
+  const gated = manifest.tools.filter((policy) => policy.gate !== "never").length;
+
+  out(`${path} is valid`);
+  out(`  servers:  ${Object.keys(manifest.servers).join(", ")}`);
+  out(`  policies: ${[...counts].map(([k, v]) => `${String(v)} ${k}`).join(", ")}`);
+  out(`  gated:    ${String(gated)}`);
+  out("");
+  out("Anything this manifest does not mention is treated as irreversible and gated.");
+  return 0;
 }
 
 async function runInit(argv: readonly string[]): Promise<number> {
@@ -341,9 +387,12 @@ async function main(argv: readonly string[]): Promise<number> {
     return askedForHelp ? 0 : 2;
   }
 
+  // Neither of these needs a journal, and neither should create one.
   if (command === "init") {
-    // The only command that runs before a journal could exist.
     return await runInit(argv);
+  }
+  if (command === "check") {
+    return await runCheck(argv);
   }
 
   const asJson = argv.includes("--json");

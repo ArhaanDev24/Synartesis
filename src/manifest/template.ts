@@ -88,16 +88,41 @@ function read(root: unknown, path: string, reference: string): unknown {
   return current;
 }
 
+/**
+ * A reference appearing inside a larger string, such as a commit message that
+ * names the path it is reverting. Only the dotted forms are recognised here: a
+ * bare `$result` in the middle of a sentence is far more likely to be prose
+ * than an interpolation.
+ */
+const EMBEDDED = /\$(?:snapshot|result)?\.[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[\d+\])*/g;
+
+const ESCAPE = "\u0000synartesis-dollar\u0000";
+
+function stringify(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 function resolveString(raw: string, context: TemplateContext): unknown {
-  // `$$` is the only escape. A literal that begins with a dollar is rare
-  // enough that a single escape is cheaper than a quoting rule.
-  if (raw.startsWith("$$")) {
-    return raw.slice(1);
+  // A string that is nothing but a reference keeps the referenced value's
+  // type. Anything else is text with references substituted into it, which is
+  // what people write without being told they can.
+  const whole = raw.startsWith("$$") ? undefined : parseReference(raw);
+  if (whole !== undefined) {
+    return readNamespace(whole, raw, context);
   }
-  const reference = parseReference(raw);
-  if (reference === undefined) {
-    return raw;
-  }
+
+  const escaped = raw.split("$$").join(ESCAPE);
+  const substituted = escaped.replace(EMBEDDED, (token) => {
+    const reference = parseReference(token);
+    if (reference === undefined) {
+      return token;
+    }
+    return stringify(readNamespace(reference, token, context));
+  });
+  return substituted.split(ESCAPE).join("$");
+}
+
+function readNamespace(reference: Reference, raw: string, context: TemplateContext): unknown {
   const root = context[reference.namespace];
   if (root === undefined) {
     throw new ManifestError(
@@ -130,7 +155,16 @@ export function resolveTemplate(template: TemplateValue, context: TemplateContex
 /** Every reference a template contains, used for load-time validation. */
 export function referencesIn(template: TemplateValue): string[] {
   if (typeof template === "string") {
-    return template.startsWith("$") && !template.startsWith("$$") ? [template] : [];
+    if (template.startsWith("$$")) {
+      return [];
+    }
+    if (parseReference(template) !== undefined) {
+      return [template];
+    }
+    // Embedded references are validated too, so a namespace that is not
+    // available at that point is reported when the manifest loads rather than
+    // silently producing the wrong text at run time.
+    return template.split("$$").join(ESCAPE).match(EMBEDDED) ?? [];
   }
   if (isTemplateArray(template)) {
     return template.flatMap(referencesIn);

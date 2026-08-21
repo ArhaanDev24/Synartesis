@@ -41,6 +41,32 @@ describe("template resolution", () => {
     expect(resolveTemplate(null, context)).toBe(null);
   });
 
+  it("substitutes references embedded in a sentence", () => {
+    // What a person writes for a commit message without being told they can.
+    expect(resolveTemplate("Revert: restore previous content of $.id", context)).toBe(
+      "Revert: restore previous content of c_001",
+    );
+    expect(resolveTemplate("was $snapshot.plan, now $result.id", context)).toBe(
+      "was pro, now ch_123",
+    );
+  });
+
+  it("keeps the referenced type when the whole string is one reference", () => {
+    expect(resolveTemplate("$result.ok", context)).toBe(true);
+    expect(resolveTemplate("$snapshot", context)).toEqual(context.snapshot);
+    // Only once it is embedded does it become text.
+    expect(resolveTemplate("ok=$result.ok", context)).toBe("ok=true");
+  });
+
+  it("leaves prose that merely mentions a dollar alone", () => {
+    expect(resolveTemplate("costs $5 per seat", context)).toBe("costs $5 per seat");
+    expect(resolveTemplate("total: $$.id", context)).toBe("total: $.id");
+  });
+
+  it("still fails loudly on an embedded path that does not exist", () => {
+    expect(() => resolveTemplate("see $.nope now", context)).toThrow(ManifestError);
+  });
+
   it("treats a doubled dollar as an escaped literal", () => {
     expect(resolveTemplate("$$.id", context)).toBe("$.id");
     expect(resolveTemplate("$$100", context)).toBe("$100");
