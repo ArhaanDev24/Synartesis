@@ -9,9 +9,9 @@ import { verifyAgainstServers } from "./manifest/verify.js";
 import { createRouter } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
+import { banner, style } from "./style.js";
 
-const USAGE = `synartesis - an undo layer for AI agents
-
+const COMMANDS = `
   synartesis init <server> -- <command> [args...]  [--manifest <path>]
   synartesis check [--manifest <path>]
   synartesis list [--journal <path>]
@@ -108,12 +108,15 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   }
   const gated = manifest.tools.filter((policy) => policy.gate !== "never").length;
 
-  out(`${path} is valid`);
-  out(`  servers:  ${Object.keys(manifest.servers).join(", ")}`);
-  out(`  policies: ${[...counts].map(([k, v]) => `${String(v)} ${k}`).join(", ")}`);
-  out(`  gated:    ${String(gated)}`);
   out("");
-  out("Anything this manifest does not mention is treated as irreversible and gated.");
+  out(`  ${style.label("policy")}  ${style.strong(path)}`);
+  out("");
+  out(`  ${style.quiet("servers ")} ${Object.keys(manifest.servers).join(", ")}`);
+  out(`  ${style.quiet("policies")} ${[...counts].map(([k, v]) => `${String(v)} ${k}`).join(", ")}`);
+  out(`  ${style.quiet("guarded ")} ${style.accent(String(gated))}`);
+  out("");
+  out(`  ${style.quiet("Anything not mentioned here is treated as irreversible and guarded.")}`);
+  out("");
   return 0;
 }
 
@@ -149,11 +152,14 @@ async function runInit(argv: readonly string[]): Promise<number> {
   parseManifest(yaml, path);
   writeFileSync(path, yaml);
 
-  out(`${present ? "extended" : "wrote"} ${path}`);
   out("");
-  out("Every tool is gated until you say how to undo it. Work through the TODOs,");
-  out("then point your MCP client at:");
-  out(`  synartesis-proxy --manifest ${path}`);
+  out(`  ${style.label(present ? "extended" : "wrote")}  ${style.strong(path)}`);
+  out("");
+  out(`  ${style.quiet("Every tool is guarded until you say how to undo it.")}`);
+  out(`  ${style.quiet("Work through the TODOs, then point your MCP client at:")}`);
+  out("");
+  out(`  ${style.accent(`synartesis-proxy --manifest ${path}`)}`);
+  out("");
   return 0;
 }
 
@@ -233,7 +239,14 @@ function runList(journal: Journal, asJson: boolean): number {
     out("no runs recorded");
     return 0;
   }
-  out(`${"run (most recent first)".padEnd(36)}  ${"started".padEnd(24)}  ${"status".padEnd(12)}  actions  label`);
+  out("");
+  out(`  ${style.label("runs")}  ${style.quiet("most recent first")}`);
+  out("");
+  out(
+    style.quiet(
+      `  ${"run".padEnd(36)}  ${"started".padEnd(24)}  ${"status".padEnd(12)}  actions  agent`,
+    ),
+  );
   for (const run of runs) {
     const actions = journal.getActions(run.id);
     const unknown = actions.filter((action) => action.status === "pending").length;
@@ -242,11 +255,14 @@ function runList(journal: Journal, asJson: boolean): number {
       unknown === 0 ? "" : `${String(unknown)} of unknown outcome`,
       waiting === 0 ? "" : `${String(waiting)} awaiting approval`,
     ].filter((note) => note !== "");
+    const note =
+      notes.length === 0 ? "" : `  ${style.accent(`(${notes.join("; ")})`)}`;
     out(
-      `${run.id}  ${run.startedAt}  ${run.status.padEnd(12)}  ${String(actions.length).padStart(7)}  ` +
-        `${run.label ?? "-"}${notes.length === 0 ? "" : `  (${notes.join("; ")})`}`,
+      `  ${style.strong(run.id)}  ${style.quiet(run.startedAt)}  ${run.status.padEnd(12)}  ` +
+        `${String(actions.length).padStart(7)}  ${run.label ?? "-"}${note}`,
     );
   }
+  out("");
   return 0;
 }
 
@@ -260,10 +276,15 @@ function runShow(argv: readonly string[], journal: Journal, asJson: boolean): nu
     return 0;
   }
 
-  out(`run     ${run.id}`);
-  out(`label   ${run.label ?? "-"}`);
-  out(`started ${run.startedAt}`);
-  out(`status  ${run.status}${run.endedAt === undefined ? "" : `  ended ${run.endedAt}`}`);
+  out("");
+  out(`  ${style.label("run")}  ${style.strong(run.id)}`);
+  out("");
+  out(`  ${style.quiet("agent  ")} ${run.label ?? "-"}`);
+  out(`  ${style.quiet("started")} ${run.startedAt}`);
+  out(
+    `  ${style.quiet("status ")} ${run.status}` +
+      (run.endedAt === undefined ? "" : style.quiet(`  ended ${run.endedAt}`)),
+  );
 
   const actions = journal.getActions(runId);
   if (actions.length === 0) {
@@ -273,39 +294,62 @@ function runShow(argv: readonly string[], journal: Journal, asJson: boolean): nu
   }
 
   out("");
-  // Two extra columns of padding for the per-class marker on each row.
-  out(`  seq    ${"class".padEnd(12)} ${"status".padEnd(13)} tool`);
-  out(`  ---  ${"-".repeat(14)} ${"-".repeat(13)} ${"-".repeat(24)}`);
+  out("");
+  out(`  ${style.label("timeline")}`);
+  out("");
   for (const action of actions) {
     out(
-      `  ${String(action.seq).padStart(3)}  ${CLASS_MARK[action.class]} ${action.class.padEnd(12)} ` +
-        `${action.status.padEnd(13)} ${action.server}.${action.tool}`,
+      `  ${style.quiet(String(action.seq).padStart(3))}  ${badgeOf(action)} ` +
+        `${statusOf(action)}  ${style.strong(`${action.server}.${action.tool}`)}`,
     );
-    out(`       ${truncate(JSON.stringify(action.args), 96)}`);
+    out(`       ${style.quiet(truncate(JSON.stringify(action.args), 96))}`);
     if (action.approvedAt !== undefined) {
       const verb = action.status === "denied" ? "denied" : "approved";
-      out(`       ${verb} by ${action.approvedBy ?? "timeout"} at ${action.approvedAt}`);
+      out(
+        `       ${style.accent(`${verb} by ${action.approvedBy ?? "nobody"}`)} ${style.quiet(`at ${action.approvedAt}`)}`,
+      );
     }
     if (action.error !== undefined) {
-      out(`       note: ${truncate(action.error, 200)}`);
+      out(`       ${style.quiet(`note: ${truncate(action.error, 200)}`)}`);
     }
     if (action.inverse !== undefined) {
-      out(`       undo: ${truncate(JSON.stringify(action.inverse), 200)}`);
+      out(`       ${style.quiet("undo:")} ${truncate(JSON.stringify(action.inverse), 200)}`);
     }
   }
 
   out("");
-  out(summarise(actions));
+  out(`  ${summarise(actions)}`);
+  out("");
   return 0;
 }
 
 const CLASS_MARK: Record<ActionClass, string> = {
-  readonly: " ",
-  reversible: "<",
-  compensable: "~",
+  readonly: "\u00b7",
+  reversible: "\u2190",
+  compensable: "\u2248",
   irreversible: "!",
   unclassified: "?",
 };
+
+/** Wide enough for the longest class name plus its marker. */
+const BADGE_WIDTH = "irreversible".length + 2;
+
+/** Padded before it is coloured: escape codes are not printable width. */
+function badgeOf(action: ActionRow): string {
+  const plain = `${CLASS_MARK[action.class]} ${action.class}`.padEnd(BADGE_WIDTH);
+  return action.class === "irreversible" ? style.accent(plain) : style.quiet(plain);
+}
+
+function statusOf(action: ActionRow): string {
+  const text = action.status.padEnd(13);
+  if (action.status === "denied" || action.status === "unrecoverable") {
+    return style.accent(text);
+  }
+  if (action.status === "gated") {
+    return style.strong(text);
+  }
+  return style.quiet(text);
+}
 
 function truncate(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit - 3)}...`;
@@ -328,14 +372,22 @@ function runGates(journal: Journal, asJson: boolean): number {
     return 0;
   }
   if (waiting.length === 0) {
-    out("nothing is awaiting approval");
+    out("");
+    out(`  ${style.quiet("Nothing is waiting for a decision.")}`);
+    out("");
     return 0;
   }
-  for (const action of waiting) {
-    out(`${action.id}  ${action.ts}  ${action.server}.${action.tool}  ${JSON.stringify(action.args)}`);
-  }
   out("");
-  out("approve with: synartesis approve <actionId> --by <name>");
+  out(`  ${style.label("awaiting approval")}`);
+  out("");
+  for (const action of waiting) {
+    out(`  ${style.strong(action.id)}  ${style.quiet(action.ts)}`);
+    out(`  ${style.accent(`${action.server}.${action.tool}`)}  ${style.quiet(truncate(JSON.stringify(action.args), 88))}`);
+    out("");
+  }
+  out(`  ${style.quiet("synartesis approve")} ${style.accent(waiting[0]?.id.slice(0, 8) ?? "<id>")} ${style.quiet("--by <name>")}`);
+  out(`  ${style.quiet("synartesis approve --all --by <name>")}`);
+  out("");
   return 0;
 }
 
@@ -380,33 +432,49 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
       failed += 1;
       continue;
     }
-    out(`${approving ? "approved" : "denied"} ${action.server}.${action.tool} (${action.id})`);
+    out(
+      `  ${style.accent(approving ? "approved" : "denied")} ${style.strong(`${action.server}.${action.tool}`)} ${style.quiet(action.id)}`,
+    );
   }
   return failed === 0 ? 0 : 1;
 }
 
 function report(result: RollbackReport): number {
-  out(result.dryRun ? `dry run for ${result.runId}` : `undo ${result.runId}`);
+  out("");
+  out(`  ${style.label(result.dryRun ? "dry run" : "undo")}  ${style.strong(result.runId)}`);
+  out("");
   for (const step of result.steps) {
-    const verified = step.kind === "revert" && !step.verified ? "  [unverified]" : "";
+    const unverified =
+      step.kind === "revert" && !step.verified ? `  ${style.accent("[unverified]")}` : "";
+    const kind = step.kind === "halt" ? style.accent(step.kind.padEnd(16)) : step.kind.padEnd(16);
     out(
-      `  ${String(step.seq).padStart(4)}  ${step.kind.padEnd(16)} ${step.server}.${step.tool}` +
-        `  ${step.reason}${verified}`,
+      `  ${style.quiet(String(step.seq).padStart(3))}  ${kind} ` +
+        `${style.strong(`${step.server}.${step.tool}`)}  ${style.quiet(step.reason)}${unverified}`,
     );
     if (step.plan !== undefined && step.kind === "revert") {
       const verb = `${step.replanned === true ? "replanned, " : ""}${result.dryRun ? "would call" : "called"}`;
-      out(`        ${verb} ${step.plan.server}.${step.plan.tool} ${JSON.stringify(step.plan.args)}`);
+      out(
+        `       ${style.quiet(verb)} ${step.plan.server}.${step.plan.tool} ` +
+          style.quiet(truncate(JSON.stringify(step.plan.args), 120)),
+      );
     }
   }
   if (result.halted !== undefined) {
     out("");
-    out(`halted at sequence ${String(result.halted.seq)}: ${result.halted.reason}`);
+    out(
+      `  ${style.accent("halted")} ${style.quiet(`at sequence ${String(result.halted.seq)}`)}  ${result.halted.reason}`,
+    );
     if (result.halted.detail !== "") {
-      out(result.halted.detail);
+      for (const line of result.halted.detail.split("\n")) {
+        out(`  ${style.quiet(line)}`);
+      }
     }
   }
   out("");
-  out(`status: ${result.status}`);
+  out(
+    `  ${style.label("result")}  ${result.status === "rolled_back" ? result.status : style.accent(result.status)}`,
+  );
+  out("");
   return result.status === "rolled_back" ? 0 : 1;
 }
 
@@ -455,7 +523,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const command = positional(argv)[0];
   const askedForHelp = argv.includes("--help") || argv.includes("-h");
   if (askedForHelp || command === undefined) {
-    process.stdout.write(USAGE);
+    process.stdout.write(`${banner()}\n${COMMANDS}`);
     // Asking for help is not a mistake; being invoked with nothing at all is.
     return askedForHelp ? 0 : 2;
   }
@@ -496,7 +564,7 @@ try {
   process.exitCode = await main(process.argv.slice(2));
 } catch (error: unknown) {
   if (error instanceof UsageError) {
-    process.stderr.write(`synartesis: ${error.message}\n\n${USAGE}`);
+    process.stderr.write(`synartesis: ${error.message}\n\n${COMMANDS}`);
     process.exitCode = 2;
   } else if (error instanceof ManifestError) {
     process.stderr.write(`synartesis: ${error.message}\n`);

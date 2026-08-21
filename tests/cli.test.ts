@@ -204,7 +204,7 @@ describe("the cli", () => {
       CLI, "undo", runId, "--manifest", space.manifest, "--journal", space.journal,
     ]);
     expect(undone.code).toBe(0);
-    expect(undone.stdout).toContain("status: rolled_back");
+    expect(undone.stdout).toContain("rolled_back");
 
     const restored = readState(space.state);
     expect(restored.customers["c_001"]).toMatchObject({
