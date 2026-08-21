@@ -399,6 +399,23 @@ protocol traffic.
   is baked into every run made under it. `undo --replan` rebuilds them from a
   corrected manifest using the state already captured, which is the way out.
 
+## Watching it work
+
+Synartesis is not a daemon and cannot be one. An MCP client spawns a stdio
+server itself and owns its lifetime, so nothing long-running could sit in
+between and see those calls. What a person wants from a daemon is usually the
+reassurance that it is there and doing something, and that needs somewhere to
+look rather than a background process:
+
+```bash
+synartesis watch
+```
+
+It redraws as the agent works: what has been called, what class each call was,
+and anything waiting on a decision, with the command to approve it. Ctrl-C
+stops it. Piped rather than run in a terminal, it prints the state once and
+exits.
+
 ## Trust
 
 A manifest names commands and Synartesis runs them. Treat one you did not write

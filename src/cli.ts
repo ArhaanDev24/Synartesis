@@ -25,6 +25,7 @@ import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { banner, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
+import { watch } from "./watch.js";
 import { cliCommand } from "./invocation.js";
 
 const COMMANDS = `
@@ -33,6 +34,7 @@ const COMMANDS = `
   synartesis list [--journal <path>]
   synartesis show <runId> [--journal <path>]
   synartesis gates [--journal <path>]
+  synartesis watch [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
   synartesis undo [runId] [--to <seq>] [--dry-run] [--replan]
@@ -47,6 +49,7 @@ most recent run; approve and deny default to the only request waiting.
   --by        who is deciding; defaults to the logged-in user
   --force     let init overwrite an existing manifest
   --all       approve or deny everything currently waiting
+  --once      watch prints the current state and exits
   --json      machine-readable output for list, show and gates
   --dry-run   read current state and print the plan without changing anything
   --replan    rebuild each undo from the current manifest, for a run recorded
@@ -598,6 +601,15 @@ async function main(argv: readonly string[]): Promise<number> {
         return runShow(argv, journal, asJson);
       case "gates":
         return runGates(journal, asJson);
+      case "watch":
+        // Its own handle, held open for as long as it runs.
+        journal.close();
+        return await watch({
+          journalPath: journalPath,
+          approveWith: cliCommand(),
+          write: (text) => process.stdout.write(text),
+          live: process.stdout.isTTY && !argv.includes("--once"),
+        });
       case "approve":
         return runDecision(argv, journal, true);
       case "deny":

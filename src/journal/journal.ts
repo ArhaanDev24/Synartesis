@@ -219,6 +219,8 @@ export interface Journal {
   listRuns(): readonly RunRow[];
   getRun(runId: string): RunRow | undefined;
   getActions(runId: string): readonly ActionRow[];
+  /** The newest actions across every run, for watching work as it happens. */
+  recentActions(limit: number): readonly ActionRow[];
   pragma(name: string): unknown;
   close(): void;
 }
@@ -544,6 +546,16 @@ class SqliteJournal implements Journal {
         .prepare("SELECT * FROM actions WHERE run_id = ? ORDER BY seq")
         .all(runId)
         .map(toAction),
+    );
+  }
+
+  recentActions(limit: number): readonly ActionRow[] {
+    return this.#run("recentActions", () =>
+      this.#db
+        .prepare("SELECT * FROM actions ORDER BY ts DESC, seq DESC LIMIT ?")
+        .all(limit)
+        .map(toAction)
+        .reverse(),
     );
   }
 
