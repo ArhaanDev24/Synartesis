@@ -59,6 +59,16 @@ Check it built:
 node dist/cli.js --help
 ```
 
+Optionally put it on your PATH, so `synartesis` works from anywhere. Any
+directory already on your PATH will do, and this touches no shell profile:
+
+```bash
+ln -sf "$PWD/dist/cli.js" /opt/homebrew/bin/synartesis && ln -sf "$PWD/dist/proxy.js" /opt/homebrew/bin/synartesis-proxy
+```
+
+Without it nothing breaks: every command Synartesis prints spells itself out in
+whichever form actually runs on your machine.
+
 ## Walkthrough
 
 This uses a toy CRM that ships with the repo, so you can see the whole loop

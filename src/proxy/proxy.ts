@@ -50,6 +50,8 @@ export interface ProxyOptions {
   readonly gate?: Gate;
   readonly gateTimeoutMs?: number;
   readonly logger?: Logger;
+  /** How a person on this machine would invoke the cli. */
+  readonly approveWith?: string;
 }
 
 export interface ProxyServer {
@@ -204,7 +206,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
 
   const log = options.logger;
 
-  const gate = options.gate ?? createRetryGate(journal);
+  const gate = options.gate ?? createRetryGate(journal, options.approveWith);
 
   const capabilities = mergeCapabilities(
     upstreams.map((upstream) => upstream.client.getServerCapabilities() ?? {}),
@@ -509,7 +511,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
                 {
                   action: pending.actionId,
                   tool: `${route.upstream.name}.${route.tool}`,
-                  approve: `synartesis approve ${pending.actionId}`,
+                  approve: `${options.approveWith ?? "synartesis"} approve ${pending.actionId}`,
                 },
                 "awaiting approval",
               );

@@ -42,7 +42,7 @@ export const DEFAULT_GATE_TIMEOUT_MS = 300_000;
  * timeout. Refusing at once and letting the agent retry removes the conflict
  * instead of tuning it.
  */
-export function createRetryGate(journal: Journal): Gate {
+export function createRetryGate(journal: Journal, approveWith = "synartesis"): Gate {
   return {
     decide(request: GateRequest): Promise<GateDecision> {
       journal.markGated(request.actionId);
@@ -51,7 +51,7 @@ export function createRetryGate(journal: Journal): Gate {
         awaiting: true,
         reason:
           `it is waiting for a person to approve it. ` +
-          `Have someone run: synartesis approve ${request.actionId}` +
+          `Ask them to run: ${approveWith} approve ${request.actionId.slice(0, 8)}` +
           `  --- then make this exact call again.`,
       });
     },

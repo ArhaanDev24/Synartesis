@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { describe } from "../errors.js";
 import { DEFAULT_GATE_TIMEOUT_MS } from "../gate/gate.js";
+import { cliCommandFrom } from "../invocation.js";
 import { createLogger, isLogLevel, LOG_LEVELS, type LogLevel } from "../logging.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
@@ -93,6 +94,7 @@ async function main(): Promise<void> {
     journal,
     gateTimeoutMs: argv.gateTimeoutMs,
     logger: log,
+    approveWith: cliCommandFrom(import.meta.url),
   });
 
   let shuttingDown = false;

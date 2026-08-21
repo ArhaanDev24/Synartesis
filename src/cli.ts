@@ -10,6 +10,7 @@ import { createRouter } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { banner, style } from "./style.js";
+import { cliCommand } from "./invocation.js";
 
 const COMMANDS = `
   synartesis init <server> -- <command> [args...]  [--manifest <path>]
@@ -158,7 +159,7 @@ async function runInit(argv: readonly string[]): Promise<number> {
   out(`  ${style.quiet("Every tool is guarded until you say how to undo it.")}`);
   out(`  ${style.quiet("Work through the TODOs, then point your MCP client at:")}`);
   out("");
-  out(`  ${style.accent(`synartesis-proxy --manifest ${path}`)}`);
+  out(`  ${style.accent(`${cliCommand().replace(/cli\.js$/, "proxy.js")} --manifest ${path}`)}`);
   out("");
   return 0;
 }
@@ -385,8 +386,9 @@ function runGates(journal: Journal, asJson: boolean): number {
     out(`  ${style.accent(`${action.server}.${action.tool}`)}  ${style.quiet(truncate(JSON.stringify(action.args), 88))}`);
     out("");
   }
-  out(`  ${style.quiet("synartesis approve")} ${style.accent(waiting[0]?.id.slice(0, 8) ?? "<id>")} ${style.quiet("--by <name>")}`);
-  out(`  ${style.quiet("synartesis approve --all --by <name>")}`);
+  const self = cliCommand();
+  out(`  ${style.quiet(`${self} approve`)} ${style.accent(waiting[0]?.id.slice(0, 8) ?? "<id>")} ${style.quiet("--by <name>")}`);
+  out(`  ${style.quiet(`${self} approve --all --by <name>`)}`);
   out("");
   return 0;
 }
