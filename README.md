@@ -237,24 +237,71 @@ unanswered, visible in `synartesis gates` until someone decides.
 The agent is told all of this when it connects, so it can explain itself rather
 than reporting an opaque failure.
 
-## A real server
+## Real servers
 
-A production manifest for Anthropic's own filesystem server ships in
-[`manifests/filesystem.yaml`](manifests/filesystem.yaml), verified against
-version 2026.7.10 with real files. To see the whole loop against it:
+Synartesis has nothing to do with email in particular. It sits on the MCP
+protocol, so its subject is whatever the servers you have connected can do:
+your files, your repositories, your database, your tickets, your agent's own
+memory. What it can undo depends entirely on what those servers expose, and
+each manifest below says plainly where that runs out.
+
+| Manifest | Server | State it governs |
+| --- | --- | --- |
+| [`filesystem.yaml`](manifests/filesystem.yaml) | `@modelcontextprotocol/server-filesystem` | real files on disk |
+| [`memory.yaml`](manifests/memory.yaml) | `@modelcontextprotocol/server-memory` | the knowledge graph an agent keeps about you |
+| [`git.yaml`](manifests/git.yaml) | `mcp-server-git` | a real repository's index and history |
+| [`github.yaml`](manifests/github.yaml) | `github/github-mcp-server` | issues, pull requests, file contents |
+| [`toy-crm.yaml`](manifests/toy-crm.yaml) | the fixture in this repo | the worked example of every class |
+
+Every one of those but `github.yaml` was checked against the server actually
+running. Two demos run the whole loop for real:
 
 ```bash
 ./demo/filesystem-demo.sh
+./demo/memory-demo.sh
 ```
 
-It overwrites a file and moves another, restores both, then shows undo refusing
-when a human edited the file in between, and the gate refusing to create a
-directory this server has no way to remove.
+The filesystem demo overwrites a file and moves another, restores both, then
+shows undo refusing when a human edited the file in between, and the gate
+refusing to create a directory this server has no way to remove.
 
-That manifest is also where the honest limits show. `move_file` is reversible
-from its arguments alone, so no pre-read is declared and drift cannot be
-checked for it. `create_directory` is `irreversible` not because directories
-are precious but because this server exposes no way to remove one.
+The memory demo is the sharper one. The agent adds two people to the graph, one
+of whom was already there, and the server quietly ignores the duplicate. Undo
+therefore has to remove exactly one of them: the inverse is built from what the
+server said it created, not from what the agent asked for, so the person who
+was there first survives being undone. The same session then tries to delete an
+entity and is held, because deleting an entity also deletes every relation
+touching it and one inverse call cannot put back both.
+
+### Where each one runs out
+
+The limits are the interesting part, and they are properties of the servers
+rather than of Synartesis.
+
+- **filesystem**: `move_file` is reversible from its arguments alone, so no
+  pre-read is declared and drift cannot be checked for it. `create_directory`
+  is `irreversible` not because directories are precious but because this
+  server exposes no way to remove one.
+- **memory**: `add_observations` and `delete_observations` are exact opposites
+  that disagree about what to call the same field. A path can read a field and
+  cannot rename one, so that inverse cannot be written at all and the call is
+  gated instead.
+- **git**: nearly every read this server offers answers in prose meant for a
+  person, so almost nothing can be inverted from a captured state however
+  reversible the underlying git operation is. Commits are gated because this
+  server exposes no reset, no revert, and no way to move a branch.
+
+Two things worth knowing if you write your own, both found by running these
+against live servers rather than by reading documentation:
+
+`$result` is the structured block, and it need not match the text one. The
+memory server answers `create_entities` with a bare list in its text block and
+`{"entities": [...]}` in `structuredContent`. Synartesis walks the structured
+one, because that is the machine-readable contract.
+
+And `synartesis check` proves a tool exists, not that a path resolves. It
+cannot: no call has been made, so there is no result to walk. Run the thing
+once and read `synartesis show` before you rely on an inverse.
 
 ## Writing a manifest
 

@@ -1,0 +1,89 @@
+# Policy for @modelcontextprotocol/server-memory, the knowledge graph an agent
+# keeps about you between sessions.
+#
+# Verified against the real server: every tool named here was listed by it, and
+# the shapes below were read off its own responses rather than from docs.
+#
+# This is the server the taxonomy fits best. Almost everything it does has an
+# exact opposite sitting next to it in the same toolbox, which is what
+# compensable means. Two things do not, and they are gated rather than
+# approximated.
+version: 1
+
+servers:
+  memory:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-memory"]
+    # Where the graph lives. Point it wherever your client already points it,
+    # or the agent will remember into a different file than it reads from.
+    env:
+      MEMORY_FILE_PATH: "${MEMORY_FILE_PATH}"
+
+tools:
+  # --- reads -------------------------------------------------------------
+  - match: "memory.read_graph"
+    class: readonly
+  - match: "memory.search_nodes"
+    class: readonly
+  - match: "memory.open_nodes"
+    class: readonly
+
+  # --- writes ------------------------------------------------------------
+
+  # The inverse names the result rather than the arguments, and the difference
+  # matters: this server silently ignores an entity that already exists, so
+  # undoing by argument would delete a Grace who was there long before the
+  # agent ran. The result carries only what was actually created.
+  #
+  # $result is the structured block, not the text one, and here the two
+  # disagree: the text is a bare list of entities while structuredContent wraps
+  # it as {"entities": [...]}. The structured block is the machine-readable
+  # contract, so that is the one a path walks. Writing $result[].name here is
+  # the natural mistake, and it was the first thing this policy got wrong
+  # against the live server.
+  - match: "memory.create_entities"
+    class: compensable
+    inverse:
+      tool: "memory.delete_entities"
+      args:
+        entityNames: "$result.entities[].name"
+
+  - match: "memory.create_relations"
+    class: compensable
+    inverse:
+      tool: "memory.delete_relations"
+      args:
+        relations: "$result.relations"
+
+  # The one place this policy over-reaches, and it is written down rather than
+  # hidden: delete_relations answers in prose, so the inverse has to work from
+  # the arguments. Undoing it re-creates every relation the call named,
+  # including any that were already absent when it ran.
+  - match: "memory.delete_relations"
+    class: compensable
+    inverse:
+      tool: "memory.create_relations"
+      args:
+        relations: "$.relations"
+
+  # Deleting an entity also deletes every relation touching it. open_nodes can
+  # capture both beforehand, but a policy declares one inverse, and one call
+  # cannot put back both the entities and their relations. Restoring half of a
+  # graph and reporting it as undone is the exact failure this product exists
+  # to prevent, so it asks instead.
+  - match: "memory.delete_entities"
+    class: irreversible
+    gate: always
+
+  # add_observations and delete_observations are exact opposites that disagree
+  # about what to call the same field: one takes `observations[].contents`, the
+  # other `deletions[].observations`. A path can read a field and cannot rename
+  # one, and the manifest is deliberately not a language, so this inverse
+  # cannot be written here at all. That is a limit of the format, stated rather
+  # than papered over.
+  - match: "memory.add_observations"
+    class: irreversible
+    gate: always
+  - match: "memory.delete_observations"
+    class: irreversible
+    gate: always

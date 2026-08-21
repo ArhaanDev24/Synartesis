@@ -28,16 +28,21 @@ function parseReference(raw: string): Reference | undefined {
   if (raw === "$") {
     return { namespace: "args", path: "" };
   }
-  if (raw.startsWith("$.")) {
-    return { namespace: "args", path: raw.slice(2) };
+  // A namespace may be followed by a dot or straight by a subscript. Servers
+  // that answer with a bare list are common -- the memory server's
+  // create_entities returns the entities it actually created -- and
+  // $result[].name is the only safe thing for its inverse to name.
+  if (raw.startsWith("$.") || raw.startsWith("$[")) {
+    return { namespace: "args", path: raw.slice(raw[1] === "." ? 2 : 1) };
   }
   for (const namespace of NAMESPACES) {
     if (raw === `$${namespace}`) {
       return { namespace, path: "" };
     }
-    const prefix = `$${namespace}.`;
-    if (raw.startsWith(prefix)) {
-      return { namespace, path: raw.slice(prefix.length) };
+    const head = `$${namespace}`;
+    const after = raw.startsWith(head) ? raw.slice(head.length) : undefined;
+    if (after !== undefined && (after.startsWith(".") || after.startsWith("["))) {
+      return { namespace, path: after.startsWith(".") ? after.slice(1) : after };
     }
   }
   throw new ManifestError(

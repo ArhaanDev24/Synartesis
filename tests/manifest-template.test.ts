@@ -49,6 +49,15 @@ describe("template resolution", () => {
     expect(resolveTemplate(null, context)).toBe(null);
   });
 
+  it("projects out of a result that is itself a list", () => {
+    // Servers that return a bare array are common: the memory server's
+    // create_entities answers with the entities it actually created, which is
+    // the only safe thing to name in its inverse.
+    const created = { args: {}, result: [{ name: "Ada" }, { name: "Grace" }] };
+    expect(resolveTemplate("$result[].name", created)).toEqual(["Ada", "Grace"]);
+    expect(resolveTemplate("$result[0].name", created)).toBe("Ada");
+  });
+
   it("projects a field across a list", () => {
     // What an API that hands back objects and takes names needs. GitHub does
     // exactly this with issue labels.

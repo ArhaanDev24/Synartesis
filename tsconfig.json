@@ -21,5 +21,5 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },
-  "include": ["src", "fixtures", "tests", "*.config.ts"]
+  "include": ["src", "fixtures", "tests", "demo", "*.config.ts"]
 }

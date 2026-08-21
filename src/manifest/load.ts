@@ -107,9 +107,10 @@ function checkCall(
   }
 
   for (const reference of referencesIn(call.args)) {
-    // Matches both `$ns.field` and a bare `$ns`, so a whole-value reference is
-    // checked rather than silently treated as `$.` and failing at run time.
-    const namespace = /^\$(\w*)(?:\.|$)/.exec(reference)?.[1] ?? "";
+    // Matches `$ns.field`, `$ns[0]` and a bare `$ns`, so a whole-value or
+    // subscripted reference is checked rather than silently treated as `$.`
+    // and failing at run time.
+    const namespace = /^\$(\w*)(?:[.[]|$)/.exec(reference)?.[1] ?? "";
     const label = namespace === "" ? "$." : `$${namespace}.`;
     if (!allowed.includes(label)) {
       source.fail(

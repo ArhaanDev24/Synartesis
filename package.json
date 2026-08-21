@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "pretest": "tsup --silent",
-    "demo": "tsup --silent && ./demo/filesystem-demo.sh"
+    "demo": "tsup --silent && ./demo/filesystem-demo.sh",
+    "demo:memory": "tsup --silent && ./demo/memory-demo.sh"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

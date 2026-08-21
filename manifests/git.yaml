@@ -1,0 +1,77 @@
+# Policy for mcp-server-git, the official git server, run through uvx.
+#
+# Verified against the real server on a real repository.
+#
+# The finding worth carrying away from writing this one: nearly every read this
+# server offers answers in prose meant for a person -- git_status says "On
+# branch main", not {"branch": "main"}. A snapshot is only useful if something
+# can be read back out of it by path, so almost nothing here can be inverted
+# from a captured state, however reversible the underlying git operation is.
+# The limit is the server's, not git's, and pretending otherwise would produce
+# a policy that reports work as undone without having undone it.
+version: 1
+
+servers:
+  git:
+    command: uvx
+    args: ["--from", "mcp-server-git", "mcp-server-git"]
+
+tools:
+  # --- reads -------------------------------------------------------------
+  - match: "git.git_status"
+    class: readonly
+  - match: "git.git_diff"
+    class: readonly
+  - match: "git.git_diff_staged"
+    class: readonly
+  - match: "git.git_diff_unstaged"
+    class: readonly
+  - match: "git.git_log"
+    class: readonly
+  - match: "git.git_show"
+    class: readonly
+  - match: "git.git_branch"
+    class: readonly
+
+  # --- the index ---------------------------------------------------------
+
+  # git_reset here unstages everything, not only what this call staged, so
+  # undoing an add can unstage work a person staged by hand beforehand. It is
+  # recorded as a compensation for that reason, and undo says so.
+  - match: "git.git_add"
+    class: compensable
+    inverse:
+      tool: "git.git_reset"
+      args:
+        repo_path: "$.repo_path"
+
+  # Unstaging destroys nothing: every change is still in the working tree, and
+  # re-staging is one command. Gating it would spend a person's attention on
+  # the cheapest operation here and leave less of it for the commit below.
+  - match: "git.git_reset"
+    class: irreversible
+    gate: never
+
+  # --- history -----------------------------------------------------------
+
+  # This server offers no reset, no revert and no way to move a branch, so
+  # nothing it exposes can take a commit back. Held for a person.
+  - match: "git.git_commit"
+    class: irreversible
+    gate: always
+
+  # No delete-branch tool exists here either. `git branch -d` removes one by
+  # hand in a second, which is precisely the sentence undo cannot say for you.
+  - match: "git.git_create_branch"
+    class: irreversible
+    gate: always
+
+  # Checking out changes no history and destroys nothing: git refuses outright
+  # when the working tree would be lost. It cannot be undone through this
+  # server because no read here reports the current branch as data, so it is
+  # recorded honestly as irreversible and deliberately not gated. A gate on
+  # every branch switch is a gate people learn to approve without reading, and
+  # that costs more than it buys on the commit above.
+  - match: "git.git_checkout"
+    class: irreversible
+    gate: never

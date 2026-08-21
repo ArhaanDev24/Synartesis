@@ -6,6 +6,7 @@ export default defineConfig({
     "toy-crm": "fixtures/toy-crm/stdio.ts",
     proxy: "src/proxy/stdio.ts",
     cli: "src/cli.ts",
+    "demo-agent": "demo/agent.ts",
   },
   format: ["esm"],
   target: "node20",
