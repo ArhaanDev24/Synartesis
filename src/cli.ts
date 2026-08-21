@@ -17,16 +17,20 @@ const USAGE = `synartesis - an undo layer for AI agents
   synartesis list [--journal <path>]
   synartesis show <runId> [--journal <path>]
   synartesis gates [--journal <path>]
-  synartesis approve <actionId> [--by <name>] [--journal <path>]
-  synartesis deny <actionId> [--by <name>] [--reason <text>] [--journal <path>]
-  synartesis undo <runId> [--to <seq>] [--dry-run]
+  synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
+  synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
+  synartesis undo [runId] [--to <seq>] [--dry-run] [--replan]
                           [--manifest <path>] [--journal <path>]
+
+Ids may be shortened to any unambiguous prefix. show and undo default to the
+most recent run; approve and deny default to the only request waiting.
 
   --manifest  default synartesis.yaml
   --journal   default .synartesis/journal.db
   --to        lowest sequence to undo; earlier actions are left alone
   --by        who is making the decision; recorded in the journal
   --force     let init overwrite an existing manifest
+  --all       approve or deny everything currently waiting
   --json      machine-readable output for list, show and gates
   --dry-run   read current state and print the plan without changing anything
   --replan    rebuild each undo from the current manifest, for a run recorded
@@ -153,6 +157,66 @@ async function runInit(argv: readonly string[]): Promise<number> {
   return 0;
 }
 
+/**
+ * Ids are uuids, and copying one between two terminals is the clunkiest part
+ * of using this. Any unambiguous prefix will do, and where there is only one
+ * sensible answer, no id is needed at all.
+ */
+interface Noun {
+  readonly one: string;
+  readonly many: string;
+}
+
+function pick<T extends { id: string }>(
+  candidates: readonly T[],
+  given: string | undefined,
+  noun: Noun,
+): T {
+  const listed = (items: readonly T[]): string =>
+    items.map((item) => `  ${item.id}`).join("\n");
+
+  if (given === undefined) {
+    const [only, ...rest] = candidates;
+    if (only === undefined) {
+      throw new UsageError(`there is no ${noun.one} to act on`);
+    }
+    if (rest.length > 0) {
+      throw new UsageError(
+        `there are ${String(candidates.length)} ${noun.many}; name one, or use --all:\n${listed(candidates)}`,
+      );
+    }
+    return only;
+  }
+
+  const exact = candidates.find((item) => item.id === given);
+  if (exact !== undefined) {
+    return exact;
+  }
+  const matches = candidates.filter((item) => item.id.startsWith(given));
+  const [first, ...rest] = matches;
+  if (first === undefined) {
+    throw new UsageError(`no ${noun.one} matches ${given}`);
+  }
+  if (rest.length > 0) {
+    throw new UsageError(
+      `${given} matches ${String(matches.length)} ${noun.many}:\n${listed(matches)}`,
+    );
+  }
+  return first;
+}
+
+const RUN: Noun = { one: "run", many: "runs" };
+const WAITING: Noun = { one: "action awaiting approval", many: "actions awaiting approval" };
+
+// Piping into head or less closes the pipe early. That is the reader saying it
+// has seen enough, not an error, and a stack trace there is pure noise.
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EPIPE") {
+    process.exit(0);
+  }
+  throw error;
+});
+
 function out(line: string): void {
   process.stdout.write(`${line}\n`);
 }
@@ -187,14 +251,9 @@ function runList(journal: Journal, asJson: boolean): number {
 }
 
 function runShow(argv: readonly string[], journal: Journal, asJson: boolean): number {
-  const runId = positional(argv)[1];
-  if (runId === undefined) {
-    throw new UsageError("show needs a run id");
-  }
-  const run = journal.getRun(runId);
-  if (run === undefined) {
-    throw new UsageError(`no run with id ${runId}`);
-  }
+  const runs = [...journal.listRuns()].reverse();
+  const run = pick(runs, positional(argv)[1], RUN);
+  const runId = run.id;
 
   if (asJson) {
     out(JSON.stringify({ run, actions: journal.getActions(runId) }));
@@ -281,31 +340,49 @@ function runGates(journal: Journal, asJson: boolean): number {
 }
 
 function runDecision(argv: readonly string[], journal: Journal, approving: boolean): number {
-  const actionId = positional(argv)[1];
-  if (actionId === undefined) {
-    throw new UsageError(`${approving ? "approve" : "deny"} needs an action id`);
-  }
-  const action = journal.getAction(actionId);
-  if (action === undefined) {
-    throw new UsageError(`no action with id ${actionId}`);
-  }
-
+  const waiting = journal.listGated();
+  const given = positional(argv)[1];
   const by = flag(argv, "--by") ?? "unknown";
-  const changed = approving
-    ? journal.approve(actionId, by)
-    : journal.deny(actionId, by, flag(argv, "--reason") ?? "denied by operator");
+  const reason = flag(argv, "--reason") ?? "denied by operator";
 
-  if (!changed) {
-    // A decision that arrives after a timeout must not silently look like it
-    // took effect.
-    const now = journal.getAction(actionId);
-    process.stderr.write(
-      `synartesis: ${actionId} is no longer awaiting approval (it is ${now?.status ?? "gone"})\n`,
-    );
-    return 1;
+  // Looked up among everything first, so an action that has already been
+  // settled gets told what became of it rather than "no such action".
+  if (given !== undefined) {
+    const settled = journal.getAction(given);
+    if (settled !== undefined && settled.status !== "gated") {
+      process.stderr.write(
+        `synartesis: ${given} is no longer awaiting approval (it is ${settled.status})\n`,
+      );
+      return 1;
+    }
   }
-  out(`${approving ? "approved" : "denied"} ${action.server}.${action.tool} (${actionId})`);
-  return 0;
+
+  const targets = argv.includes("--all")
+    ? waiting
+    : [pick(waiting, given, WAITING)];
+  if (targets.length === 0) {
+    out("nothing is awaiting approval");
+    return 0;
+  }
+
+  let failed = 0;
+  for (const action of targets) {
+    const changed = approving
+      ? journal.approve(action.id, by)
+      : journal.deny(action.id, by, reason);
+    if (!changed) {
+      // A decision that lands after the action settled must not look like it
+      // took effect.
+      const now = journal.getAction(action.id);
+      process.stderr.write(
+        `synartesis: ${action.id} is no longer awaiting approval (it is ${now?.status ?? "gone"})\n`,
+      );
+      failed += 1;
+      continue;
+    }
+    out(`${approving ? "approved" : "denied"} ${action.server}.${action.tool} (${action.id})`);
+  }
+  return failed === 0 ? 0 : 1;
 }
 
 function report(result: RollbackReport): number {
@@ -334,13 +411,9 @@ function report(result: RollbackReport): number {
 }
 
 async function runUndo(argv: readonly string[], journal: Journal): Promise<number> {
-  const runId = positional(argv)[1];
-  if (runId === undefined) {
-    throw new UsageError("undo needs a run id; run `synartesis list` to see them");
-  }
-  if (journal.getRun(runId) === undefined) {
-    throw new UsageError(`no run with id ${runId}`);
-  }
+  // Defaults to the most recent run: the thing anyone wants to undo is
+  // almost always the last thing that happened.
+  const runId = pick([...journal.listRuns()].reverse(), positional(argv)[1], RUN).id;
 
   const rawTo = flag(argv, "--to");
   const toSeq = rawTo === undefined ? undefined : Number(rawTo);

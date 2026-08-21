@@ -246,7 +246,7 @@ describe("the cli", () => {
     expect((await run("node", [CLI, "wat", "--journal", space.journal])).code).toBe(2);
     const missing = await run("node", [CLI, "undo", "nope", "--journal", space.journal]);
     expect(missing.code).toBe(2);
-    expect(missing.stderr).toContain("no run with id");
+    expect(missing.stderr).toContain("no run matches");
   });
 });
 
