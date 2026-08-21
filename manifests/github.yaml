@@ -42,11 +42,10 @@ tools:
     class: irreversible
     gate: always
 
-  # Title and body only. get_issue returns labels and assignees as objects,
-  # while update_issue expects bare names, and this format deliberately has no
-  # way to reshape a value between the two. Restoring them from the snapshot
-  # would send the wrong type; leaving them out means an undo does not restore
-  # them. Stating that plainly is better than silently corrupting them.
+  # get_issue returns labels and assignees as objects while update_issue takes
+  # bare names, so the inverse projects the one field it needs out of each.
+  # `[]` reads the same key from every element and does nothing else; it is
+  # still a path, not a transform.
   - match: "github.update_issue"
     class: reversible
     snapshot:
@@ -64,6 +63,8 @@ tools:
         title: "$snapshot.title"
         body: "$snapshot.body"
         state: "$snapshot.state"
+        labels: "$snapshot.labels[].name"
+        assignees: "$snapshot.assignees[].login"
 
   - match: "github.add_issue_comment"
     class: irreversible

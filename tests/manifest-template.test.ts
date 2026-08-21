@@ -5,7 +5,15 @@ import { resolveTemplate } from "../src/manifest/template.js";
 
 const context = {
   args: { id: "c_001", nested: { deep: 7 }, items: [{ id: "first" }, { id: "second" }] },
-  snapshot: { plan: "pro", notes: "" },
+  snapshot: {
+    plan: "pro",
+    notes: "",
+    labels: [
+      { id: 1, name: "bug", color: "red" },
+      { id: 2, name: "urgent", color: "orange" },
+    ],
+    assignees: [] as { login: string }[],
+  },
   result: { id: "ch_123", ok: true },
 };
 
@@ -19,7 +27,7 @@ describe("template resolution", () => {
   it("resolves a bare namespace to the whole value", () => {
     // A file's contents are not a field of anything, so there has to be a way
     // to say "all of it".
-    expect(resolveTemplate("$snapshot", context)).toEqual({ plan: "pro", notes: "" });
+    expect(resolveTemplate("$snapshot", context)).toEqual(context.snapshot);
     expect(resolveTemplate("$result", context)).toEqual({ id: "ch_123", ok: true });
     expect(resolveTemplate("$", context)).toEqual(context.args);
   });
@@ -39,6 +47,29 @@ describe("template resolution", () => {
     expect(resolveTemplate(42, context)).toBe(42);
     expect(resolveTemplate(false, context)).toBe(false);
     expect(resolveTemplate(null, context)).toBe(null);
+  });
+
+  it("projects a field across a list", () => {
+    // What an API that hands back objects and takes names needs. GitHub does
+    // exactly this with issue labels.
+    expect(resolveTemplate("$snapshot.labels[].name", context)).toEqual(["bug", "urgent"]);
+  });
+
+  it("projects across an empty list without complaining", () => {
+    expect(resolveTemplate("$snapshot.assignees[].login", context)).toEqual([]);
+  });
+
+  it("still allows a single index, and can follow one with a projection", () => {
+    expect(resolveTemplate("$snapshot.labels[0].name", context)).toBe("bug");
+    expect(resolveTemplate("$.items[].id", context)).toEqual(["first", "second"]);
+  });
+
+  it("refuses to project across something that is not a list", () => {
+    expect(() => resolveTemplate("$snapshot.plan[].name", context)).toThrow(/needs a list/);
+  });
+
+  it("fails when the projected field is missing from an element", () => {
+    expect(() => resolveTemplate("$snapshot.labels[].nope", context)).toThrow(ManifestError);
   });
 
   it("substitutes references embedded in a sentence", () => {

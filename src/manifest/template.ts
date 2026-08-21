@@ -45,20 +45,27 @@ function parseReference(raw: string): Reference | undefined {
   );
 }
 
-/** Splits `items[1].id` into ["items", 1, "id"]. */
-function segments(path: string, reference: string): (string | number)[] {
-  const parts: (string | number)[] = [];
+type Segment =
+  | { readonly kind: "key"; readonly key: string }
+  | { readonly kind: "index"; readonly index: number }
+  /** `[]`: apply the rest of the path to every element. */
+  | { readonly kind: "each" };
+
+/** Splits `items[1].id` and `labels[].name` into their steps. */
+function segments(path: string, reference: string): Segment[] {
+  const parts: Segment[] = [];
   for (const chunk of path.split(".")) {
-    const match = /^([^[\]]*)((?:\[\d+\])*)$/.exec(chunk);
+    const match = /^([^[\]]*)((?:\[\d*\])*)$/.exec(chunk);
     if (match === null) {
       throw new ManifestError(`malformed path in ${reference}`);
     }
-    const [, head = "", indices = ""] = match;
+    const [, head = "", brackets = ""] = match;
     if (head !== "") {
-      parts.push(head);
+      parts.push({ kind: "key", key: head });
     }
-    for (const index of indices.matchAll(/\[(\d+)\]/g)) {
-      parts.push(Number(index[1]));
+    for (const bracket of brackets.matchAll(/\[(\d*)\]/g)) {
+      const index = bracket[1] ?? "";
+      parts.push(index === "" ? { kind: "each" } : { kind: "index", index: Number(index) });
     }
   }
   if (parts.length === 0) {
@@ -67,25 +74,45 @@ function segments(path: string, reference: string): (string | number)[] {
   return parts;
 }
 
-function read(root: unknown, path: string, reference: string): unknown {
-  let current = root;
-  for (const segment of segments(path, reference)) {
-    if (current === null || current === undefined) {
-      throw new ManifestError(`${reference} is unresolvable: ${String(segment)} has no parent`);
-    }
-    if (typeof segment === "number") {
-      if (!Array.isArray(current) || segment >= current.length) {
-        throw new ManifestError(`${reference} is unresolvable: index ${String(segment)} is absent`);
-      }
-      current = current[segment];
-      continue;
-    }
-    if (typeof current !== "object" || !(segment in current)) {
-      throw new ManifestError(`${reference} is unresolvable: ${segment} is absent`);
-    }
-    current = Object.getOwnPropertyDescriptor(current, segment)?.value;
+function walk(current: unknown, parts: readonly Segment[], at: number, reference: string): unknown {
+  const segment = parts[at];
+  if (segment === undefined) {
+    return current;
   }
-  return current;
+  if (current === null || current === undefined) {
+    throw new ManifestError(`${reference} is unresolvable: nothing to read from`);
+  }
+
+  switch (segment.kind) {
+    case "each": {
+      if (!Array.isArray(current)) {
+        throw new ManifestError(`${reference} is unresolvable: [] needs a list to walk`);
+      }
+      // Projection, not a transform. It reads the same field from each element
+      // and nothing more, which is what an API that returns objects and
+      // accepts names needs, and is still only a path.
+      return current.map((item) => walk(item, parts, at + 1, reference));
+    }
+    case "index": {
+      if (!Array.isArray(current) || segment.index >= current.length) {
+        throw new ManifestError(
+          `${reference} is unresolvable: index ${String(segment.index)} is absent`,
+        );
+      }
+      return walk(current[segment.index], parts, at + 1, reference);
+    }
+    case "key": {
+      if (typeof current !== "object" || !(segment.key in current)) {
+        throw new ManifestError(`${reference} is unresolvable: ${segment.key} is absent`);
+      }
+      const next: unknown = Object.getOwnPropertyDescriptor(current, segment.key)?.value;
+      return walk(next, parts, at + 1, reference);
+    }
+  }
+}
+
+function read(root: unknown, path: string, reference: string): unknown {
+  return walk(root, segments(path, reference), 0, reference);
 }
 
 /**
@@ -94,7 +121,8 @@ function read(root: unknown, path: string, reference: string): unknown {
  * bare `$result` in the middle of a sentence is far more likely to be prose
  * than an interpolation.
  */
-const EMBEDDED = /\$(?:snapshot|result)?\.[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[\d+\])*/g;
+const EMBEDDED =
+  /\$(?:snapshot|result)?\.[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*|\[\d*\])*/g;
 
 const ESCAPE = "\u0000synartesis-dollar\u0000";
 

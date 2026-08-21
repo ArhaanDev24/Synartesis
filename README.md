@@ -294,11 +294,18 @@ Write `$$` for a literal dollar sign. There are no expressions, conditionals or
 functions, and there will not be: the moment this becomes a language it stops
 being something you can write in fifteen minutes.
 
-That has a consequence worth knowing before you hit it. A reference copies a
-value; it cannot reshape one. When an API returns a field in a different shape
-than it accepts, as GitHub does with issue labels, there is no way to bridge
-the two, and the honest move is to leave that field out of the inverse and say
-so rather than restore it wrongly.
+Paths can index a list with `[0]` and read one field from every element with
+`[]`:
+
+```yaml
+labels: "$snapshot.labels[].name"   # [{name: "bug"}, ...] becomes ["bug", ...]
+```
+
+That covers the common case where an API hands a field back richer than it
+takes it, which is what GitHub does with issue labels. `[]` reads the same key
+from each element and nothing else: it is still a path, not a transform. A
+reference copies values, it cannot compute them, so an API needing a genuinely
+different shape is one the inverse should leave that field out of, and say so.
 
 Other things to know:
 
