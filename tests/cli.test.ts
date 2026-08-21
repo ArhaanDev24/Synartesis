@@ -304,7 +304,11 @@ describe("the gate, driven from a second process", () => {
     expect(elapsed).toBeLessThan(2000);
     expect(thrown).toBeInstanceOf(McpError);
     expect(String(thrown)).toContain("Synartesis is holding this call for approval");
-    expect(String(thrown)).toContain("synartesis approve");
+    // Not the literal string "synartesis approve": whether the short form is
+    // available depends on whether it has been installed on this machine, and
+    // the point is that whatever is printed can actually be run. The test
+    // below executes it.
+    expect(String(thrown)).toMatch(/approve [0-9a-f]{8}/);
     await client.close();
   });
 
