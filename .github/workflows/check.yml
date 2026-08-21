@@ -1,0 +1,43 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    # Both, because better-sqlite3 compiles native bindings and the demo drives
+    # real subprocesses; a suite that only ever runs on one machine's quirks is
+    # not evidence of much.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 22]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm test
+
+      # The demo is the thing a stranger runs first, so it has to keep working.
+      - run: ./demo/filesystem-demo.sh
+        env:
+          DEMO_PAUSE: 0
+          GATE_TIMEOUT: 2
+
+      # And the installer, which is the line the front page tells them to run.
+      - run: ./install.sh --no-link
