@@ -29,6 +29,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Build first and prove the built proxy actually starts. When a spawned
+      # child dies its stderr is easy to lose inside a test runner, and the
+      # failure then looks like an unhelpful "connection closed".
+      - run: pnpm build
+      - name: Smoke test the built proxy
+        run: |
+          set -x
+          ls -la dist
+          node -e "require('better-sqlite3'); console.log('better-sqlite3 loads')"
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            | node dist/proxy.js --manifest manifests/toy-crm.yaml --journal "$RUNNER_TEMP/smoke.db"
+
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
