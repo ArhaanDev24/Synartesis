@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+import { z } from "zod";
 
 import { openJournal } from "../src/journal/journal.js";
 
@@ -72,6 +75,21 @@ function proxyArgs(space: Workspace): string[] {
  * actually runs: two real processes, a real pipe, the shape a user's MCP
  * client will spawn.
  */
+/** Writes frames and closes stdin immediately, the way a pipe does. */
+function pipeInto(args: readonly string[], stdin: string): Promise<string> {
+  return new Promise<string>((resolveRun, rejectRun) => {
+    const child = spawn("node", [...args], { stdio: ["pipe", "pipe", "ignore"] });
+    let stdout = "";
+    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
+    child.on("error", rejectRun);
+    child.on("close", () => {
+      resolveRun(stdout);
+    });
+    child.stdin.write(stdin);
+    child.stdin.end();
+  });
+}
+
 describe("proxy over real stdio", () => {
   it("is indistinguishable from the fixture across a real pipe", async () => {
     const space = workspace();
@@ -109,23 +127,51 @@ describe("proxy over real stdio", () => {
 
   it("answers every request that arrived before the pipe closed", async () => {
     const space = workspace();
-    const proxied = await spawnClient("node", proxyArgs(space));
-    // Frames delivered in the same chunk as the EOF still have to be served:
-    // the pipe closing means no more are coming, not that these can be
-    // dropped.
-    const [tools, read, write] = await Promise.all([
-      proxied.listTools(),
-      proxied.callTool({ name: "get_customer", arguments: { id: "c_001" } }),
-      proxied.callTool({ name: "update_customer", arguments: { id: "c_002", plan: "free" } }),
-    ]);
-    expect(tools.tools.length).toBeGreaterThan(0);
-    expect(read.isError).toBeFalsy();
-    expect(write.isError).toBeFalsy();
+    // Deliberately not StdioClientTransport: it holds stdin open, so it can
+    // never reproduce this. The frames and the EOF have to arrive together.
+    const frames = [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "probe", version: "0" },
+        },
+      },
+      { jsonrpc: "2.0", method: "notifications/initialized" },
+      { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "get_customer", arguments: { id: "c_001" } },
+      },
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "update_customer", arguments: { id: "c_002", plan: "free" } },
+      },
+    ];
 
-    const journal = openJournal(space.journal);
-    const runId = journal.listRuns()[0]?.id ?? "";
-    expect(journal.getActions(runId).map((a) => a.status)).toEqual(["applied", "applied"]);
-    journal.close();
+    const stdout = await pipeInto(
+      proxyArgs(space),
+      `${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`,
+    );
+
+    const answered = stdout
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => z.looseObject({ id: z.number() }).safeParse(JSON.parse(line)))
+      .flatMap((parsed) => (parsed.success ? [parsed.data.id] : []))
+      // Requests are served concurrently, so only the set matters.
+      .sort((a, b) => a - b);
+
+    // The pipe closing means no more requests are coming, not that the ones
+    // already delivered may be dropped.
+    expect(answered).toEqual([1, 2, 3, 4]);
   });
 
   it("shuts down promptly when the client closes the pipe", async () => {

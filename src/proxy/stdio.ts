@@ -141,12 +141,27 @@ async function main(): Promise<void> {
   // reacts to the parent closing the pipe. Without these listeners the proxy
   // survives its own client, holding every upstream child open until whoever
   // spawned us escalates to a signal.
-  process.stdin.on("end", () => {
-    shutdown(0);
-  });
-  process.stdin.on("close", () => {
-    shutdown(0);
-  });
+  // The pipe closing means no more requests are coming, not that the ones
+  // already delivered can be dropped. The transport hands only a few buffered
+  // frames to handlers per turn of the event loop, so wait until the proxy has
+  // been quiet for several consecutive turns rather than yielding a fixed
+  // number of times, which is guesswork. The cap stops a wedged upstream from
+  // holding the process open.
+  const pipeClosed = (): void => {
+    const giveUpAt = Date.now() + 5000;
+    let quiet = 0;
+    const settle = (): void => {
+      quiet = proxy.busy() ? 0 : quiet + 1;
+      if (quiet >= 10 || Date.now() > giveUpAt) {
+        shutdown(0);
+        return;
+      }
+      setImmediate(settle);
+    };
+    setImmediate(settle);
+  };
+  process.stdin.on("end", pipeClosed);
+  process.stdin.on("close", pipeClosed);
 
   const inner = proxy.server.server;
   const onclose = inner.onclose;

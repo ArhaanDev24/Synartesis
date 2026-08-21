@@ -60,6 +60,8 @@ export interface ProxyServer {
   whenIdle(): Promise<void>;
   /** The open run, once the session has initialized. */
   readonly runId: string | undefined;
+  /** Whether any forwarded request is currently in flight. */
+  busy(): boolean;
 }
 
 type Passthrough = { [key: string]: unknown };
@@ -219,6 +221,14 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
 
   let inflight = 0;
   const idle: (() => void)[] = [];
+  const leave = (): void => {
+    inflight -= 1;
+    if (inflight === 0) {
+      for (const resolve of idle.splice(0)) {
+        resolve();
+      }
+    }
+  };
   const whenIdle = async (): Promise<void> => {
     if (inflight === 0) {
       return;
@@ -561,12 +571,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           return rethrow(route.upstream.name, "tools/call", error);
         }
       } finally {
-        inflight -= 1;
-        if (inflight === 0) {
-          for (const resolve of idle.splice(0)) {
-            resolve();
-          }
-        }
+        leave();
       }
     });
   }
@@ -778,6 +783,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
     server: wrapper,
     ready,
     whenIdle,
+    busy: (): boolean => inflight > 0,
     get runId(): string | undefined {
       return runId;
     },
