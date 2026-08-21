@@ -6,6 +6,10 @@ import { join, resolve } from "node:path";
 
 import { z } from "zod";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { McpError } from "@modelcontextprotocol/sdk/types.js";
+
 import { openJournal } from "../src/journal/journal.js";
 
 /** Loose on purpose: this helper writes the file back, so it must not drop fields. */
@@ -213,5 +217,95 @@ describe("the cli", () => {
     const missing = await run("node", [CLI, "undo", "nope", "--journal", space.journal]);
     expect(missing.code).toBe(2);
     expect(missing.stderr).toContain("no run with id");
+  });
+});
+
+describe("the gate, driven from a second process", () => {
+  async function agentAgainst(space: Workspace): Promise<Client> {
+    const client = new Client({ name: "rogue-agent", version: "0.0.0" });
+    await client.connect(
+      new StdioClientTransport({
+        command: "node",
+        args: [PROXY, "--manifest", space.manifest, "--journal", space.journal, "--gate-timeout", "30"],
+        stderr: "ignore",
+      }),
+    );
+    return client;
+  }
+
+  async function waitForGate(journalPath: string): Promise<string> {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      const journal = openJournal(journalPath);
+      const gated = journal.listGated()[0]?.id;
+      journal.close();
+      if (gated !== undefined) {
+        return gated;
+      }
+      await new Promise<void>((resolveWait) => setTimeout(resolveWait, 25));
+    }
+    throw new Error("nothing reached the gate");
+  }
+
+  const email = {
+    name: "send_email",
+    arguments: { to: "ada@example.com", subject: "Hi", body: "Automated" },
+  };
+
+  it("blocks an email until a human approves it in another terminal", async () => {
+    const space = workspace();
+    const client = await agentAgainst(space);
+    const call = client.callTool(email).catch((error: unknown) => error);
+
+    const actionId = await waitForGate(space.journal);
+    const listed = await run("node", [CLI, "gates", "--journal", space.journal]);
+    expect(listed.stdout).toContain("crm.send_email");
+
+    const approved = await run("node", [
+      CLI, "approve", actionId, "--by", "arhaan", "--journal", space.journal,
+    ]);
+    expect(approved.code).toBe(0);
+
+    const result = await call;
+    expect(result).not.toBeInstanceOf(McpError);
+    await client.close();
+
+    const shown = await run("node", [CLI, "show", runIdFrom(
+      (await run("node", [CLI, "list", "--journal", space.journal])).stdout,
+    ), "--journal", space.journal]);
+    expect(shown.stdout).toContain("approved by arhaan");
+  });
+
+  it("returns a readable error on denial and leaves the agent able to continue", async () => {
+    const space = workspace();
+    const client = await agentAgainst(space);
+    const call = client.callTool(email).catch((error: unknown) => error);
+
+    const actionId = await waitForGate(space.journal);
+    await run("node", [
+      CLI, "deny", actionId, "--by", "arhaan", "--reason", "we do not email customers", "--journal", space.journal,
+    ]);
+
+    const thrown = await call;
+    expect(thrown).toBeInstanceOf(McpError);
+    expect(String(thrown)).toContain("we do not email customers");
+
+    // The session survives the refusal; the agent keeps working.
+    const after = await client.callTool({ name: "get_customer", arguments: { id: "c_001" } });
+    expect(after.isError).toBeFalsy();
+    await client.close();
+  });
+
+  it("reports a decision that arrives after the action is settled", async () => {
+    const space = workspace();
+    const client = await agentAgainst(space);
+    const call = client.callTool(email).catch(() => undefined);
+    const actionId = await waitForGate(space.journal);
+    await run("node", [CLI, "approve", actionId, "--journal", space.journal]);
+    await call;
+
+    const late = await run("node", [CLI, "deny", actionId, "--journal", space.journal]);
+    expect(late.code).toBe(1);
+    expect(late.stderr).toContain("no longer awaiting approval");
+    await client.close();
   });
 });

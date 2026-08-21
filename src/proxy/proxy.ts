@@ -22,6 +22,8 @@ import type {
 import { z } from "zod";
 
 import { UpstreamError, describe } from "../errors.js";
+import { createJournalGate, type Gate } from "../gate/gate.js";
+import { shouldGateOnWrite } from "../gate/heuristic.js";
 import type { Journal } from "../journal/journal.js";
 import {
   createPolicyResolver,
@@ -43,6 +45,9 @@ export interface ProxyOptions {
   readonly upstreams: readonly Upstream[];
   readonly manifest: Manifest;
   readonly journal: Journal;
+  /** Defaults to out-of-band approval through the journal. */
+  readonly gate?: Gate;
+  readonly gateTimeoutMs?: number;
 }
 
 export interface ProxyServer {
@@ -170,6 +175,20 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
   const { upstreams, manifest, journal } = options;
   const router = createRouter(upstreams, manifest);
   const policies: PolicyResolver = createPolicyResolver(manifest);
+
+  const gate =
+    options.gate ??
+    createJournalGate(journal, {
+      ...(options.gateTimeoutMs === undefined ? {} : { timeoutMs: options.gateTimeoutMs }),
+      notify: (request) => {
+        // stdout carries protocol frames, so the operator is told on stderr
+        // and, more usefully, by `synartesis gates`.
+        process.stderr.write(
+          `synartesis: awaiting approval for ${request.server}.${request.tool} ` +
+            `(action ${request.actionId}); run: synartesis approve ${request.actionId}\n`,
+        );
+      },
+    });
 
   const capabilities = mergeCapabilities(
     upstreams.map((upstream) => upstream.client.getServerCapabilities() ?? {}),
@@ -388,7 +407,39 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           class: policy.class,
         });
 
-        // The pre-read happens before the write goes out, and a failure stops
+        // D4/3.4: suspend before anything is read or written. A gated action
+      // that had already run its pre-read would be indistinguishable from one
+      // that was allowed.
+      const gated =
+        policy.gate === "always" || (policy.gate === "on_write" && shouldGateOnWrite(args));
+      if (gated) {
+        // Parked, not working: a suspended call must not hold up shutdown, and
+        // the drain exists to let real work finish.
+        inflight -= 1;
+        let decision;
+        try {
+          decision = await gate.decide({
+            actionId: pending.actionId,
+            runId,
+            seq: pending.seq,
+            server: route.upstream.name,
+            tool: route.tool,
+            args,
+            signal: extra.signal,
+          });
+        } finally {
+          inflight += 1;
+        }
+        if (!decision.approved) {
+          const who = decision.by === undefined ? "" : ` by ${decision.by}`;
+          throw new McpError(
+            ErrorCode.InvalidRequest,
+            `synartesis blocked ${request.params.name}: this action cannot be undone and was denied${who}. ${decision.reason}`,
+          );
+        }
+      }
+
+      // The pre-read happens before the write goes out, and a failure stops
         // the write entirely: a reversible action without a snapshot is silently
         // irreversible, which is worse than the action not happening at all.
         let snapshot: unknown;

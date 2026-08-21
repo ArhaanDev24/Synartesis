@@ -2,6 +2,7 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { describe } from "../errors.js";
+import { DEFAULT_GATE_TIMEOUT_MS } from "../gate/gate.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
 import { createProxyServer } from "./proxy.js";
@@ -12,10 +13,12 @@ import { connectStdioUpstream, type Upstream } from "./upstream.js";
  * how to start it, so there is nothing left for flags to say.
  *
  *   synartesis-proxy [--manifest synartesis.yaml] [--journal .synartesis/journal.db]
+ *                    [--gate-timeout <seconds>]
  */
 interface Argv {
   readonly manifest: string;
   readonly journal: string;
+  readonly gateTimeoutMs: number;
 }
 
 function parseArgv(argv: readonly string[]): Argv {
@@ -23,16 +26,22 @@ function parseArgv(argv: readonly string[]): Argv {
     const at = argv.indexOf(flag);
     return at === -1 ? undefined : argv[at + 1];
   };
-  const unknown = argv.find(
-    (token, index) =>
-      token.startsWith("--") && !["--manifest", "--journal"].includes(token) && index >= 0,
-  );
+  const known = ["--manifest", "--journal", "--gate-timeout"];
+  const unknown = argv.find((token) => token.startsWith("--") && !known.includes(token));
   if (unknown !== undefined) {
-    throw new Error(`unknown flag ${unknown}; expected --manifest or --journal`);
+    throw new Error(`unknown flag ${unknown}; expected one of ${known.join(", ")}`);
   }
+
+  const rawTimeout = read("--gate-timeout");
+  const seconds = rawTimeout === undefined ? undefined : Number(rawTimeout);
+  if (seconds !== undefined && (!Number.isFinite(seconds) || seconds <= 0)) {
+    throw new Error("--gate-timeout needs a positive number of seconds");
+  }
+
   return {
     manifest: read("--manifest") ?? "synartesis.yaml",
     journal: read("--journal") ?? ".synartesis/journal.db",
+    gateTimeoutMs: seconds === undefined ? DEFAULT_GATE_TIMEOUT_MS : seconds * 1000,
   };
 }
 
@@ -54,7 +63,12 @@ async function main(): Promise<void> {
     );
   }
 
-  const proxy = createProxyServer({ upstreams, manifest, journal });
+  const proxy = createProxyServer({
+    upstreams,
+    manifest,
+    journal,
+    gateTimeoutMs: argv.gateTimeoutMs,
+  });
 
   let shuttingDown = false;
   const shutdown = (code: number): void => {

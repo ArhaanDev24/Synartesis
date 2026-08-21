@@ -181,6 +181,12 @@ export interface Journal {
   markUnrecoverable(actionId: string, error: string): void;
   markInverseRejected(actionId: string, error: string): void;
   markUnknownInverse(actionId: string, error: string): void;
+  markGated(actionId: string): void;
+  /** Returns false when the action is no longer awaiting a decision. */
+  approve(actionId: string, by: string): boolean;
+  deny(actionId: string, by: string | undefined, reason: string): boolean;
+  listGated(): readonly ActionRow[];
+  getAction(actionId: string): ActionRow | undefined;
   listRuns(): readonly RunRow[];
   getRun(runId: string): RunRow | undefined;
   getActions(runId: string): readonly ActionRow[];
@@ -372,6 +378,53 @@ class SqliteJournal implements Journal {
       this.#db
         .prepare("UPDATE actions SET status = 'rolling_back', error = ? WHERE id = ?")
         .run(error, actionId);
+    });
+  }
+
+  markGated(actionId: string): void {
+    this.#run("markGated", () => {
+      this.#db.prepare("UPDATE actions SET status = 'gated' WHERE id = ?").run(actionId);
+    });
+  }
+
+  /**
+   * Conditional on the row still being gated, so a decision made at the same
+   * moment as a timeout resolves one way rather than both.
+   */
+  approve(actionId: string, by: string): boolean {
+    return this.#run("approve", () => {
+      const result = this.#db
+        .prepare(
+          `UPDATE actions SET status = 'pending', approved_by = ?, approved_at = ?, error = NULL
+           WHERE id = ? AND status = 'gated'`,
+        )
+        .run(by, new Date().toISOString(), actionId);
+      return result.changes === 1;
+    });
+  }
+
+  deny(actionId: string, by: string | undefined, reason: string): boolean {
+    return this.#run("deny", () => {
+      const result = this.#db
+        .prepare(
+          `UPDATE actions SET status = 'denied', approved_by = ?, approved_at = ?, error = ?
+           WHERE id = ? AND status = 'gated'`,
+        )
+        .run(by ?? null, new Date().toISOString(), reason, actionId);
+      return result.changes === 1;
+    });
+  }
+
+  listGated(): readonly ActionRow[] {
+    return this.#run("listGated", () =>
+      this.#db.prepare("SELECT * FROM actions WHERE status = 'gated' ORDER BY ts").all().map(toAction),
+    );
+  }
+
+  getAction(actionId: string): ActionRow | undefined {
+    return this.#run("getAction", () => {
+      const raw = this.#db.prepare("SELECT * FROM actions WHERE id = ?").get(actionId);
+      return raw === undefined ? undefined : toAction(raw);
     });
   }
 

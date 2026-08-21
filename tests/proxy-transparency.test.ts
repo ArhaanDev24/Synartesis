@@ -48,6 +48,9 @@ describe("proxy transparency", () => {
     const args = { name: "no_such_tool", arguments: {} };
     // The SDK reports an unknown tool as a tool-level error rather than a
     // protocol error, so the interesting assertion is that both paths agree.
+    // The harness approves automatically; that an unmatched tool is gated at
+    // all is covered in gate.test.ts, and is why this comparison needs a
+    // decision to have been made before it can be drawn.
     const proxied = await harness.proxied.callTool(args);
     expect(proxied).toEqual(await harness.direct.callTool(args));
     expect(proxied.isError).toBe(true);

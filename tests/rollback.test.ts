@@ -13,7 +13,7 @@ import { loadManifest } from "../src/manifest/load.js";
 import { createProxyServer } from "../src/proxy/proxy.js";
 import { createRouter, type Router } from "../src/proxy/routing.js";
 import { rollback } from "../src/rollback/rollback.js";
-import { inMemoryUpstream } from "./helpers/harness.js";
+import { autoApproveGate, inMemoryUpstream } from "./helpers/harness.js";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 
@@ -50,7 +50,7 @@ async function session(options: { beforeWrite?: () => void } = {}): Promise<Sess
 
   const upstream = await inMemoryUpstream(createToyCrmServer(store), "crm");
   const router = createRouter([upstream], MANIFEST);
-  const proxy = createProxyServer({ upstreams: [upstream], manifest: MANIFEST, journal });
+  const proxy = createProxyServer({ upstreams: [upstream], manifest: MANIFEST, journal, gate: autoApproveGate });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "agent", version: "0.0.0" });
   await Promise.all([proxy.server.connect(st), client.connect(ct)]);

@@ -16,7 +16,7 @@ import { z } from "zod";
 import { openJournal } from "../src/journal/journal.js";
 import { parseManifest } from "../src/manifest/load.js";
 import { createProxyServer } from "../src/proxy/proxy.js";
-import { createHarness, inMemoryUpstream, type Harness } from "./helpers/harness.js";
+import { createHarness, autoApproveGate, inMemoryUpstream, type Harness } from "./helpers/harness.js";
 
 let harness: Harness | undefined;
 
@@ -109,6 +109,7 @@ describe("journal", () => {
 
     const upstream = await inMemoryUpstream(raw, "raw");
     const proxy = createProxyServer({
+      gate: autoApproveGate,
       upstreams: [upstream],
       manifest: parseManifest(
         `version: 1\nservers: { ${upstream.name}: { command: node, args: [] } }\ntools: []\n`,
@@ -179,6 +180,7 @@ describe("journal", () => {
 
     const upstream = await inMemoryUpstream(slow, "slow");
     const proxy = createProxyServer({
+      gate: autoApproveGate,
       upstreams: [upstream],
       manifest: parseManifest(
         `version: 1\nservers: { ${upstream.name}: { command: node, args: [] } }\ntools: []\n`,
@@ -223,6 +225,7 @@ describe("journal", () => {
 
     const upstream = await inMemoryUpstream(slow, "slow");
     const proxy = createProxyServer({
+      gate: autoApproveGate,
       upstreams: [upstream],
       manifest: parseManifest(
         "version: 1\nservers: { slow: { command: node, args: [] } }\ntools: []\n",

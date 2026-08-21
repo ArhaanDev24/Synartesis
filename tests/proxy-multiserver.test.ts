@@ -14,7 +14,7 @@ import { parseManifest } from "../src/manifest/load.js";
 import { createProxyServer } from "../src/proxy/proxy.js";
 import { createToyCrmServer } from "../fixtures/toy-crm/server.js";
 import { ToyCrmStore } from "../fixtures/toy-crm/store.js";
-import { inMemoryUpstream } from "./helpers/harness.js";
+import { autoApproveGate, inMemoryUpstream } from "./helpers/harness.js";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 
@@ -86,6 +86,7 @@ async function connectMulti(journal: Journal): Promise<{ client: Client; store: 
     await inMemoryUpstream(createNotesServer(), "notes"),
   ];
   const proxy = createProxyServer({
+    gate: autoApproveGate,
     upstreams,
     manifest: parseManifest(MANIFEST, "manifest.yaml"),
     journal,
@@ -182,7 +183,7 @@ tools: []
 
     // A resource uri is an opaque identifier the client hands back verbatim, so
     // unlike a tool name it cannot be disambiguated by renaming it.
-    const proxy = createProxyServer({ upstreams, manifest, journal });
+    const proxy = createProxyServer({ upstreams, manifest, journal, gate: autoApproveGate });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "clash", version: "0.0.0" });
     await Promise.all([proxy.server.connect(st), client.connect(ct)]);
@@ -202,6 +203,7 @@ tools: []
     });
     expect(() =>
       createProxyServer({
+        gate: autoApproveGate,
         upstreams: [upstream],
         manifest: parseManifest(MANIFEST, "manifest.yaml"),
         journal,

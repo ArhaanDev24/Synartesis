@@ -9,12 +9,17 @@ import { rollback, type RollbackReport } from "./rollback/rollback.js";
 const USAGE = `synartesis - an undo layer for AI agents
 
   synartesis list [--journal <path>]
+  synartesis show <runId> [--journal <path>]
+  synartesis gates [--journal <path>]
+  synartesis approve <actionId> [--by <name>] [--journal <path>]
+  synartesis deny <actionId> [--by <name>] [--reason <text>] [--journal <path>]
   synartesis undo <runId> [--to <seq>] [--dry-run]
                           [--manifest <path>] [--journal <path>]
 
   --manifest  default synartesis.yaml
   --journal   default .synartesis/journal.db
   --to        lowest sequence to undo; earlier actions are left alone
+  --by        who is making the decision; recorded in the journal
   --dry-run   read current state and print the plan without changing anything
 
 Exit codes: 0 complete, 1 halted or partial, 2 bad usage or configuration.
@@ -35,7 +40,7 @@ function flag(argv: readonly string[], name: string): string | undefined {
 }
 
 function positional(argv: readonly string[]): string[] {
-  const skip = new Set(["--manifest", "--journal", "--to"]);
+  const skip = new Set(["--manifest", "--journal", "--to", "--by", "--reason", "--gate-timeout"]);
   const values: string[] = [];
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i] ?? "";
@@ -68,6 +73,82 @@ function runList(journal: Journal): number {
       `${run.id}  ${run.startedAt}  ${run.status.padEnd(12)} ${String(actions.length).padStart(4)} actions  ${run.label ?? "-"}${note}`,
     );
   }
+  return 0;
+}
+
+function runShow(argv: readonly string[], journal: Journal): number {
+  const runId = positional(argv)[1];
+  if (runId === undefined) {
+    throw new UsageError("show needs a run id");
+  }
+  const run = journal.getRun(runId);
+  if (run === undefined) {
+    throw new UsageError(`no run with id ${runId}`);
+  }
+
+  out(`run     ${run.id}`);
+  out(`label   ${run.label ?? "-"}`);
+  out(`started ${run.startedAt}`);
+  out(`status  ${run.status}${run.endedAt === undefined ? "" : `  ended ${run.endedAt}`}`);
+  out("");
+  for (const action of journal.getActions(runId)) {
+    out(
+      `${String(action.seq).padStart(4)}  ${action.class.padEnd(13)} ${action.status.padEnd(13)} ` +
+        `${action.server}.${action.tool}  ${JSON.stringify(action.args)}`,
+    );
+    if (action.approvedBy !== undefined || action.approvedAt !== undefined) {
+      const verb = action.status === "denied" ? "denied" : "approved";
+      out(`        ${verb} by ${action.approvedBy ?? "timeout"} at ${action.approvedAt ?? "-"}`);
+    }
+    if (action.error !== undefined) {
+      out(`        note: ${action.error}`);
+    }
+    if (action.inverse !== undefined) {
+      out(`        undo: ${JSON.stringify(action.inverse)}`);
+    }
+  }
+  return 0;
+}
+
+function runGates(journal: Journal): number {
+  const waiting = journal.listGated();
+  if (waiting.length === 0) {
+    out("nothing is awaiting approval");
+    return 0;
+  }
+  for (const action of waiting) {
+    out(`${action.id}  ${action.ts}  ${action.server}.${action.tool}  ${JSON.stringify(action.args)}`);
+  }
+  out("");
+  out("approve with: synartesis approve <actionId> --by <name>");
+  return 0;
+}
+
+function runDecision(argv: readonly string[], journal: Journal, approving: boolean): number {
+  const actionId = positional(argv)[1];
+  if (actionId === undefined) {
+    throw new UsageError(`${approving ? "approve" : "deny"} needs an action id`);
+  }
+  const action = journal.getAction(actionId);
+  if (action === undefined) {
+    throw new UsageError(`no action with id ${actionId}`);
+  }
+
+  const by = flag(argv, "--by") ?? "unknown";
+  const changed = approving
+    ? journal.approve(actionId, by)
+    : journal.deny(actionId, by, flag(argv, "--reason") ?? "denied by operator");
+
+  if (!changed) {
+    // A decision that arrives after a timeout must not silently look like it
+    // took effect.
+    const now = journal.getAction(actionId);
+    process.stderr.write(
+      `synartesis: ${actionId} is no longer awaiting approval (it is ${now?.status ?? "gone"})\n`,
+    );
+    return 1;
+  }
+  out(`${approving ? "approved" : "denied"} ${action.server}.${action.tool} (${actionId})`);
   return 0;
 }
 
@@ -151,6 +232,14 @@ async function main(argv: readonly string[]): Promise<number> {
     switch (command) {
       case "list":
         return runList(journal);
+      case "show":
+        return runShow(argv, journal);
+      case "gates":
+        return runGates(journal);
+      case "approve":
+        return runDecision(argv, journal, true);
+      case "deny":
+        return runDecision(argv, journal, false);
       case "undo":
         return await runUndo(argv, journal);
       default:

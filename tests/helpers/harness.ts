@@ -11,7 +11,16 @@ import { ToyCrmStore } from "../../fixtures/toy-crm/store.js";
 import { openJournal, type Journal } from "../../src/journal/journal.js";
 import { loadManifest, parseManifest } from "../../src/manifest/load.js";
 import { createProxyServer } from "../../src/proxy/proxy.js";
+import type { Gate, GateDecision } from "../../src/gate/gate.js";
 import type { Upstream } from "../../src/proxy/upstream.js";
+
+/**
+ * Approves instantly. Used by tests whose subject is not the gate, so that
+ * every other test does not also become a test of the approval flow.
+ */
+export const autoApproveGate: Gate = {
+  decide: (): Promise<GateDecision> => Promise.resolve({ approved: true, by: "test" }),
+};
 
 export interface Harness {
   /** A client wired straight to the fixture, for identity comparisons. */
@@ -45,6 +54,12 @@ export async function inMemoryUpstream(server: McpServer, name: string): Promise
 export interface HarnessOptions {
   /** Manifest source to use instead of manifests/toy-crm.yaml. */
   readonly manifest?: string;
+  /**
+   * "journal" uses the real out-of-band gate. The default approves instantly,
+   * so that tests about other behaviour are not all also tests of the gate.
+   */
+  readonly gate?: "journal" | "auto-approve";
+  readonly gateTimeoutMs?: number;
 }
 
 export async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
@@ -60,6 +75,10 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
         ? loadManifest("manifests/toy-crm.yaml")
         : parseManifest(options.manifest, "manifest.yaml"),
     journal,
+    ...(options.gate === "journal"
+      ? {}
+      : { gate: autoApproveGate }),
+    ...(options.gateTimeoutMs === undefined ? {} : { gateTimeoutMs: options.gateTimeoutMs }),
   });
   const proxied = await link(proxy.server, "test-client");
   // The run opens when the session initializes; awaiting it keeps every
