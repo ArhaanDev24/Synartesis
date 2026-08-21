@@ -1,7 +1,7 @@
 /**
  * The house style, translated for a terminal.
  *
- * Electric ultramarine on white, uppercase letterspaced labels, everything
+ * Oxblood and a warm off-white, uppercase letterspaced labels, everything
  * quiet except the one thing that matters. A terminal has no serif and no
  * engraving, so what carries over is the palette, the capitals and the
  * restraint.
@@ -45,7 +45,7 @@ export const style = {
   accent: (text: string): string => paint(ACCENT, text),
   strong: (text: string): string => paint(BOLD, text),
   quiet: (text: string): string => paint(DIM, text),
-  /** White on ultramarine, the way the wordmark is set. */
+  /** Off-white on oxblood, the way the wordmark is set. */
   plate: (text: string): string => paint(ON_ACCENT + BOLD, ` ${text} `),
 };
 

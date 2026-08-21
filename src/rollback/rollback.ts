@@ -192,11 +192,15 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
   for (const action of inScope) {
     const early = classify(action, policies !== undefined);
     if (early?.kind === "halt") {
+      // Deliberately not written back. Every halt classify can reach was read
+      // off the row's own status, so there is nothing here this rollback
+      // learned. Relabelling a `pending` action as `unrecoverable` destroyed
+      // the one fact that mattered about it -- that its outcome is unknown --
+      // and the next attempt, seeing an unrecoverable row with no inverse,
+      // stepped straight over it. Running undo twice undid more than running
+      // it once, which is the last thing this command may do.
       halted = { seq: action.seq, reason: early.reason, detail: action.error ?? "" };
       steps.push({ ...describeStep(action), ...early });
-      if (!dryRun) {
-        journal.markUnrecoverable(action.id, early.reason);
-      }
       break;
     }
     if (early !== undefined) {
