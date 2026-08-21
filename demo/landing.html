@@ -32,6 +32,7 @@
     --gutter: clamp(1.1rem, 4vw, 2.5rem);
     --max: 1140px;
     --measure: 60ch;
+    --niche: 104px;
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -500,6 +501,77 @@
     border-top: 1px solid var(--rule);
   }
 
+
+  /* --- the pantheon ----------------------------------------------------- */
+  /* Eight figures in the margins, in the idiom of a nineteenth century plate
+     of the gods. They are not ornament for its own sake: each one is named for
+     the part of this system it stands for, so the margin says something the
+     page would otherwise have to repeat. They appear only where there is
+     genuinely empty space to put them, and nowhere else. */
+
+  main { position: relative; }
+
+  .pantheon {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    display: none;
+  }
+
+  .niche {
+    position: absolute;
+    top: var(--at);
+    width: var(--niche);
+    margin: 0;
+  }
+
+  .niche.left { left: 1.25rem; }
+  .niche.right { right: 1.25rem; }
+
+  .niche canvas {
+    display: block;
+    width: var(--niche);
+    height: calc(var(--niche) * 210 / 112);
+    /* Weighed against the ground at the size it is actually drawn: below about
+       a third it disappears, above a half it starts arguing with the column. */
+    opacity: 0.4;
+  }
+
+  .niche figcaption {
+    display: block;
+    text-align: center;
+    margin-top: 0.4rem;
+    border-top: 1px solid color-mix(in srgb, var(--ink) 18%, var(--ground));
+    padding-top: 0.35rem;
+  }
+
+  .niche figcaption b {
+    display: block;
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 0.58rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--ink) 46%, var(--ground));
+  }
+
+  .niche figcaption span {
+    display: block;
+    font-family: var(--display);
+    font-style: italic;
+    font-size: 0.78rem;
+    line-height: 1.25;
+    margin-top: 0.1rem;
+    color: color-mix(in srgb, var(--ink) 32%, var(--ground));
+  }
+
+  /* Only once the margin is wide enough to hold one without crowding the
+     column. Below this the page is exactly as it was. */
+  @media (min-width: 1440px) {
+    .pantheon { display: block; }
+  }
+
   @media (max-width: 860px) {
     .hero { grid-template-columns: 1fr; }
     .hero-figure { order: -1; max-width: 20rem; margin-inline: auto; }
@@ -516,6 +588,40 @@
 </header>
 
 <main>
+<div class="pantheon" role="presentation">
+  <figure class="niche left" style="--at: 5%">
+    <canvas data-god="hermes" aria-hidden="true"></canvas>
+    <figcaption><b>Hermes</b><span>carries the call</span></figcaption>
+  </figure>
+  <figure class="niche right" style="--at: 17%">
+    <canvas data-god="athena" aria-hidden="true"></canvas>
+    <figcaption><b>Athena</b><span>asks before it is done</span></figcaption>
+  </figure>
+  <figure class="niche left" style="--at: 29%">
+    <canvas data-god="hephaistos" aria-hidden="true"></canvas>
+    <figcaption><b>Hephaistos</b><span>makes the undoing</span></figcaption>
+  </figure>
+  <figure class="niche right" style="--at: 41%">
+    <canvas data-god="apollo" aria-hidden="true"></canvas>
+    <figcaption><b>Apollo</b><span>sees it before it happens</span></figcaption>
+  </figure>
+  <figure class="niche left" style="--at: 53%">
+    <canvas data-god="zeus" aria-hidden="true"></canvas>
+    <figcaption><b>Zeus</b><span>the last word</span></figcaption>
+  </figure>
+  <figure class="niche right" style="--at: 65%">
+    <canvas data-god="poseidon" aria-hidden="true"></canvas>
+    <figcaption><b>Poseidon</b><span>the ground moves</span></figcaption>
+  </figure>
+  <figure class="niche left" style="--at: 77%">
+    <canvas data-god="ares" aria-hidden="true"></canvas>
+    <figcaption><b>Ares</b><span>the call that destroys</span></figcaption>
+  </figure>
+  <figure class="niche right" style="--at: 82%">
+    <canvas data-god="hades" aria-hidden="true"></canvas>
+    <figcaption><b>Hades</b><span>keeps what he is given</span></figcaption>
+  </figure>
+</div>
   <section class="hero">
     <div>
       <p class="label">Model Context Protocol proxy &middot; SQLite journal</p>
@@ -1269,4 +1375,356 @@
       observer.disconnect();
     }, 2500);
   })();
+</script>
+
+<script>
+/* The gods, engraved.
+ *
+ * Drawn rather than photographed: the page has to carry every asset inline,
+ * and a woodcut is a silhouette and some hatching, which is a thing a canvas
+ * is good at. Each figure is the same standing body with a different
+ * attribute, exactly as the old plates did it. You know Poseidon by the
+ * trident, not by his face, and at this size a face would be four pixels. */
+(() => {
+  const INK = "#f6e9e5";
+  const GROUND = "#5e1420";
+  /* Everything below is drawn in a 112 by 210 space and scaled to fit. */
+  const CX = 56;
+  const HEM = 172;
+  const SPRING = 84;
+  const ARCH = { left: 13, right: 99, base: 190, radius: 43 };
+
+  function archPath(g) {
+    g.beginPath();
+    g.moveTo(ARCH.left, ARCH.base);
+    g.lineTo(ARCH.left, SPRING);
+    // Increasing angle in a y-down space sweeps through the top; the other
+    // direction quietly draws the bottom half of the circle instead.
+    g.arc(CX, SPRING, ARCH.radius, Math.PI, Math.PI * 2);
+    g.lineTo(ARCH.right, ARCH.base);
+  }
+
+  /** The arch each figure stands in, and the hatched ground behind it. */
+  function niche(g) {
+    g.save();
+    archPath(g);
+    g.closePath();
+    g.clip();
+    g.strokeStyle = INK;
+    g.lineWidth = 0.6;
+    g.globalAlpha = 0.34;
+    for (let y = 30; y < ARCH.base; y += 3.1) {
+      g.beginPath();
+      g.moveTo(ARCH.left, y);
+      g.lineTo(ARCH.right, y);
+      g.stroke();
+    }
+    g.restore();
+
+    g.strokeStyle = INK;
+    g.globalAlpha = 0.8;
+    g.lineWidth = 1.2;
+    archPath(g);
+    g.stroke();
+    g.globalAlpha = 1;
+  }
+
+  /**
+   * The body every one of them shares. A draped standing figure, narrow enough
+   * to be a person: the first version of this was as wide at the hem as it was
+   * at the shoulders and read as a chess piece.
+   */
+  function body(g) {
+    g.fillStyle = INK;
+
+    g.beginPath();
+    g.ellipse(CX + 1, 44, 6.4, 7.8, 0, 0, Math.PI * 2);
+    g.fill();
+
+    g.beginPath();
+    g.moveTo(CX - 11, 60);
+    g.bezierCurveTo(CX - 12, 74, CX - 9, 84, CX - 8.5, 98);
+    g.bezierCurveTo(CX - 13, 126, CX - 15, 150, CX - 16.5, HEM);
+    g.quadraticCurveTo(CX, HEM + 4, CX + 15.5, HEM);
+    g.bezierCurveTo(CX + 14, 150, CX + 12, 126, CX + 8.5, 98);
+    g.bezierCurveTo(CX + 9, 84, CX + 12, 74, CX + 11, 60);
+    g.quadraticCurveTo(CX, 55, CX - 11, 60);
+    g.closePath();
+    g.fill();
+
+    // Cut back out in the ground colour: an engraver removes the lights rather
+    // than drawing them.
+    g.strokeStyle = GROUND;
+    g.lineWidth = 1.1;
+    for (const [top, bottom] of [[-6, -11], [-2, -4], [2, 4], [5.5, 11]]) {
+      g.beginPath();
+      g.moveTo(CX + top * 0.8, 64);
+      g.quadraticCurveTo(CX + top, 104, CX + bottom, HEM - 1);
+      g.stroke();
+    }
+    g.beginPath();
+    g.moveTo(CX - 9, 97);
+    g.quadraticCurveTo(CX, 102, CX + 9, 97);
+    g.stroke();
+  }
+
+  function plinth(g) {
+    g.fillStyle = INK;
+    g.fillRect(CX - 23, HEM + 2, 46, 6);
+    g.globalAlpha = 0.55;
+    g.fillRect(CX - 29, HEM + 10, 58, 2.2);
+    g.globalAlpha = 1;
+  }
+
+  /** An arm reaching out of the drapery towards whatever it is holding. */
+  function arm(g, x, y) {
+    g.strokeStyle = INK;
+    g.lineCap = "round";
+    g.lineWidth = 4.2;
+    g.beginPath();
+    g.moveTo(CX + 8, 68);
+    g.quadraticCurveTo(CX + 15, 63, x, y);
+    g.stroke();
+    g.lineCap = "butt";
+  }
+
+  function staff(g, x, top) {
+    g.strokeStyle = INK;
+    g.lineWidth = 2.2;
+    g.beginPath();
+    g.moveTo(x, top);
+    g.lineTo(x, HEM + 1);
+    g.stroke();
+  }
+
+  const GODS = {
+    // Wings at the cap and at the staff. The one who goes between.
+    hermes(g) {
+      arm(g, 78, 66);
+      staff(g, 83, 42);
+      g.strokeStyle = INK;
+      g.lineWidth = 1.5;
+      for (const side of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(83, 45);
+        g.quadraticCurveTo(83 + side * 12, 38, 83 + side * 4, 31);
+        g.stroke();
+        g.beginPath();
+        g.moveTo(83, 50);
+        g.bezierCurveTo(83 + side * 7, 58, 83 - side * 7, 66, 83, 74);
+        g.stroke();
+        g.beginPath();
+        g.moveTo(CX + 1 + side * 6, 40);
+        g.quadraticCurveTo(CX + 1 + side * 14, 34, CX + 1 + side * 12, 43);
+        g.stroke();
+      }
+    },
+
+    // Helm, spear and shield. Everything about her is a question asked first.
+    athena(g) {
+      g.fillStyle = INK;
+      g.beginPath();
+      g.moveTo(CX - 5.4, 39);
+      g.quadraticCurveTo(CX + 1, 25, CX + 7.4, 39);
+      g.fill();
+      arm(g, 78, 64);
+      staff(g, 84, 28);
+      g.strokeStyle = INK;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(28, 114, 14, 0, Math.PI * 2);
+      g.stroke();
+      g.lineWidth = 1;
+      g.beginPath();
+      g.arc(28, 114, 8, 0, Math.PI * 2);
+      g.stroke();
+      g.fillStyle = INK;
+      g.beginPath();
+      g.arc(28, 114, 3, 0, Math.PI * 2);
+      g.fill();
+    },
+
+    // The hammer, raised. What was made can be unmade.
+    hephaistos(g) {
+      g.strokeStyle = INK;
+      g.lineCap = "round";
+      g.lineWidth = 4.2;
+      g.beginPath();
+      g.moveTo(CX + 8, 68);
+      g.quadraticCurveTo(CX + 17, 58, 76, 48);
+      g.stroke();
+      g.lineCap = "butt";
+      g.lineWidth = 2.4;
+      g.beginPath();
+      g.moveTo(75, 50);
+      g.lineTo(88, 28);
+      g.stroke();
+      g.save();
+      g.translate(89, 26);
+      g.rotate(-1.03);
+      g.fillStyle = INK;
+      g.fillRect(-9.5, -4.6, 19, 9.2);
+      g.restore();
+    },
+
+    // The lyre, and the light around the head: what is about to happen, said
+    // out loud before it does.
+    apollo(g) {
+      g.strokeStyle = INK;
+      g.lineWidth = 1.2;
+      for (let i = 0; i <= 10; i += 1) {
+        const a = Math.PI + (i / 10) * Math.PI;
+        g.beginPath();
+        g.moveTo(CX + 1 + Math.cos(a) * 11, 44 + Math.sin(a) * 12);
+        g.lineTo(CX + 1 + Math.cos(a) * 18, 44 + Math.sin(a) * 20);
+        g.stroke();
+      }
+      arm(g, 72, 84);
+      g.lineWidth = 2.1;
+      g.beginPath();
+      g.moveTo(70, 106);
+      g.bezierCurveTo(62, 88, 68, 72, 75, 75);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(94, 106);
+      g.bezierCurveTo(100, 88, 94, 72, 87, 75);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(70, 106);
+      g.lineTo(94, 106);
+      g.stroke();
+      g.lineWidth = 0.85;
+      for (let x = 75; x <= 90; x += 3.7) {
+        g.beginPath();
+        g.moveTo(x, 79);
+        g.lineTo(x, 105);
+        g.stroke();
+      }
+    },
+
+    // The bolt. Nothing goes past him without it.
+    zeus(g) {
+      arm(g, 76, 58);
+      g.strokeStyle = INK;
+      g.lineWidth = 3;
+      g.lineJoin = "miter";
+      g.beginPath();
+      g.moveTo(70, 32);
+      g.lineTo(84, 48);
+      g.lineTo(75, 53);
+      g.lineTo(90, 76);
+      g.stroke();
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.moveTo(64, 41);
+      g.lineTo(76, 62);
+      g.stroke();
+    },
+
+    // The trident, and the sea under it that will not stay where you left it.
+    poseidon(g) {
+      arm(g, 78, 66);
+      staff(g, 83, 44);
+      g.strokeStyle = INK;
+      g.lineWidth = 1.9;
+      g.beginPath();
+      g.moveTo(74, 44);
+      g.lineTo(92, 44);
+      g.stroke();
+      for (const x of [74, 83, 92]) {
+        g.beginPath();
+        g.moveTo(x, 44);
+        g.lineTo(x, 29);
+        g.stroke();
+      }
+      g.lineWidth = 1;
+      g.globalAlpha = 0.72;
+      for (let i = 0; i < 3; i += 1) {
+        const y = 142 + i * 9;
+        g.beginPath();
+        g.moveTo(17, y);
+        g.bezierCurveTo(26, y - 5, 32, y + 5, 40, y);
+        g.stroke();
+      }
+      g.globalAlpha = 1;
+    },
+
+    // Helm and spear, levelled. The call that only destroys.
+    ares(g) {
+      g.fillStyle = INK;
+      g.beginPath();
+      g.moveTo(CX - 6, 39);
+      g.bezierCurveTo(CX - 4, 22, CX + 8, 22, CX + 8, 39);
+      g.fill();
+      g.strokeStyle = INK;
+      g.lineCap = "round";
+      g.lineWidth = 4.2;
+      g.beginPath();
+      g.moveTo(CX + 8, 68);
+      g.quadraticCurveTo(CX + 16, 66, 74, 72);
+      g.stroke();
+      g.lineCap = "butt";
+      g.lineWidth = 2.2;
+      g.beginPath();
+      g.moveTo(28, 166);
+      g.lineTo(92, 36);
+      g.stroke();
+      g.lineWidth = 1.9;
+      g.beginPath();
+      g.moveTo(92, 36);
+      g.lineTo(86, 49);
+      g.moveTo(92, 36);
+      g.lineTo(81, 42);
+      g.stroke();
+    },
+
+    // The sceptre and the crown. Whatever reaches him stays.
+    hades(g) {
+      g.fillStyle = INK;
+      for (const dx of [-6, 1, 8]) {
+        g.beginPath();
+        g.moveTo(CX + dx - 3.2, 39);
+        g.lineTo(CX + dx, 29);
+        g.lineTo(CX + dx + 3.2, 39);
+        g.closePath();
+        g.fill();
+      }
+      arm(g, 78, 68);
+      staff(g, 83, 52);
+      g.beginPath();
+      g.arc(83, 47, 4.8, 0, Math.PI * 2);
+      g.fill();
+    },
+  };
+
+  function draw(canvas) {
+    const god = GODS[canvas.dataset.god];
+    if (god === undefined) return;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    if (width === 0 || height === 0) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    const g = canvas.getContext("2d");
+    if (g === null) return;
+    g.scale((width / 112) * dpr, (height / 210) * dpr);
+    niche(g);
+    body(g);
+    god(g);
+    plinth(g);
+  }
+
+  const all = document.querySelectorAll("canvas[data-god]");
+  const drawAll = () => { for (const canvas of all) draw(canvas); };
+  drawAll();
+
+  // The niches only exist above a breakpoint, so a window that crosses it has
+  // canvases that were never sized. Redrawing once it settles costs nothing.
+  let settle;
+  addEventListener("resize", () => {
+    clearTimeout(settle);
+    settle = setTimeout(drawAll, 180);
+  });
+})();
 </script>
