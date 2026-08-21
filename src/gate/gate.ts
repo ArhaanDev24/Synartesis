@@ -42,7 +42,16 @@ export const DEFAULT_GATE_TIMEOUT_MS = 300_000;
  * timeout. Refusing at once and letting the agent retry removes the conflict
  * instead of tuning it.
  */
-export function createRetryGate(journal: Journal, approveWith = "synartesis"): Gate {
+/**
+ * `approveHint` builds the command a person on this machine would actually
+ * run, journal path and all. A hint that omits an argument the caller needs is
+ * an instruction that fails the moment somebody follows it.
+ */
+export type ApproveHint = (actionId: string) => string;
+
+const DEFAULT_HINT: ApproveHint = (actionId) => `synartesis approve ${actionId.slice(0, 8)}`;
+
+export function createRetryGate(journal: Journal, approveHint: ApproveHint = DEFAULT_HINT): Gate {
   return {
     decide(request: GateRequest): Promise<GateDecision> {
       journal.markGated(request.actionId);
@@ -50,9 +59,9 @@ export function createRetryGate(journal: Journal, approveWith = "synartesis"): G
         approved: false,
         awaiting: true,
         reason:
-          `it is waiting for a person to approve it. ` +
-          `Ask them to run: ${approveWith} approve ${request.actionId.slice(0, 8)}` +
-          `  --- then make this exact call again.`,
+          "it is waiting for a person to approve it. Ask them to run: " +
+          approveHint(request.actionId) +
+          "  --- then make this exact call again.",
       });
     },
   };

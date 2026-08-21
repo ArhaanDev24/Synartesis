@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { resolve } from "node:path";
+
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { describe } from "../errors.js";
@@ -94,7 +96,9 @@ async function main(): Promise<void> {
     journal,
     gateTimeoutMs: argv.gateTimeoutMs,
     logger: log,
-    approveWith: cliCommandFrom(import.meta.url),
+    // Absolute, because whoever approves may be in any directory at all.
+    approveHint: (actionId: string): string =>
+      `${cliCommandFrom(import.meta.url)} approve ${actionId.slice(0, 8)} --journal ${resolve(argv.journal)}`,
   });
 
   let shuttingDown = false;

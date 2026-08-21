@@ -22,7 +22,7 @@ import type {
 import { z } from "zod";
 
 import { SnapshotError, UpstreamError, describe } from "../errors.js";
-import { createRetryGate, type Gate } from "../gate/gate.js";
+import { createRetryGate, type ApproveHint, type Gate } from "../gate/gate.js";
 import { shouldGateOnWrite } from "../gate/heuristic.js";
 import type { Journal } from "../journal/journal.js";
 import type { Logger } from "../logging.js";
@@ -50,8 +50,8 @@ export interface ProxyOptions {
   readonly gate?: Gate;
   readonly gateTimeoutMs?: number;
   readonly logger?: Logger;
-  /** How a person on this machine would invoke the cli. */
-  readonly approveWith?: string;
+  /** Builds the exact command a person here would run to approve an action. */
+  readonly approveHint?: ApproveHint;
 }
 
 export interface ProxyServer {
@@ -206,7 +206,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
 
   const log = options.logger;
 
-  const gate = options.gate ?? createRetryGate(journal, options.approveWith);
+  const gate = options.gate ?? createRetryGate(journal, options.approveHint);
 
   const capabilities = mergeCapabilities(
     upstreams.map((upstream) => upstream.client.getServerCapabilities() ?? {}),
@@ -511,7 +511,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
                 {
                   action: pending.actionId,
                   tool: `${route.upstream.name}.${route.tool}`,
-                  approve: `${options.approveWith ?? "synartesis"} approve ${pending.actionId}`,
+                  approve: options.approveHint?.(pending.actionId) ?? pending.actionId,
                 },
                 "awaiting approval",
               );

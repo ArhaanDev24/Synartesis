@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 import { ManifestError, SynartesisError, describe } from "./errors.js";
 import { draftManifest } from "./init/draft.js";
@@ -366,6 +367,12 @@ function summarise(actions: readonly ActionRow[]): string {
   return `${String(actions.length)} actions: ${parts.join(", ")} | ${String(undoable)} with a recorded undo`;
 }
 
+/**
+ * Repeated back in any command this prints, because whoever copies the line may
+ * well be in a different directory than the one it was printed from.
+ */
+let journalArg = "";
+
 function runGates(journal: Journal, asJson: boolean): number {
   const waiting = journal.listGated();
   if (asJson) {
@@ -387,8 +394,10 @@ function runGates(journal: Journal, asJson: boolean): number {
     out("");
   }
   const self = cliCommand();
-  out(`  ${style.quiet(`${self} approve`)} ${style.accent(waiting[0]?.id.slice(0, 8) ?? "<id>")} ${style.quiet("--by <name>")}`);
-  out(`  ${style.quiet(`${self} approve --all --by <name>`)}`);
+  out(
+    `  ${style.quiet(`${self} approve`)} ${style.accent(waiting[0]?.id.slice(0, 8) ?? "<id>")} ${style.quiet(`--by <name>${journalArg}`)}`,
+  );
+  out(`  ${style.quiet(`${self} approve --all --by <name>${journalArg}`)}`);
   out("");
   return 0;
 }
@@ -539,7 +548,10 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   const asJson = argv.includes("--json");
-  const journal = openJournal(flag(argv, "--journal") ?? ".synartesis/journal.db");
+  const journalPath = flag(argv, "--journal");
+  journalArg = journalPath === undefined ? "" : ` --journal ${resolve(journalPath)}`;
+  // Every remaining command reads an existing journal. Only the proxy makes one.
+  const journal = openJournal(journalPath ?? ".synartesis/journal.db", { mustExist: true });
   try {
     switch (command) {
       case "list":

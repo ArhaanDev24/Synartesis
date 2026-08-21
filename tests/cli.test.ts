@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -268,6 +268,18 @@ describe("the gate, driven from a second process", () => {
     arguments: { to: "ada@example.com", subject: "Hi", body: "Automated" },
   };
 
+  /** The send_email row, whatever state the decision left it in. */
+  function gatedOrApproved(journal: ReturnType<typeof openJournal>): string {
+    const id = journal
+      .listRuns()
+      .flatMap((entry) => journal.getActions(entry.id))
+      .find((action) => action.tool === "send_email")?.id;
+    if (id === undefined) {
+      throw new Error("no send_email action was journalled");
+    }
+    return id;
+  }
+
   function gatedAction(journalPath: string): string {
     const journal = openJournal(journalPath);
     const id = journal.listGated()[0]?.id;
@@ -369,6 +381,44 @@ describe("the gate, driven from a second process", () => {
       .find((action) => action.status === "denied");
     expect(denied?.error).toContain("we do not email customers");
     journal.close();
+  });
+
+  it("tells the agent a command that actually runs", async () => {
+    const space = workspace();
+    const client = await agentAgainst(space);
+    const thrown = await client.callTool(email).catch((error: unknown) => error);
+    await client.close();
+
+    // Whoever approves may be in any directory, so the instruction has to
+    // carry everything it needs. Three separate bugs have been exactly this:
+    // output naming a command that fails the moment somebody follows it.
+    const suggested = /Ask them to run: (.+?)\s+---/.exec(String(thrown))?.[1];
+    expect(suggested).toBeDefined();
+    expect(suggested).toContain(space.journal);
+
+    const ran = await new Promise<number>((resolveRun) => {
+      const child = spawn(suggested ?? "", { shell: true, stdio: "ignore", cwd: tmpdir() });
+      child.on("close", (code) => {
+        resolveRun(code ?? -1);
+      });
+    });
+    expect(ran).toBe(0);
+
+    const journal = openJournal(space.journal);
+    expect(journal.getAction(gatedOrApproved(journal))?.approvedBy).toBeTruthy();
+    journal.close();
+  });
+
+  it("says a journal is missing rather than inventing an empty one", async () => {
+    const space = workspace();
+    const absent = join(space.dir, "nowhere", "journal.db");
+    const listed = await run("node", [CLI, "gates", "--journal", absent]);
+
+    expect(listed.code).toBe(1);
+    expect(listed.stderr).toContain("no journal at");
+    // An empty journal here would report "nothing waiting", which reads
+    // exactly like a real answer.
+    expect(existsSync(absent)).toBe(false);
   });
 
   it("reports a decision that arrives after the action is settled", async () => {

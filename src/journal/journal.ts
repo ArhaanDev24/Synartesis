@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 import Database from "better-sqlite3";
@@ -557,6 +557,18 @@ class SqliteJournal implements Journal {
   }
 }
 
-export function openJournal(path: string): Journal {
+export interface OpenOptions {
+  /**
+   * Refuse to create the file. Reading commands should say a journal is not
+   * there rather than conjure an empty one and report that nothing happened,
+   * which looks identical to a real answer and leaves a stray file behind.
+   */
+  readonly mustExist?: boolean;
+}
+
+export function openJournal(path: string, options: OpenOptions = {}): Journal {
+  if (options.mustExist === true && path !== ":memory:" && !existsSync(path)) {
+    throw new JournalError("open", `there is no journal at ${path}`);
+  }
   return new SqliteJournal(path);
 }
