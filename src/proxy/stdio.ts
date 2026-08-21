@@ -6,6 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { describe } from "../errors.js";
 import { DEFAULT_GATE_TIMEOUT_MS } from "../gate/gate.js";
 import { cliCommandFrom } from "../invocation.js";
+import { findJournal, findManifest } from "../locate.js";
 import { createLogger, isLogLevel, LOG_LEVELS, type LogLevel } from "../logging.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
@@ -49,9 +50,10 @@ function parseArgv(argv: readonly string[]): Argv {
     throw new Error(`--log-level must be one of ${LOG_LEVELS.join(", ")}`);
   }
 
+  const manifest = findManifest(read("--manifest"));
   return {
-    manifest: read("--manifest") ?? "synartesis.yaml",
-    journal: read("--journal") ?? ".synartesis/journal.db",
+    manifest,
+    journal: findJournal(read("--journal"), manifest),
     gateTimeoutMs: seconds === undefined ? DEFAULT_GATE_TIMEOUT_MS : seconds * 1000,
     logLevel: level,
   };

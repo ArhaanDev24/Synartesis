@@ -11,6 +11,7 @@ import { createRouter } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { banner, rule, style } from "./style.js";
+import { findJournal, findManifest } from "./locate.js";
 import { cliCommand } from "./invocation.js";
 
 const COMMANDS = `
@@ -81,7 +82,7 @@ function positional(argv: readonly string[]): string[] {
  * start.
  */
 async function runCheck(argv: readonly string[]): Promise<number> {
-  const path = flag(argv, "--manifest") ?? "synartesis.yaml";
+  const path = findManifest(flag(argv, "--manifest"));
   const manifest = loadManifest(path);
 
   const upstreams: Upstream[] = [];
@@ -517,7 +518,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     throw new UsageError("--to needs a positive whole number");
   }
 
-  const manifest = loadManifest(flag(argv, "--manifest") ?? "synartesis.yaml");
+  const manifest = loadManifest(findManifest(flag(argv, "--manifest")));
   const upstreams: Upstream[] = [];
   try {
     for (const [name, spec] of Object.entries(manifest.servers)) {
@@ -565,10 +566,13 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   const asJson = argv.includes("--json");
-  const journalPath = flag(argv, "--journal");
-  journalArg = journalPath === undefined ? "" : ` --journal ${resolve(journalPath)}`;
+  const given = flag(argv, "--journal");
+  const journalPath = findJournal(given, findManifest(flag(argv, "--manifest")));
+  // Repeated back only when it was not the obvious one, so a copied command
+  // works from anywhere without being cluttered when it need not be.
+  journalArg = given === undefined ? "" : ` --journal ${resolve(given)}`;
   // Every remaining command reads an existing journal. Only the proxy makes one.
-  const journal = openJournal(journalPath ?? ".synartesis/journal.db", { mustExist: true });
+  const journal = openJournal(journalPath, { mustExist: true });
   try {
     switch (command) {
       case "list":

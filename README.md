@@ -359,8 +359,15 @@ Other things to know:
 | `undo <runId> --replan` | Same, but rebuild each undo from the current manifest |
 | `check` | Load a manifest and verify it against the servers it names |
 
-Useful flags: `--dry-run` and `--to <seq>` on `undo`, `--json` on `list`,
-`show` and `gates`, `--journal` and `--manifest` everywhere they apply.
+`--manifest` and `--journal` are found rather than typed. Both are looked for
+from the current directory upwards, the way a version control tool finds its
+root, so inside a project that has a `synartesis.yaml` every command works with
+no flags at all. A journal that does not exist yet is placed beside the policy,
+so the proxy that creates it and the CLI that reads it agree without either
+being told.
+
+Other flags: `--dry-run`, `--to <seq>` and `--replan` on `undo`, `--all` on
+`approve` and `deny`, `--json` on `list`, `show` and `gates`.
 
 Exit codes: `0` succeeded, `1` halted or refused, `2` bad usage or
 configuration.
