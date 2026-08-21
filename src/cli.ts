@@ -31,7 +31,7 @@ most recent run; approve and deny default to the only request waiting.
   --manifest  default synartesis.yaml
   --journal   default .synartesis/journal.db
   --to        lowest sequence to undo; earlier actions are left alone
-  --by        who is making the decision; recorded in the journal
+  --by        who is deciding; defaults to the logged-in user
   --force     let init overwrite an existing manifest
   --all       approve or deny everything currently waiting
   --json      machine-readable output for list, show and gates
@@ -412,7 +412,11 @@ function runGates(journal: Journal, asJson: boolean): number {
 function runDecision(argv: readonly string[], journal: Journal, approving: boolean): number {
   const waiting = journal.listGated();
   const given = positional(argv)[1];
-  const by = flag(argv, "--by") ?? "unknown";
+  // "unknown" is a poor thing to find in an audit trail when the machine knows
+  // perfectly well who is logged in. --by still wins, for approving on behalf
+  // of someone else.
+  const by =
+    flag(argv, "--by") ?? process.env["USER"] ?? process.env["LOGNAME"] ?? "unknown";
   const reason = flag(argv, "--reason") ?? "denied by operator";
 
   // Looked up among everything first, so an action that has already been

@@ -421,6 +421,24 @@ describe("the gate, driven from a second process", () => {
     expect(existsSync(absent)).toBe(false);
   });
 
+  it("records the logged-in user when nobody is named", async () => {
+    const space = workspace();
+    const client = await agentAgainst(space);
+    await client.callTool(email).catch(() => undefined);
+    await client.close();
+
+    const actionId = gatedAction(space.journal);
+    // No --by. "unknown" is a poor thing to find in an audit trail when the
+    // machine knows who is logged in.
+    await run("node", [CLI, "approve", actionId, "--journal", space.journal]);
+
+    const journal = openJournal(space.journal);
+    const who = journal.getAction(actionId)?.approvedBy;
+    journal.close();
+    expect(who).toBe(process.env["USER"] ?? process.env["LOGNAME"]);
+    expect(who).not.toBe("unknown");
+  });
+
   it("reports a decision that arrives after the action is settled", async () => {
     const space = workspace();
     const client = await agentAgainst(space);
