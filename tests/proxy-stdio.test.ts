@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -28,12 +28,43 @@ async function spawnClient(command: string, args: readonly string[]): Promise<Cl
   return client;
 }
 
-function tempJournalPath(): string {
+interface Workspace {
+  readonly journal: string;
+  readonly manifest: string;
+}
+
+/** A real manifest on disk, since that is now the only way to configure the proxy. */
+function workspace(): Workspace {
   const dir = mkdtempSync(join(tmpdir(), "synartesis-stdio-"));
   cleanups.push(() => {
     rmSync(dir, { recursive: true, force: true });
   });
-  return join(dir, "journal.db");
+  const manifest = join(dir, "synartesis.yaml");
+  writeFileSync(
+    manifest,
+    `version: 1
+servers:
+  crm:
+    command: node
+    args: ["${FIXTURE}"]
+tools:
+  - match: "crm.get_customer"
+    class: readonly
+  - match: "crm.update_customer"
+    class: reversible
+    snapshot:
+      tool: "crm.get_customer"
+      args: { id: "$.id" }
+    inverse:
+      tool: "crm.update_customer"
+      args: { id: "$.id", plan: "$snapshot.plan" }
+`,
+  );
+  return { journal: join(dir, "journal.db"), manifest };
+}
+
+function proxyArgs(space: Workspace): string[] {
+  return [PROXY, "--manifest", space.manifest, "--journal", space.journal];
 }
 
 /**
@@ -43,18 +74,9 @@ function tempJournalPath(): string {
  */
 describe("proxy over real stdio", () => {
   it("is indistinguishable from the fixture across a real pipe", async () => {
-    const journalPath = tempJournalPath();
+    const space = workspace();
     const direct = await spawnClient("node", [FIXTURE]);
-    const proxied = await spawnClient("node", [
-      PROXY,
-      "--name",
-      "crm",
-      "--journal",
-      journalPath,
-      "--",
-      "node",
-      FIXTURE,
-    ]);
+    const proxied = await spawnClient("node", proxyArgs(space));
 
     expect(proxied.getServerVersion()).toEqual(direct.getServerVersion());
     expect(proxied.getServerCapabilities()).toEqual(direct.getServerCapabilities());
@@ -67,24 +89,17 @@ describe("proxy over real stdio", () => {
   });
 
   it("writes the run and its actions to the journal file on disk", async () => {
-    const journalPath = tempJournalPath();
-    const proxied = await spawnClient("node", [
-      PROXY,
-      "--name",
-      "crm",
-      "--journal",
-      journalPath,
-      "--",
-      "node",
-      FIXTURE,
-    ]);
+    const space = workspace();
+    const proxied = await spawnClient("node", proxyArgs(space));
     await proxied.callTool({ name: "update_customer", arguments: { id: "c_002", notes: "hi" } });
     await proxied.callTool({ name: "get_customer", arguments: { id: "c_002" } });
 
     // Opened by a second process while the proxy still holds the file: this is
     // what WAL mode buys, and what `synartesis show` will do in Phase 6.
-    const journal = openJournal(journalPath);
-    const runId = journal.listRuns()[0]?.id ?? "";
+    const journal = openJournal(space.journal);
+    const run = journal.listRuns()[0];
+    expect(run?.label).toBe("stdio-probe");
+    const runId = run?.id ?? "";
     const actions = journal.getActions(runId);
     expect(actions.map((a) => a.tool)).toEqual(["update_customer", "get_customer"]);
     expect(actions.every((a) => a.status === "applied")).toBe(true);
@@ -93,14 +108,10 @@ describe("proxy over real stdio", () => {
   });
 
   it("shuts down promptly when the client closes the pipe", async () => {
-    const journalPath = tempJournalPath();
+    const space = workspace();
     const client = new Client({ name: "stdio-probe", version: "0.0.0" });
     await client.connect(
-      new StdioClientTransport({
-        command: "node",
-        args: [PROXY, "--name", "crm", "--journal", journalPath, "--", "node", FIXTURE],
-        stderr: "inherit",
-      }),
+      new StdioClientTransport({ command: "node", args: proxyArgs(space), stderr: "inherit" }),
     );
 
     const start = performance.now();
@@ -114,18 +125,9 @@ describe("proxy over real stdio", () => {
   });
 
   it("adds under 10ms at p95 over a real pipe", async () => {
-    const journalPath = tempJournalPath();
+    const space = workspace();
     const direct = await spawnClient("node", [FIXTURE]);
-    const proxied = await spawnClient("node", [
-      PROXY,
-      "--name",
-      "crm",
-      "--journal",
-      journalPath,
-      "--",
-      "node",
-      FIXTURE,
-    ]);
+    const proxied = await spawnClient("node", proxyArgs(space));
     const args = { name: "update_customer", arguments: { id: "c_001", notes: "bench" } };
 
     const sample = async (client: Client, iterations: number): Promise<number[]> => {
@@ -157,10 +159,16 @@ describe("proxy over real stdio", () => {
     expect(overhead).toBeLessThan(10);
   });
 
-  it("exits with a usage error when no upstream command is given", async () => {
+  it("refuses to start when the manifest is missing", async () => {
     const client = new Client({ name: "stdio-probe", version: "0.0.0" });
     await expect(
-      client.connect(new StdioClientTransport({ command: "node", args: [PROXY], stderr: "ignore" })),
+      client.connect(
+        new StdioClientTransport({
+          command: "node",
+          args: [PROXY, "--manifest", "/nonexistent/synartesis.yaml"],
+          stderr: "ignore",
+        }),
+      ),
     ).rejects.toThrow();
   });
 });

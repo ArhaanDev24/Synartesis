@@ -58,6 +58,7 @@ export interface RecordPendingInput {
   readonly server: string;
   readonly tool: string;
   readonly args: unknown;
+  readonly class: ActionClass;
 }
 
 export interface PendingAction {
@@ -147,9 +148,11 @@ function toAction(raw: unknown): ActionRow {
 export interface Journal {
   beginRun(label: string | undefined): string;
   endRun(runId: string, status: RunStatus): void;
+  setRunLabel(runId: string, label: string): void;
   recordPending(input: RecordPendingInput): PendingAction;
   markApplied(actionId: string, result: unknown): void;
   markFailed(actionId: string, error: string): void;
+  markUnknown(actionId: string, error: string): void;
   listRuns(): readonly RunRow[];
   getRun(runId: string): RunRow | undefined;
   getActions(runId: string): readonly ActionRow[];
@@ -190,6 +193,12 @@ class SqliteJournal implements Journal {
     });
   }
 
+  setRunLabel(runId: string, label: string): void {
+    this.#run("setRunLabel", () => {
+      this.#db.prepare("UPDATE runs SET label = ? WHERE id = ?").run(label, runId);
+    });
+  }
+
   recordPending(input: RecordPendingInput): PendingAction {
     return this.#run("recordPending", () => {
       const insert = this.#db.transaction((): PendingAction => {
@@ -206,7 +215,7 @@ class SqliteJournal implements Journal {
           .prepare(
             `INSERT INTO actions
                (id, run_id, seq, server, tool, args_json, class, idempotency_key, status, ts)
-             VALUES (?, ?, ?, ?, ?, ?, 'unclassified', ?, 'pending', ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
           )
           .run(
             actionId,
@@ -215,6 +224,7 @@ class SqliteJournal implements Journal {
             input.server,
             input.tool,
             JSON.stringify(input.args ?? {}),
+            input.class,
             idempotencyKey,
             new Date().toISOString(),
           );
@@ -237,6 +247,20 @@ class SqliteJournal implements Journal {
     this.#run("markFailed", () => {
       this.#db
         .prepare("UPDATE actions SET status = 'failed', error = ? WHERE id = ?")
+        .run(error, actionId);
+    });
+  }
+
+  /**
+   * The call was interrupted, so whether the upstream applied it is genuinely
+   * unknown. The row deliberately stays `pending`: recording it as failed
+   * would assert something we cannot know, and section 3.1 wants exactly this
+   * case surfaced rather than resolved by guesswork.
+   */
+  markUnknown(actionId: string, error: string): void {
+    this.#run("markUnknown", () => {
+      this.#db
+        .prepare("UPDATE actions SET status = 'pending', error = ? WHERE id = ?")
         .run(error, actionId);
     });
   }

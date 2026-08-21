@@ -9,6 +9,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createToyCrmServer } from "../../fixtures/toy-crm/server.js";
 import { ToyCrmStore } from "../../fixtures/toy-crm/store.js";
 import { openJournal, type Journal } from "../../src/journal/journal.js";
+import { loadManifest } from "../../src/manifest/load.js";
 import { createProxyServer } from "../../src/proxy/proxy.js";
 import type { Upstream } from "../../src/proxy/upstream.js";
 
@@ -47,7 +48,11 @@ export async function createHarness(): Promise<Harness> {
 
   const store = new ToyCrmStore({ now: () => "2026-01-01T00:00:00.000Z" });
   const upstream = await inMemoryUpstream(createToyCrmServer(store), "crm");
-  const proxy = createProxyServer({ upstream, journal });
+  const proxy = createProxyServer({
+    upstreams: [upstream],
+    manifest: loadManifest("manifests/toy-crm.yaml"),
+    journal,
+  });
   const proxied = await link(proxy.server, "test-client");
   // The run opens when the session initializes; awaiting it keeps every
   // journal assertion deterministic instead of racing the handshake.

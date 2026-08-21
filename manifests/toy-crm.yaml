@@ -1,0 +1,66 @@
+# Policy for the toy CRM fixture. Every class in the taxonomy appears here, so
+# this doubles as the worked example of the manifest format.
+version: 1
+
+servers:
+  crm:
+    command: node
+    args: ["dist/toy-crm.js"]
+
+tools:
+  - match: "crm.get_customer"
+    class: readonly
+
+  # The id is assigned by the server, so it is only knowable from the result.
+  - match: "crm.create_customer"
+    class: compensable
+    inverse:
+      tool: "crm.delete_customer"
+      args:
+        id: "$result.id"
+
+  # A patch, so the inverse has to restore every field rather than re-apply the
+  # patch: fields the agent did not touch must still come back unchanged if the
+  # same record is updated twice in one run.
+  - match: "crm.update_customer"
+    class: reversible
+    snapshot:
+      tool: "crm.get_customer"
+      args:
+        id: "$.id"
+    inverse:
+      tool: "crm.update_customer"
+      args:
+        id: "$.id"
+        name: "$snapshot.name"
+        email: "$snapshot.email"
+        plan: "$snapshot.plan"
+        notes: "$snapshot.notes"
+
+  # Reversible rather than irreversible because the pre-read captures the whole
+  # record and restore_customer puts it back under its original id.
+  - match: "crm.delete_customer"
+    class: reversible
+    snapshot:
+      tool: "crm.get_customer"
+      args:
+        id: "$.id"
+    inverse:
+      tool: "crm.restore_customer"
+      args:
+        id: "$snapshot.id"
+        name: "$snapshot.name"
+        email: "$snapshot.email"
+        plan: "$snapshot.plan"
+        notes: "$snapshot.notes"
+
+  - match: "crm.restore_customer"
+    class: compensable
+    inverse:
+      tool: "crm.delete_customer"
+      args:
+        id: "$.id"
+
+  - match: "crm.send_email"
+    class: irreversible
+    gate: always

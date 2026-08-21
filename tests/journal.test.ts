@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { openJournal } from "../src/journal/journal.js";
+import { parseManifest } from "../src/manifest/load.js";
 import { createProxyServer } from "../src/proxy/proxy.js";
 import { createHarness, inMemoryUpstream, type Harness } from "./helpers/harness.js";
 
@@ -56,8 +57,7 @@ describe("journal", () => {
     expect(actions.map((a) => a.seq)).toEqual([1, 2]);
     expect(actions.every((a) => a.server === "crm")).toBe(true);
     expect(actions.every((a) => a.status === "applied")).toBe(true);
-    // Phase 1 has no policy engine; classification arrives in Phase 2.
-    expect(actions.every((a) => a.class === "unclassified")).toBe(true);
+    expect(actions.map((a) => a.class)).toEqual(["readonly", "reversible"]);
     expect(new Set(actions.map((a) => a.idempotencyKey)).size).toBe(2);
   });
 
@@ -108,7 +108,14 @@ describe("journal", () => {
     });
 
     const upstream = await inMemoryUpstream(raw, "raw");
-    const proxy = createProxyServer({ upstream, journal });
+    const proxy = createProxyServer({
+      upstreams: [upstream],
+      manifest: parseManifest(
+        `version: 1\nservers: { ${upstream.name}: { command: node, args: [] } }\ntools: []\n`,
+        "manifest.yaml",
+      ),
+      journal,
+    });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "fail-probe", version: "0.0.0" });
     await Promise.all([proxy.server.connect(st), client.connect(ct)]);
@@ -171,7 +178,14 @@ describe("journal", () => {
     });
 
     const upstream = await inMemoryUpstream(slow, "slow");
-    const proxy = createProxyServer({ upstream, journal });
+    const proxy = createProxyServer({
+      upstreams: [upstream],
+      manifest: parseManifest(
+        `version: 1\nservers: { ${upstream.name}: { command: node, args: [] } }\ntools: []\n`,
+        "manifest.yaml",
+      ),
+      journal,
+    });
     const [ct, st] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "pending-probe", version: "0.0.0" });
     await Promise.all([proxy.server.connect(st), client.connect(ct)]);
@@ -186,6 +200,54 @@ describe("journal", () => {
     release();
     await inFlight;
     expect(journal.getActions(runId)[0]?.status).toBe("applied");
+
+    await client.close();
+    journal.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("leaves an interrupted call pending rather than calling it failed", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-abort-"));
+    const journal = openJournal(join(dir, "journal.db"));
+
+    let entered = (): void => undefined;
+    const hasEntered = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const slow = new McpServer({ name: "slow", version: "1.0.0" }, { capabilities: { tools: {} } });
+    slow.registerTool("wait", { description: "Blocks.", inputSchema: {} }, async () => {
+      entered();
+      await new Promise<void>((resolve) => setTimeout(resolve, 60_000).unref());
+      return { content: [{ type: "text", text: "done" }] };
+    });
+
+    const upstream = await inMemoryUpstream(slow, "slow");
+    const proxy = createProxyServer({
+      upstreams: [upstream],
+      manifest: parseManifest(
+        "version: 1\nservers: { slow: { command: node, args: [] } }\ntools: []\n",
+        "manifest.yaml",
+      ),
+      journal,
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "abort-probe", version: "0.0.0" });
+    await Promise.all([proxy.server.connect(st), client.connect(ct)]);
+    const runId = await proxy.ready;
+
+    const controller = new AbortController();
+    const call = client
+      .callTool({ name: "wait", arguments: {} }, undefined, { signal: controller.signal })
+      .catch(() => undefined);
+    await hasEntered;
+    controller.abort();
+    await call;
+
+    const action = journal.getActions(runId)[0];
+    // The upstream may or may not have applied it; only `pending` says that
+    // honestly. `failed` would assert something this process cannot know.
+    expect(action?.status).toBe("pending");
+    expect(action?.error).toBeTruthy();
 
     await client.close();
     journal.close();
@@ -211,8 +273,8 @@ describe("journal", () => {
     const journal = openJournal(join(dir, "journal.db"));
     const runA = journal.beginRun("a");
     const runB = journal.beginRun("b");
-    const first = journal.recordPending({ runId: runA, server: "s", tool: "t", args: {} });
-    const second = journal.recordPending({ runId: runB, server: "s", tool: "t", args: {} });
+    const first = journal.recordPending({ runId: runA, server: "s", tool: "t", args: {}, class: "readonly" });
+    const second = journal.recordPending({ runId: runB, server: "s", tool: "t", args: {}, class: "readonly" });
     expect(first.seq).toBe(1);
     expect(second.seq).toBe(1);
     journal.close();

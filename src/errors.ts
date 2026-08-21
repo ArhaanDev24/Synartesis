@@ -11,6 +11,32 @@ export abstract class SynartesisError extends Error {
   }
 }
 
+export interface SourceLocation {
+  readonly file: string;
+  readonly line: number;
+  readonly column: number;
+}
+
+/**
+ * An invalid or unmatched policy. Carries a source location wherever the
+ * manifest is at fault, because "never start with a broken policy" is only
+ * useful if the operator is told which line to fix.
+ */
+export class ManifestError extends SynartesisError {
+  readonly code = "MANIFEST_ERROR";
+
+  constructor(
+    message: string,
+    readonly location?: SourceLocation,
+  ) {
+    super(
+      location === undefined
+        ? message
+        : `${location.file}:${String(location.line)}:${String(location.column)}: ${message}`,
+    );
+  }
+}
+
 /** The wrapped server failed, or could not be reached at all. */
 export class UpstreamError extends SynartesisError {
   readonly code = "UPSTREAM_ERROR";
