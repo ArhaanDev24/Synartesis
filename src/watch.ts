@@ -91,10 +91,12 @@ export async function watch(options: WatchOptions): Promise<number> {
   const journal = openJournal(options.journalPath, { mustExist: true });
   const interval = options.intervalMs ?? 120;
   const clear = "\u001b[H\u001b[2J\u001b[3J";
-  let stop = false;
+  // A holder, not a plain boolean: the only assignment happens in a signal
+  // handler, which narrowing cannot see, so a bare flag reads as always false.
+  const state = { stop: false };
 
   const onSignal = (): void => {
-    stop = true;
+    state.stop = true;
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
@@ -108,7 +110,7 @@ export async function watch(options: WatchOptions): Promise<number> {
     }
 
     options.write("\u001b[?25l");
-    for (let tick = 0; !stop; tick += 1) {
+    for (let tick = 0; !state.stop; tick += 1) {
       options.write(clear + render(journal, options, tick));
       if (options.maxTicks !== undefined && tick + 1 >= options.maxTicks) {
         break;
