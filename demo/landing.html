@@ -36,6 +36,37 @@
 
   *, *::before, *::after { box-sizing: border-box; }
 
+  /* --- movement ------------------------------------------------------- */
+  /* One easing curve everywhere, so nothing feels like it came from a
+     different page. Everything here is opacity and transform only: those are
+     the two properties a browser can animate without laying the page out
+     again, which is the difference between smooth and nearly smooth. */
+  :root { --ease: cubic-bezier(0.22, 0.61, 0.36, 1); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      opacity: 0;
+      transform: translateY(14px);
+      transition:
+        opacity 0.55s var(--ease),
+        transform 0.55s var(--ease);
+    }
+
+    .reveal[data-shown="true"] { opacity: 1; transform: none; }
+
+    .command,
+    .install-tabs button,
+    .install-line button,
+    .masthead a.label {
+      transition:
+        background-color 0.2s var(--ease),
+        color 0.2s var(--ease),
+        border-color 0.2s var(--ease);
+    }
+
+    .install-line button:active { transform: translateY(1px); }
+  }
+
   /* One column, centred, rather than text running the full width of a big
      display. The gutter grows into the margin instead of the content. */
   .masthead, .hero, section, .colophon {
@@ -198,6 +229,48 @@
   }
 
   .install { margin-top: 1.75rem; max-width: 40rem; }
+
+  /* A numbered sequence, because setting this up genuinely is one. */
+  .setup {
+    list-style: none;
+    counter-reset: setup;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 1.75rem;
+  }
+
+  .setup li {
+    counter-increment: setup;
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    gap: 0 1.25rem;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.1rem;
+  }
+
+  .setup li::before {
+    content: counter(setup, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    color: var(--ink-faint);
+    padding-top: 0.2rem;
+  }
+
+  .setup h3 {
+    grid-column: 2;
+    margin: 0 0 0.35rem;
+    font-family: var(--display);
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 1.35rem;
+    line-height: 1.1;
+  }
+
+  .setup p { grid-column: 2; margin: 0 0 0.9rem; color: var(--ink-soft); max-width: var(--measure); }
+  .setup .terminal, .setup .install-box { grid-column: 2; margin-bottom: 0; }
 
   /* Four terminals side by side, so the whole sequence is visible at once
      rather than read one panel at a time. */
@@ -398,6 +471,7 @@
 
   .command { background: var(--ground); padding: 1.1rem; }
   .command:hover { background: var(--ground-lift); }
+  .install-tabs button:hover { color: var(--panel-ink); }
 
   .command code {
     font-family: var(--mono);
@@ -620,8 +694,9 @@
     <div class="section-head">
       <h2 class="display">The whole<br>interface</h2>
       <p class="lede">
-        Seven commands. Ids shorten to any unambiguous prefix, and the ones you use most
-        need no id at all.
+        Eight commands. Ids shorten to any unambiguous prefix, and the ones you use most
+        need no id at all. Paths are found from the current directory upwards, so inside
+        a project that has a policy nothing needs a flag.
       </p>
     </div>
 
@@ -647,6 +722,10 @@
         <span>What is waiting on a person right now.</span>
       </div>
       <div class="command">
+        <code>synartesis watch</code>
+        <span>A live view that redraws as the agent works, and shows anything blocked.</span>
+      </div>
+      <div class="command">
         <code>synartesis approve --all</code>
         <span>Let it through. The agent makes the same call again and it goes.</span>
       </div>
@@ -661,59 +740,104 @@
 
   <section>
     <div class="section-head">
-      <h2 class="display">Install<br>via terminal</h2>
+      <h2 class="display">Set it up</h2>
       <p class="lede">
-        Node 22 or newer. The script checks that, builds, and links
-        <code class="inline">synartesis</code> into a directory already on your
-        PATH. It edits no shell profile, needs no sudo, and writes nothing
-        outside its own directory. Read it first if you would rather: it is
-        short, and it is the same file this command fetches.
+        Five steps, about ten minutes. Node 22 or newer is the only
+        prerequisite. Nothing here edits a shell profile or needs sudo.
       </p>
     </div>
 
-    <div class="install-box">
-      <div class="install-tabs">
-        <button type="button" data-os="unix" aria-pressed="true">macOS / Linux</button>
-        <button type="button" data-os="clone" aria-pressed="false">From a clone</button>
-      </div>
-      <div class="install-line">
-        <code id="install-command">curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash</code>
-        <button type="button" id="install-copy">Copy</button>
-      </div>
-    </div>
+    <ol class="setup">
+      <li>
+        <h3>Install it</h3>
+        <p>Builds, then links <code class="inline">synartesis</code> into a directory already on your PATH.</p>
+        <div class="install-box">
+          <div class="install-tabs">
+            <button type="button" data-os="unix" aria-pressed="true">macOS / Linux</button>
+            <button type="button" data-os="clone" aria-pressed="false">From a clone</button>
+          </div>
+          <div class="install-line">
+            <code id="install-command">curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash</code>
+            <button type="button" id="install-copy">Copy</button>
+          </div>
+        </div>
+      </li>
 
-    <div class="steps-grid">
-      <div>
-        <p class="label">Then &middot; write a policy for a server</p>
+      <li>
+        <h3>Describe the server you want covered</h3>
+        <p>
+          <code class="inline">init</code> asks the server what it can do and writes a starting policy
+          with every tool guarded. Working through the TODOs it leaves is the real job:
+          a tool with no inverse is one your agent cannot use unsupervised.
+        </p>
         <div class="terminal">
-          <div class="terminal-bar"><span>any MCP server</span><span>everything starts guarded</span></div>
-<pre><span class="prompt">$</span> <span class="hit">synartesis init</span> crm \
-     -- node ./crm-server.js
+          <div class="terminal-bar"><span>in a new directory</span><span>everything starts guarded</span></div>
+<pre><span class="prompt">$</span> mkdir my-agent &amp;&amp; cd my-agent
+<span class="prompt">$</span> <span class="hit">synartesis init</span> crm -- npx -y some-mcp-server
 <span class="prompt">$</span> <span class="hit">synartesis check</span>
 
   <span class="plate"> POLICY </span> synartesis.yaml
   <span class="dim">servers  crm</span>
   <span class="dim">policies 4 readonly, 2 reversible, 1 irreversible</span></pre>
         </div>
-      </div>
+      </li>
 
-      <div>
-        <p class="label">Then &middot; see it, and undo it</p>
+      <li>
+        <h3>Point your agent at it instead of the server</h3>
+        <p>
+          In whatever file your client lists MCP servers in. The agent sees the same
+          tools with the same names and needs no changes at all.
+        </p>
         <div class="terminal">
-          <div class="terminal-bar"><span>no paths to type</span><span>found from here upwards</span></div>
-<pre><span class="prompt">$</span> <span class="hit">synartesis list</span>
-<span class="prompt">$</span> <span class="hit">synartesis show</span>
+          <div class="terminal-bar"><span>.mcp.json</span><span>claude code, claude desktop, cursor</span></div>
+<pre>{
+  <span class="dim">"mcpServers"</span>: {
+    <span class="dim">"crm"</span>: {
+      <span class="dim">"command"</span>: <span class="hit">"synartesis-proxy"</span>,
+      <span class="dim">"args"</span>: [<span class="hit">"--manifest"</span>, <span class="dim">"/full/path/to/synartesis.yaml"</span>]
+    }
+  }
+}</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Watch it work</h3>
+        <p>
+          Leave this open in a second terminal. Rows appear as the agent calls things,
+          and anything it is not allowed to do on its own shows here with the command
+          that releases it.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>synartesis watch</span><span>live</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis watch</span>
+
+  <span class="plate"> S Y N A R T E S I S </span>
+
+  <span class="hit">&#10711;</span> <span class="dim">watching  1 runs, 1 live  ·  4 recent actions  ·  1 awaiting approval</span>
+
+  <span class="dim">16:27:18  · readonly     applied</span>       crm.get_customer
+  <span class="dim">16:27:18  ← reversible   applied</span>       crm.update_customer
+  <span class="dim">16:27:18  ← reversible   applied</span>       crm.delete_customer
+  <span class="dim">16:27:18  ! irreversible</span> <span class="hit">gated</span>         crm.send_email</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Put it back when it goes wrong</h3>
+        <p>
+          Look before you leap with <code class="inline">--dry-run</code>. Both default to the
+          most recent run, so there is usually no id to type.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>from the same directory</span><span>no paths needed</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis show</span>
 <span class="prompt">$</span> <span class="hit">synartesis undo</span> --dry-run
 <span class="prompt">$</span> <span class="hit">synartesis undo</span></pre>
         </div>
-      </div>
-    </div>
+      </li>
+    </ol>
 
-    <p class="lede" style="margin-top:2rem">
-      Then point your MCP client at <code class="inline">synartesis-proxy --manifest
-      synartesis.yaml</code> in place of the server it was talking to. The agent
-      sees the same tools with the same names, and needs no changes at all.
-    </p>
   </section>
 
   <div class="fret" role="presentation"></div>
@@ -1076,5 +1200,73 @@
         copy.textContent = "Copy";
       }, 1600);
     });
+  })();
+</script>
+
+<script>
+  // Reveal on scroll.
+  //
+  // Hiding content and waiting for an observer to give it back is a bargain
+  // worth making only if the giving back cannot fail. So anything already in
+  // view is shown at once without waiting to be told, and a timer shows
+  // everything regardless a moment later. If the observer never fires, the
+  // page is merely unanimated rather than blank.
+  (function () {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || !("IntersectionObserver" in window)) return;
+
+    const groups = [
+      ...document.querySelectorAll(
+        ".section-head, .plate-card, .step, .setup li, .command, .limits p, .refusal .terminal",
+      ),
+    ];
+    if (groups.length === 0) return;
+
+    for (const element of groups) {
+      element.classList.add("reveal");
+    }
+
+    const show = (element, index) => {
+      if (element.dataset.shown === "true") return;
+      // A short stagger within a row, capped, so a wide grid ripples rather
+      // than arriving all at once or crawling in one at a time.
+      element.style.transitionDelay = `${String(Math.min(index, 5) * 60)}ms`;
+      element.dataset.shown = "true";
+    };
+
+    const positionIn = (element) => {
+      const siblings = [...(element.parentElement?.children ?? [])];
+      return Math.max(0, siblings.indexOf(element));
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          show(entry.target, positionIn(entry.target));
+          observer.unobserve(entry.target);
+        }
+      },
+      { rootMargin: "0px 0px -10% 0px", threshold: 0.05 },
+    );
+
+    requestAnimationFrame(() => {
+      for (const element of groups) {
+        const box = element.getBoundingClientRect();
+        if (box.top < window.innerHeight && box.bottom > 0) {
+          show(element, positionIn(element));
+        } else {
+          observer.observe(element);
+        }
+      }
+    });
+
+    // The safety net. Whatever happened, nothing stays hidden.
+    setTimeout(() => {
+      for (const element of groups) {
+        show(element, 0);
+      }
+      observer.disconnect();
+    }, 2500);
   })();
 </script>
