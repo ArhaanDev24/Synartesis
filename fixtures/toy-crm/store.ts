@@ -79,6 +79,10 @@ export class ToyCrmStore {
     return customer;
   }
 
+  listCustomers(): readonly Customer[] {
+    return [...this.#customers.keys()].sort().map((id) => this.getCustomer(id));
+  }
+
   createCustomer(draft: CustomerDraft): Customer {
     // Ids are never recycled: a rolled-back delete followed by a fresh create
     // must not collide with the id the rollback restored.

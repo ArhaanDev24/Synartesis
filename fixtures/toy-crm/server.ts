@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
@@ -40,7 +40,42 @@ function guard(run: () => CallToolResult): CallToolResult {
 export function createToyCrmServer(store: ToyCrmStore): McpServer {
   const server = new McpServer(
     { name: "toy-crm", version: "1.0.0" },
-    { capabilities: { tools: {} } },
+    {
+      capabilities: { tools: {}, resources: {} },
+      instructions: "A toy CRM. Customer ids look like c_001.",
+    },
+  );
+
+  // Resources exist so that the proxy's resources/* passthrough is testable;
+  // a tools-only fixture could not exercise it.
+  server.registerResource(
+    "customers",
+    "crm://customers",
+    { description: "Every customer record.", mimeType: "application/json" },
+    (uri) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/json",
+          text: JSON.stringify(store.listCustomers()),
+        },
+      ],
+    }),
+  );
+
+  server.registerResource(
+    "customer",
+    new ResourceTemplate("crm://customers/{id}", { list: undefined }),
+    { description: "A single customer record.", mimeType: "application/json" },
+    (uri, { id }) => ({
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: "application/json",
+          text: JSON.stringify(store.getCustomer(typeof id === "string" ? id : "")),
+        },
+      ],
+    }),
   );
 
   server.registerTool(

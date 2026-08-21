@@ -11,4 +11,10 @@ import { ToyCrmStore } from "./store.js";
  */
 const server = createToyCrmServer(new ToyCrmStore());
 
+// Exit when the pipe closes; the SDK's stdio transport does not do this for
+// us, and a fixture that outlives its client makes tests hang.
+process.stdin.on("end", () => {
+  process.exit(0);
+});
+
 await server.connect(new StdioServerTransport());
