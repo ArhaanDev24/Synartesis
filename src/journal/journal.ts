@@ -185,6 +185,13 @@ export interface Journal {
   /** Returns false when the action is no longer awaiting a decision. */
   approve(actionId: string, by: string): boolean;
   deny(actionId: string, by: string | undefined, reason: string): boolean;
+  /**
+   * Records a refusal whatever state the row is in. `deny` is conditional
+   * because an operator's decision must not overwrite one already settled; the
+   * proxy needs the opposite, to record that an action it had approval for was
+   * still not carried out.
+   */
+  settleAsDenied(actionId: string, by: string | undefined, reason: string): void;
   listGated(): readonly ActionRow[];
   getAction(actionId: string): ActionRow | undefined;
   listRuns(): readonly RunRow[];
@@ -412,6 +419,16 @@ class SqliteJournal implements Journal {
         )
         .run(by ?? null, new Date().toISOString(), reason, actionId);
       return result.changes === 1;
+    });
+  }
+
+  settleAsDenied(actionId: string, by: string | undefined, reason: string): void {
+    this.#run("settleAsDenied", () => {
+      this.#db
+        .prepare(
+          "UPDATE actions SET status = 'denied', approved_by = ?, approved_at = ?, error = ? WHERE id = ?",
+        )
+        .run(by ?? null, new Date().toISOString(), reason, actionId);
     });
   }
 

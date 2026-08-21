@@ -58,7 +58,7 @@ export interface HarnessOptions {
    * "journal" uses the real out-of-band gate. The default approves instantly,
    * so that tests about other behaviour are not all also tests of the gate.
    */
-  readonly gate?: "journal" | "auto-approve";
+  readonly gate?: "journal" | "auto-approve" | Gate;
   readonly gateTimeoutMs?: number;
 }
 
@@ -77,7 +77,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     journal,
     ...(options.gate === "journal"
       ? {}
-      : { gate: autoApproveGate }),
+      : { gate: typeof options.gate === "object" ? options.gate : autoApproveGate }),
     ...(options.gateTimeoutMs === undefined ? {} : { gateTimeoutMs: options.gateTimeoutMs }),
   });
   const proxied = await link(proxy.server, "test-client");

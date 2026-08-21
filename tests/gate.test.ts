@@ -3,6 +3,7 @@ import { McpError } from "@modelcontextprotocol/sdk/types.js";
 
 import { shouldGateOnWrite } from "../src/gate/heuristic.js";
 import { createHarness, type Harness } from "./helpers/harness.js";
+import type { Gate } from "../src/gate/gate.js";
 
 let harness: Harness | undefined;
 
@@ -138,6 +139,67 @@ describe("the gate", () => {
     expect(active.journal.deny(actionId, "third", "too late")).toBe(false);
     await call;
     expect(active.journal.getAction(actionId)?.approvedBy).toBe("first");
+  });
+
+  it("does not send when an approval lands after the client gave up", async () => {
+    // A gate that only answers once the caller has stopped listening. This is
+    // the shape of a slow human approving through a second terminal after the
+    // client's own tool timeout has already fired.
+    const approveAfterAbort: Gate = {
+      decide: async (request) => {
+        await new Promise<void>((resolve) => {
+          if (request.signal.aborted) {
+            resolve();
+            return;
+          }
+          request.signal.addEventListener("abort", () => {
+            resolve();
+          });
+        });
+        return { approved: true, by: "slow-human" };
+      },
+    };
+
+    harness = await createHarness({ gate: approveAfterAbort });
+    const active = harness;
+    const controller = new AbortController();
+    const call = active.proxied
+      .callTool(EMAIL, undefined, { signal: controller.signal })
+      .catch((error: unknown) => error);
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    controller.abort();
+    await call;
+
+    // Sending here would make the journal and the agent disagree about
+    // whether a real email went out.
+    expect(active.store.__snapshot().outbox).toEqual([]);
+    const runId = active.journal.listRuns()[0]?.id ?? "";
+    const settled = active.journal.getActions(runId)[0];
+    expect(settled?.status).toBe("denied");
+    expect(settled?.error).toMatch(/stopped waiting/i);
+  });
+
+  it("settles a gate the client abandoned rather than leaving it waiting", async () => {
+    harness = await createHarness({ gate: "journal" });
+    const active = harness;
+    const controller = new AbortController();
+    const call = active.proxied
+      .callTool(EMAIL, undefined, { signal: controller.signal })
+      .catch(() => undefined);
+
+    await awaitGate(active);
+    controller.abort();
+    await call;
+
+    // The gate notices on its next poll rather than instantly, so give it one.
+    for (let attempt = 0; attempt < 100 && active.journal.listGated().length > 0; attempt += 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    }
+
+    // However it resolves, it must not be sent and must not linger.
+    expect(active.store.__snapshot().outbox).toEqual([]);
+    expect(active.journal.listGated()).toEqual([]);
   });
 
   it("lists what is waiting so a human can find it", async () => {

@@ -449,6 +449,21 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             { action: pending.actionId, approved: decision.approved },
             decision.approved ? "approved" : "denied",
           );
+          // An approval that lands after the client has given up would send
+          // a real email that the agent has already reported as not sent.
+          // Nobody is waiting for the result, so the safe reading of an
+          // approval nobody can hear is that it did not happen.
+          if (decision.approved && extra.signal.aborted) {
+            journal.settleAsDenied(
+              pending.actionId,
+              decision.by,
+              "approved, but the client had already stopped waiting, so it was not sent",
+            );
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              `synartesis blocked ${request.params.name}: it was approved after the client stopped waiting, so it was not sent. Ask the agent to try again.`,
+            );
+          }
           if (!decision.approved) {
             const who = decision.by === undefined ? "" : ` by ${decision.by}`;
             throw new McpError(
