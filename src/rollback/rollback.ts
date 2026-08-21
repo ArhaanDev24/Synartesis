@@ -22,7 +22,13 @@ import { qualify, type Manifest } from "../manifest/types.js";
  */
 export const IDEMPOTENCY_META_KEY = "synartesis.dev/idempotency-key";
 
-export type StepKind = "revert" | "skip" | "already-reverted" | "halt";
+export type StepKind =
+  | "revert"
+  | "skip"
+  | "already-reverted"
+  /** Known to be permanent. Not an obstacle to stop at, a fact to report. */
+  | "permanent"
+  | "halt";
 
 export interface RollbackStep {
   readonly seq: number;
@@ -127,9 +133,16 @@ function classify(action: ActionRow, replanning: boolean): Decision | undefined 
     case "gated":
       return { kind: "skip", reason: "never applied (awaiting approval)", verified: true };
     case "unrecoverable":
-      // A replan is a person saying they have corrected the policy and want it
-      // tried again. Every check still runs: if the resource really has
-      // drifted, the drift check below halts on it a second time.
+      // With no inverse there is nothing that could be wrongly re-applied and
+      // nothing for a person to decide. An earlier run having labelled it does
+      // not make a permanent action any less permanent, and halting here would
+      // keep a whole run stuck behind something that can never be undone.
+      if (action.inverse === undefined) {
+        return undefined;
+      }
+      // Otherwise it is genuine uncertainty. A replan is a person saying they
+      // corrected the policy and want it tried again; every check still runs,
+      // so real drift halts on it a second time.
       return replanning
         ? undefined
         : { kind: "halt", reason: "previously marked unrecoverable", verified: false };
@@ -181,6 +194,8 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
 
   const steps: RollbackStep[] = [];
   let halted: RollbackHalt | undefined;
+  /** Something permanent was stepped over, so the run is not fully reverted. */
+  let leftInPlace = false;
 
   for (const action of inScope) {
     const early = classify(action, policies !== undefined);
@@ -205,19 +220,20 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     const rebuilt = replan(action);
     const parsedPlan = inversePlan.safeParse(rebuilt.inverse ?? action.inverse);
     if (!parsedPlan.success) {
-      // An applied action with nothing to undo. Everything after it is already
-      // reverted by now, so halting here loses nothing and names precisely
-      // what cannot be taken back.
+      // An applied action with nothing to undo. Nothing here is uncertain: the
+      // email was sent, and no amount of stopping un-sends it. Stopping only
+      // decides whether everything older stays wrong as well, and when the
+      // permanent action is the newest one that means undoing nothing at all.
+      // So it is reported and stepped over, and the run is marked partial.
+      const approved =
+        action.approvedBy === undefined ? "" : `, approved by ${action.approvedBy}`;
       const reason =
         action.class === "irreversible"
-          ? "irreversible: this action cannot be undone"
-          : `no usable inverse was recorded${action.error === undefined ? "" : `: ${action.error}`}`;
-      halted = { seq: action.seq, reason, detail: action.error ?? "" };
-      steps.push({ ...describeStep(action), kind: "halt", reason, verified: false });
-      if (!dryRun) {
-        journal.markUnrecoverable(action.id, reason);
-      }
-      break;
+          ? `cannot be undone${approved}; left in place`
+          : `no usable inverse was recorded${action.error === undefined ? "" : `: ${action.error}`}; left in place`;
+      steps.push({ ...describeStep(action), kind: "permanent", reason, verified: false });
+      leftInPlace = true;
+      continue;
     }
     const plan = parsedPlan.data;
 
@@ -332,7 +348,8 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     break;
   }
 
-  const completedWholeRun = halted === undefined && options.toSeq === undefined;
+  const completedWholeRun =
+    halted === undefined && !leftInPlace && options.toSeq === undefined;
   const status = completedWholeRun ? "rolled_back" : "partial";
   if (!dryRun) {
     journal.endRun(runId, status);

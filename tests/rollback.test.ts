@@ -35,7 +35,9 @@ interface Session {
   readonly before: ToyCrmState;
 }
 
-async function session(options: { beforeWrite?: () => void } = {}): Promise<Session> {
+async function session(
+  options: { beforeWrite?: () => void; realGate?: boolean } = {},
+): Promise<Session> {
   const dir = mkdtempSync(join(tmpdir(), "synartesis-rollback-"));
   const journal = openJournal(join(dir, "journal.db"));
   cleanups.push(() => {
@@ -51,7 +53,14 @@ async function session(options: { beforeWrite?: () => void } = {}): Promise<Sess
 
   const upstream = await inMemoryUpstream(createToyCrmServer(store), "crm");
   const router = createRouter([upstream], MANIFEST);
-  const proxy = createProxyServer({ upstreams: [upstream], manifest: MANIFEST, journal, gate: autoApproveGate });
+  const proxy = createProxyServer({
+    upstreams: [upstream],
+    manifest: MANIFEST,
+    journal,
+    // The real gate refuses and waits to be retried; most tests here are about
+    // rollback, not approval, so they take the instant yes.
+    ...(options.realGate === true ? {} : { gate: autoApproveGate }),
+  });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "agent", version: "0.0.0" });
   await Promise.all([proxy.server.connect(st), client.connect(ct)]);
@@ -220,7 +229,57 @@ describe("drift detection", () => {
 });
 
 describe("actions that cannot be undone", () => {
-  it("halts at an applied irreversible action after reverting everything later", async () => {
+  it("steps over a permanent action and reverts everything else", async () => {
+    const active = await session();
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    await active.client.callTool({
+      name: "send_email",
+      arguments: { to: "a@b.c", subject: "s", body: "b" },
+    });
+    const outboxAfter = active.store.__snapshot().outbox;
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+
+    // The email is the newest action. Stopping at it would mean undoing
+    // nothing at all, and no amount of stopping un-sends it.
+    expect(report.steps[0]?.kind).toBe("permanent");
+    expect(report.status).toBe("partial");
+    expect(active.store.__snapshot().customers["c_001"]?.plan).toBe("pro");
+    expect(active.store.__snapshot().outbox).toEqual(outboxAfter);
+  });
+
+  it("names whoever approved the permanent action it left alone", async () => {
+    const active = await session({ realGate: true });
+    const email = {
+      name: "send_email",
+      arguments: { to: "a@b.c", subject: "s", body: "b" },
+    };
+
+    // The real path: refused, approved out of band, then retried.
+    await active.client.callTool(email).catch(() => undefined);
+    const waiting = active.journal.listGated()[0];
+    expect(waiting).toBeDefined();
+    expect(active.journal.approve(waiting?.id ?? "", "arhaan")).toBe(true);
+    await active.client.callTool(email);
+
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+
+    const permanent = report.steps.find((step) => step.kind === "permanent");
+    expect(permanent?.reason).toContain("approved by arhaan");
+    expect(active.store.__snapshot().customers["c_001"]?.plan).toBe("pro");
+  });
+
+  it("still halts at an applied irreversible action in the middle, reverting what came after", async () => {
     const active = await session();
     await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
     await active.client.callTool({
@@ -237,13 +296,34 @@ describe("actions that cannot be undone", () => {
     });
 
     expect(report.status).toBe("partial");
-    expect(report.halted?.seq).toBe(2);
-    // The later update is undone; the email and everything before it stand.
+    // Everything reversible is undone on both sides of the email, and the
+    // email itself is reported rather than treated as a wall.
     const after = active.store.__snapshot();
     expect(after.customers["c_003"]?.plan).toBe("free");
-    expect(after.customers["c_001"]?.plan).toBe("free");
+    expect(after.customers["c_001"]?.plan).toBe("pro");
     expect(after.outbox).toEqual(beforeUndo.outbox);
-    expect(active.journal.getActions(active.runId)[1]?.status).toBe("unrecoverable");
+    expect(report.steps.map((step) => step.kind)).toEqual(["revert", "permanent", "revert"]);
+  });
+
+  it("does not stay stuck behind a permanent action an earlier run flagged", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "send_email",
+      arguments: { to: "a@b.c", subject: "s", body: "b" },
+    });
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+
+    // What an older, stricter rollback left behind on a row it walled off.
+    const email = active.journal.getActions(active.runId)[0];
+    active.journal.markUnrecoverable(email?.id ?? "", "irreversible: this action cannot be undone");
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+    expect(report.halted).toBeUndefined();
+    expect(active.store.__snapshot().customers["c_001"]?.plan).toBe("pro");
   });
 
   it("halts at an action whose outcome is unknown", async () => {

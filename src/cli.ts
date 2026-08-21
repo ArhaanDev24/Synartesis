@@ -457,7 +457,10 @@ function report(result: RollbackReport): number {
   for (const step of result.steps) {
     const unverified =
       step.kind === "revert" && !step.verified ? `  ${style.accent("[unverified]")}` : "";
-    const kind = step.kind === "halt" ? style.accent(step.kind.padEnd(16)) : step.kind.padEnd(16);
+    const kind =
+      step.kind === "halt" || step.kind === "permanent"
+        ? style.accent(step.kind.padEnd(16))
+        : step.kind.padEnd(16);
     out(
       `  ${style.quiet(String(step.seq).padStart(3))}  ${kind} ` +
         `${style.strong(`${step.server}.${step.tool}`)}  ${style.quiet(step.reason)}${unverified}`,
@@ -480,6 +483,13 @@ function report(result: RollbackReport): number {
         out(`  ${style.quiet(line)}`);
       }
     }
+  }
+  const permanent = result.steps.filter((step) => step.kind === "permanent");
+  if (permanent.length > 0) {
+    out("");
+    out(
+      `  ${style.quiet(`${String(permanent.length)} action${permanent.length === 1 ? "" : "s"} could not be undone and ${permanent.length === 1 ? "was" : "were"} left in place.`)}`,
+    );
   }
   out("");
   out(

@@ -375,9 +375,12 @@ protocol traffic.
   posted message, a file deleted with no backup. This is why the gate exists.
 - **Compensable actions cannot be checked for drift.** They declare no pre-read,
   so undo compensates them and marks them `[unverified]` in its report.
-- **Undo halts rather than guessing.** It stops at the first action it cannot
-  honestly reverse, leaving a clean partial state and telling you where it
-  stopped. Use `--to` to resume past it deliberately.
+- **Undo halts on uncertainty, and steps over the merely permanent.** Drift, an
+  unknown outcome, or a failed reversing call stop it, because continuing past
+  those could destroy something. An action that simply cannot be undone, like a
+  sent email, is reported and left in place while everything else is reverted:
+  no amount of stopping un-sends it, and stopping would only leave the rest
+  wrong too. Either way the run is marked `partial`.
 - **A call interrupted mid-flight is recorded as unknown**, not as failed. Undo
   refuses to walk past it, because whether it applied cannot be determined.
 - **An undo is only as good as the policy that recorded it.** Inverses are
