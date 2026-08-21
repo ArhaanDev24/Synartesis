@@ -4,17 +4,21 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
 
 <style>
-  /* A single committed visual world: white on electric ultramarine, the way
-     the wordmark is set. Every colour is painted explicitly so the page holds
-     whatever ground the viewer's theme paints behind it. */
+  /* A single committed visual world. The ground is a bright green, so the ink
+     is a deep green rather than white: white on this ground is about 2:1 and
+     unreadable. Every colour is painted explicitly so the page holds whatever
+     ground the viewer's theme paints behind it. */
   :root {
-    --ground: #3340f2;
-    --ground-deep: #1f2ad4;
-    --ground-lift: #5563ff;
-    --ink: #f5f5f5;
-    --ink-soft: rgba(245, 245, 245, 0.66);
-    --ink-faint: rgba(245, 245, 245, 0.42);
-    --rule: rgba(245, 245, 245, 0.2);
+    --ground: #4ade80;
+    --ground-deep: #22c55e;
+    --ground-lift: #86efac;
+    --ink: #052e16;
+    --ink-soft: rgba(5, 46, 22, 0.72);
+    --ink-faint: rgba(5, 46, 22, 0.52);
+    --rule: rgba(5, 46, 22, 0.22);
+    --panel: #052e16;
+    --panel-ink: #bbf7d0;
+    --panel-faint: rgba(187, 247, 208, 0.6);
 
     --display: "Cormorant Garamond", "Times New Roman", serif;
     --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -72,7 +76,7 @@
      the margins of it. */
   .fret {
     height: 28px;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='%23f5f5f5' stroke-opacity='0.32' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='%23052e16' stroke-opacity='0.34' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
     background-repeat: repeat-x;
     background-position: center;
   }
@@ -142,8 +146,9 @@
   /* --- terminal ------------------------------------------------------ */
 
   .terminal {
-    background: var(--ground-deep);
-    border: 1px solid var(--rule);
+    background: var(--panel);
+    color: var(--panel-ink);
+    border: 1px solid var(--panel);
     font-family: var(--mono);
     font-size: 0.8rem;
     line-height: 1.75;
@@ -155,25 +160,42 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.5rem 1rem;
-    border-bottom: 1px solid var(--rule);
-    color: var(--ink-faint);
+    border-bottom: 1px solid rgba(187, 247, 208, 0.24);
+    color: var(--panel-faint);
     font-size: 0.68rem;
     letter-spacing: 0.16em;
     text-transform: uppercase;
   }
 
   .terminal pre { margin: 0; padding: 1rem; white-space: pre; }
-  .terminal .prompt { color: var(--ink-faint); }
-  .terminal .dim { color: var(--ink-faint); }
-  .terminal .hit { color: var(--ink); font-weight: 500; }
+  .terminal .prompt { color: var(--panel-faint); }
+  .terminal .dim { color: var(--panel-faint); }
+  .terminal .hit { color: #4ade80; font-weight: 500; }
   .terminal .plate {
-    background: var(--ink);
-    color: var(--ground);
+    background: var(--ground);
+    color: var(--ink);
     font-weight: 500;
     padding: 0 0.35em;
   }
 
   .install { margin-top: 2.5rem; max-width: 46rem; }
+
+  /* Four terminals side by side, so the whole sequence is visible at once
+     rather than read one panel at a time. */
+  .steps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+    gap: 1.75rem;
+  }
+
+  .steps-grid .label { margin: 0 0 0.6rem; }
+
+  .inline {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--ground-lift);
+    padding: 0.1em 0.4em;
+  }
 
   /* --- generic section ----------------------------------------------- */
 
@@ -281,6 +303,7 @@
   }
 
   .command { background: var(--ground); padding: 1.4rem; }
+  .command:hover { background: var(--ground-lift); }
 
   .command code {
     font-family: var(--mono);
@@ -540,6 +563,75 @@
 
   <section>
     <div class="section-head">
+      <h2 class="display">Install<br>via terminal</h2>
+      <p class="lede">
+        Node 20 or newer, and a C toolchain once, for SQLite. There is no
+        installer to pipe into a shell: the repository is private, and a command
+        that only works for people who already have access is worse than one
+        that says what it does.
+      </p>
+    </div>
+
+    <div class="steps-grid">
+      <div>
+        <p class="label">1 &middot; Build it</p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>macOS / Linux</span><span>~1 minute</span></div>
+<pre><span class="prompt">$</span> <span class="hit">git clone</span> \
+     git@github.com:ArhaanDev24/Synartesis.git
+<span class="prompt">$</span> <span class="hit">cd</span> Synartesis
+<span class="prompt">$</span> <span class="hit">pnpm install</span> &amp;&amp; <span class="hit">pnpm build</span></pre>
+        </div>
+      </div>
+
+      <div>
+        <p class="label">2 &middot; Put it on your path</p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>optional</span><span>no shell profile touched</span></div>
+<pre><span class="prompt">$</span> <span class="hit">ln -sf</span> "$PWD/dist/cli.js" \
+     /opt/homebrew/bin/synartesis
+<span class="prompt">$</span> <span class="hit">ln -sf</span> "$PWD/dist/proxy.js" \
+     /opt/homebrew/bin/synartesis-proxy</pre>
+        </div>
+      </div>
+
+      <div>
+        <p class="label">3 &middot; Write a policy for a server</p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>any MCP server</span><span>everything starts guarded</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis init</span> crm \
+     -- node ./crm-server.js
+<span class="prompt">$</span> <span class="hit">synartesis check</span>
+
+  <span class="plate"> POLICY </span> synartesis.yaml
+  <span class="dim">servers  crm</span>
+  <span class="dim">policies 4 readonly, 2 reversible, 1 irreversible</span></pre>
+        </div>
+      </div>
+
+      <div>
+        <p class="label">4 &middot; See it, then undo it</p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>no paths to type</span><span>found from here upwards</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis list</span>
+<span class="prompt">$</span> <span class="hit">synartesis show</span>
+<span class="prompt">$</span> <span class="hit">synartesis undo</span> --dry-run
+<span class="prompt">$</span> <span class="hit">synartesis undo</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <p class="lede" style="margin-top:2rem">
+      Then point your MCP client at <code class="inline">synartesis-proxy --manifest
+      synartesis.yaml</code> in place of the server it was talking to. The agent
+      sees the same tools with the same names, and needs no changes at all.
+    </p>
+  </section>
+
+  <div class="fret" role="presentation"></div>
+
+  <section>
+    <div class="section-head">
       <h2 class="display">What it<br>will not do</h2>
     </div>
     <div class="limits">
@@ -617,7 +709,7 @@
     function fretBorder(side, unit) {
       const half = side / 2;
       ctx.save();
-      ctx.strokeStyle = "rgba(245,245,245,0.5)";
+      ctx.strokeStyle = "rgba(5,46,22,0.48)";
       ctx.lineWidth = 2;
       ctx.lineJoin = "miter";
       for (let quarter = 0; quarter < 4; quarter++) {
@@ -655,7 +747,7 @@
         ctx.beginPath();
         ctx.moveTo(CENTRE + Math.cos(angle) * inner, CENTRE + Math.sin(angle) * inner);
         ctx.lineTo(CENTRE + Math.cos(angle) * outer, CENTRE + Math.sin(angle) * outer);
-        ctx.strokeStyle = "rgba(245,245,245," + (0.34 + 0.5 * swell) + ")";
+        ctx.strokeStyle = "rgba(5,46,22," + (0.3 + 0.45 * swell) + ")";
         ctx.lineWidth = 0.75 + 0.7 * swell;
         ctx.stroke();
 
@@ -665,7 +757,7 @@
           ctx.beginPath();
           ctx.moveTo(CENTRE + Math.cos(angle) * (outer + 12), CENTRE + Math.sin(angle) * (outer + 12));
           ctx.lineTo(CENTRE + Math.cos(angle) * far, CENTRE + Math.sin(angle) * far);
-          ctx.strokeStyle = "rgba(245,245,245,0.22)";
+          ctx.strokeStyle = "rgba(5,46,22,0.2)";
           ctx.lineWidth = 0.7;
           ctx.stroke();
         }
@@ -687,7 +779,7 @@
         ctx.lineTo(30, 26);
         ctx.lineTo(-30, 26);
         ctx.closePath();
-        ctx.fillStyle = "rgba(245,245,245,0.95)";
+        ctx.fillStyle = "rgba(5,46,22,0.92)";
         ctx.fill();
         ctx.restore();
       }

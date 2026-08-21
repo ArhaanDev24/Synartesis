@@ -12,6 +12,8 @@ export type RunStatus = "active" | "complete" | "rolled_back" | "partial";
 export type ActionStatus =
   | "pending"
   | "gated"
+  /** A person said yes; the agent has not made the call again yet. */
+  | "approved"
   | "denied"
   | "applied"
   | "failed"
@@ -112,6 +114,7 @@ const actionSchema = z.object({
   status: z.enum([
     "pending",
     "gated",
+    "approved",
     "denied",
     "applied",
     "failed",
@@ -182,6 +185,8 @@ export interface Journal {
   markInverseRejected(actionId: string, error: string): void;
   markUnknownInverse(actionId: string, error: string): void;
   markGated(actionId: string): void;
+  /** About to go out: from here on its outcome is genuinely unknown. */
+  markInFlight(actionId: string): void;
   /** Returns false when the action is no longer awaiting a decision. */
   approve(actionId: string, by: string): boolean;
   deny(actionId: string, by: string | undefined, reason: string): boolean;
@@ -411,6 +416,12 @@ class SqliteJournal implements Journal {
     });
   }
 
+  markInFlight(actionId: string): void {
+    this.#run("markInFlight", () => {
+      this.#db.prepare("UPDATE actions SET status = 'pending' WHERE id = ?").run(actionId);
+    });
+  }
+
   /**
    * Conditional on the row still being gated, so a decision made at the same
    * moment as a timeout resolves one way rather than both.
@@ -419,7 +430,7 @@ class SqliteJournal implements Journal {
     return this.#run("approve", () => {
       const result = this.#db
         .prepare(
-          `UPDATE actions SET status = 'pending', approved_by = ?, approved_at = ?, error = NULL
+          `UPDATE actions SET status = 'approved', approved_by = ?, approved_at = ?, error = NULL
            WHERE id = ? AND status = 'gated'`,
         )
         .run(by, new Date().toISOString(), actionId);
@@ -484,7 +495,7 @@ class SqliteJournal implements Journal {
         .prepare(
           `SELECT * FROM actions
             WHERE server = ? AND tool = ? AND args_json = ?
-              AND status = 'pending' AND approved_by IS NOT NULL
+              AND status = 'approved'
               AND approved_at >= ?
             ORDER BY approved_at DESC
             LIMIT 1`,

@@ -8,11 +8,16 @@
  * literal arguments at capture time for the same reason the inverse is (D5):
  * the manifest may have been edited by the time anyone rolls back.
  *
+ * Version 3 adds `approved`: granted by a person but not yet carried out.
+ * That was `pending` at first, which also means a call went out and its
+ * outcome is unknown. Undo has to halt on the second and step past the first,
+ * so they cannot share a name.
+ *
  * There is no migration path yet, and inventing one before anything needs
  * migrating would mean shipping untested machinery. An older journal is
  * refused with instructions instead of being silently reinterpreted.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS runs (
@@ -39,7 +44,7 @@ CREATE TABLE IF NOT EXISTS actions (
   error              TEXT,
   idempotency_key    TEXT NOT NULL UNIQUE,
   status             TEXT NOT NULL CHECK (status IN
-                       ('pending','gated','denied','applied','failed',
+                       ('pending','gated','approved','denied','applied','failed',
                         'rolling_back','rolled_back','unrecoverable')),
   approved_by        TEXT,
   approved_at        TEXT,

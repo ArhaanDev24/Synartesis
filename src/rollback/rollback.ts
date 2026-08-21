@@ -132,6 +132,11 @@ function classify(action: ActionRow, replanning: boolean): Decision | undefined 
       };
     case "gated":
       return { kind: "skip", reason: "never applied (awaiting approval)", verified: true };
+    case "approved":
+      // Somebody said yes and the agent never made the call again, so it never
+      // went out. Distinct from `pending`, where it did and we cannot say what
+      // happened.
+      return { kind: "skip", reason: "never applied (approved, never retried)", verified: true };
     case "unrecoverable":
       // With no inverse there is nothing that could be wrongly re-applied and
       // nothing for a person to decide. An earlier run having labelled it does

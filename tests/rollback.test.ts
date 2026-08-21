@@ -326,6 +326,28 @@ describe("actions that cannot be undone", () => {
     expect(active.store.__snapshot().customers["c_001"]?.plan).toBe("pro");
   });
 
+  it("reverts the rest when something was approved but never retried", async () => {
+    const active = await session({ realGate: true });
+    await active.client
+      .callTool({ name: "send_email", arguments: { to: "a@b.c", subject: "s", body: "b" } })
+      .catch(() => undefined);
+    const waiting = active.journal.listGated()[0];
+    active.journal.approve(waiting?.id ?? "", "arhaan");
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+
+    // Approved and never called again means it never went out. Reading that as
+    // "we called it and cannot say what happened" would halt the whole undo.
+    expect(report.halted).toBeUndefined();
+    expect(active.store.__snapshot().customers["c_001"]?.plan).toBe("pro");
+    expect(active.store.__snapshot().outbox).toEqual([]);
+  });
+
   it("halts at an action whose outcome is unknown", async () => {
     const active = await session();
     await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });

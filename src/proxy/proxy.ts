@@ -460,6 +460,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
 
         if (inherited !== undefined) {
           journal.adoptApproval(pending.actionId, inherited);
+        } else if (granted !== undefined) {
+          // Reusing the approved row itself: from here its outcome stops being
+          // known, so it stops being `approved`.
+          journal.markInFlight(granted.id);
         }
         if (granted !== undefined) {
           log?.info(
