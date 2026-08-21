@@ -545,37 +545,6 @@
     opacity: 0.42;
   }
 
-  .niche figcaption {
-    position: absolute;
-    bottom: 0.1rem;
-    width: calc(100% - var(--medal) * var(--cut));
-    padding-top: 0.35rem;
-    border-top: 1px solid color-mix(in srgb, var(--ink) 16%, var(--ground));
-  }
-
-  .niche.left figcaption { left: calc(var(--medal) * var(--cut)); text-align: left; }
-  .niche.right figcaption { left: 0; text-align: right; }
-
-  .niche figcaption b {
-    display: block;
-    font-family: var(--mono);
-    font-weight: 500;
-    font-size: 0.6rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--ink) 48%, var(--ground));
-  }
-
-  .niche figcaption span {
-    display: block;
-    font-family: var(--display);
-    font-style: italic;
-    font-size: 0.82rem;
-    line-height: 1.25;
-    margin-top: 0.05rem;
-    color: color-mix(in srgb, var(--ink) 34%, var(--ground));
-  }
-
   /* Only once the margin can hold one without crowding the column, and sized
      from the margin itself so the visible part always clears the text by the
      same amount. */
@@ -601,36 +570,28 @@
 <main>
 <div class="pantheon" role="presentation">
   <figure class="niche left" style="--at: 4%">
-    <canvas data-god="hermes" data-flip="true" aria-hidden="true"></canvas>
-    <figcaption><b>Hermes</b><span>carries the call</span></figcaption>
+    <canvas data-god="hermes" aria-hidden="true"></canvas>
   </figure>
   <figure class="niche right" style="--at: 16%">
-    <canvas data-god="athena" aria-hidden="true"></canvas>
-    <figcaption><b>Athena</b><span>asks before it is done</span></figcaption>
+    <canvas data-god="athena" data-flip="true" aria-hidden="true"></canvas>
   </figure>
   <figure class="niche left" style="--at: 28%">
-    <canvas data-god="hephaistos" data-flip="true" aria-hidden="true"></canvas>
-    <figcaption><b>Hephaistos</b><span>makes the undoing</span></figcaption>
+    <canvas data-god="hephaistos" aria-hidden="true"></canvas>
   </figure>
   <figure class="niche right" style="--at: 40%">
-    <canvas data-god="apollo" aria-hidden="true"></canvas>
-    <figcaption><b>Apollo</b><span>sees it before it happens</span></figcaption>
+    <canvas data-god="apollo" data-flip="true" aria-hidden="true"></canvas>
   </figure>
   <figure class="niche left" style="--at: 52%">
-    <canvas data-god="zeus" data-flip="true" aria-hidden="true"></canvas>
-    <figcaption><b>Zeus</b><span>the last word</span></figcaption>
+    <canvas data-god="zeus" aria-hidden="true"></canvas>
   </figure>
   <figure class="niche right" style="--at: 64%">
-    <canvas data-god="poseidon" aria-hidden="true"></canvas>
-    <figcaption><b>Poseidon</b><span>the ground moves</span></figcaption>
+    <canvas data-god="poseidon" data-flip="true" aria-hidden="true"></canvas>
   </figure>
   <figure class="niche left" style="--at: 76%">
-    <canvas data-god="atlas" data-flip="true" aria-hidden="true"></canvas>
-    <figcaption><b>Atlas</b><span>bears the whole record</span></figcaption>
+    <canvas data-god="atlas" aria-hidden="true"></canvas>
   </figure>
   <figure class="niche right" style="--at: 86%">
-    <canvas data-god="hades" aria-hidden="true"></canvas>
-    <figcaption><b>Hades</b><span>keeps what he is given</span></figcaption>
+    <canvas data-god="hades" data-flip="true" aria-hidden="true"></canvas>
   </figure>
 </div>
   <section class="hero">
@@ -1406,7 +1367,7 @@
   const S = 300;
   const C = 150;
   /** Where the portrait sits inside the field, and how big. */
-  const HEAD = { x: C + 12, y: C + 8, scale: 1.34 };
+  const HEAD = { x: C - 26, y: C + 8, scale: 1.34 };
 
   function seeded(seed) {
     let n = seed >>> 0;
@@ -1636,7 +1597,7 @@
    * not: a helm drawn smaller than the hair mass sits inside it and reads as a
    * comb.
    */
-  const SKULL = { x: C + 11, y: C - 12 };
+  const SKULL = { x: C - 27, y: C - 12 };
   /** Nothing may cross the rim: an emblem that does reads as a mistake. */
   const FIELD = 84;
   /** Where anything worn on the head sits, measured from the skull. */
@@ -1742,25 +1703,25 @@
     },
 
     zeus(g) {
-      // The bolt, kept clear of the rim.
+      // The bolt, in front of him and clear of the rim.
       g.lineWidth = 3;
       g.lineJoin = "miter";
       g.beginPath();
-      g.moveTo(C - 66, C - 52);
-      g.lineTo(C - 34, C - 18);
-      g.lineTo(C - 54, C - 10);
-      g.lineTo(C - 24, C + 40);
+      g.moveTo(C + 30, C - 52);
+      g.lineTo(C + 62, C - 18);
+      g.lineTo(C + 42, C - 10);
+      g.lineTo(C + 72, C + 40);
       g.stroke();
       g.lineWidth = 1.6;
       g.beginPath();
-      g.moveTo(C - 54, C - 36);
-      g.lineTo(C - 30, C - 4);
+      g.moveTo(C + 42, C - 36);
+      g.lineTo(C + 66, C - 4);
       g.stroke();
       beard(g);
     },
 
     poseidon(g) {
-      const x = C - 44;
+      const x = C + 52;
       g.lineWidth = 3;
       g.beginPath();
       g.moveTo(x, C - 32);
@@ -1787,17 +1748,17 @@
     hephaistos(g) {
       g.lineWidth = 3;
       g.beginPath();
-      g.moveTo(C - 30, C + 56);
-      g.lineTo(C - 62, C - 26);
+      g.moveTo(C + 22, C + 56);
+      g.lineTo(C + 56, C - 26);
       g.stroke();
       g.save();
-      g.translate(C - 62, C - 40);
-      g.rotate(-1.2);
+      g.translate(C + 56, C - 40);
+      g.rotate(1.2);
       g.lineWidth = 2.6;
       g.strokeRect(-19, -9.5, 38, 19);
       g.beginPath();
-      g.moveTo(-6, -9.5);
-      g.lineTo(-6, 9.5);
+      g.moveTo(6, -9.5);
+      g.lineTo(6, 9.5);
       g.stroke();
       g.restore();
       beard(g);
@@ -1806,7 +1767,7 @@
     atlas(g) {
       // The sphere as an emblem beside the head rather than a burden over it.
       // Drawn overhead it sat outside the rim, which reads as an accident.
-      const gx = C - 44;
+      const gx = C + 50;
       const gy = C - 22;
       g.lineWidth = 2.4;
       g.beginPath();
@@ -1830,8 +1791,8 @@
       g.lineWidth = 2.6;
       g.lineCap = "round";
       g.beginPath();
-      g.moveTo(C - 20, C + 62);
-      g.quadraticCurveTo(C - 44, C + 40, gx + 22, gy + 26);
+      g.moveTo(C + 16, C + 62);
+      g.quadraticCurveTo(C + 40, C + 42, gx - 22, gy + 26);
       g.stroke();
       g.lineCap = "butt";
     },
@@ -1843,8 +1804,8 @@
     g.lineCap = "round";
     for (let i = 0; i < 9; i += 1) {
       const t = i / 8;
-      const sx = C + 2 + t * 12;
-      const sy = C + 20 + t * 10;
+      const sx = HEAD.x - 10 + t * 12;
+      const sy = HEAD.y + 12 + t * 10;
       g.beginPath();
       g.moveTo(sx, sy);
       g.bezierCurveTo(sx - 6, sy + 14, sx + 6, sy + 22, sx - 4 + t * 6, sy + 34);
@@ -1873,8 +1834,8 @@
     const g = canvas.getContext("2d");
     if (g === null) return;
     g.scale((width / S) * dpr, (height / S) * dpr);
-    // Mirrored for the rail that is cropped on the other side, so the emblem
-    // is never the half that got cut off.
+    // Mirrored for one rail, so both of them look into the page rather than
+    // out of it, and the emblem is never the half that got cut off.
     if (canvas.dataset.flip === "true") {
       g.translate(S, 0);
       g.scale(-1, 1);
