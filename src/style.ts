@@ -7,8 +7,8 @@
  * restraint.
  */
 const ESC = "\u001b[";
-const BLUE = `${ESC}38;2;90;90;255m`;
-const ON_BLUE = `${ESC}48;2;0;0;242m${ESC}38;2;245;245;245m`;
+const BLUE = `${ESC}38;2;125;136;255m`;
+const ON_BLUE = `${ESC}48;2;51;64;242m${ESC}38;2;245;245;245m`;
 const WHITE = `${ESC}38;2;245;245;245m`;
 const DIM = `${ESC}2m`;
 const BOLD = `${ESC}1m`;
@@ -50,19 +50,38 @@ export const style = {
 export const WORDMARK = spaced("SYNARTESIS");
 
 /**
+ * A meander, the Greek fret. A single line that turns back on itself without
+ * ever breaking, which is the same idea the name carries and the same idea the
+ * product does.
+ */
+export function meander(width: number): string {
+  const unit = "\u2517\u2501\u2513\u250f\u2501\u251b";
+  return unit.repeat(Math.max(1, Math.ceil(width / unit.length))).slice(0, width);
+}
+
+/** A dim fret rule, for separating one region of output from the next. */
+export function rule(width = 48): string {
+  return style.quiet(meander(width));
+}
+
+/**
  * Greek sunartesis, a fastening together. The whole idea in one word: every
  * action is bound to the action that undoes it.
  */
-export const MEANING = "Greek sunartesis: a fastening together";
+export const GREEK = spaced("\u03a3\u03a5\u039d\u0391\u03a1\u03a4\u0397\u03a3\u0399\u03a3");
+export const MEANING = "a fastening together";
 export const TAGLINE = "an undo layer for AI agents";
 
 export function banner(): string {
   return [
     "",
     `  ${style.plate(WORDMARK)}`,
+    `  ${style.accent(meander(24))}`,
+    "",
+    `  ${style.quiet(GREEK)}  ${style.quiet("\u00b7")}  ${style.quiet(MEANING)}`,
     "",
     `  ${style.accent(spaced(TAGLINE.toUpperCase()))}`,
-    `  ${style.quiet(MEANING + ". Every action is bound to the action that undoes it.")}`,
+    `  ${style.quiet("Every action is bound to the action that undoes it.")}`,
     "",
   ].join("\n");
 }

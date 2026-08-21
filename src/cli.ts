@@ -10,7 +10,7 @@ import { verifyAgainstServers } from "./manifest/verify.js";
 import { createRouter } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
-import { banner, style } from "./style.js";
+import { banner, rule, style } from "./style.js";
 import { cliCommand } from "./invocation.js";
 
 const COMMANDS = `
@@ -112,6 +112,7 @@ async function runCheck(argv: readonly string[]): Promise<number> {
 
   out("");
   out(`  ${style.label("policy")}  ${style.strong(path)}`);
+  out(`  ${rule(54)}`);
   out("");
   out(`  ${style.quiet("servers ")} ${Object.keys(manifest.servers).join(", ")}`);
   out(`  ${style.quiet("policies")} ${[...counts].map(([k, v]) => `${String(v)} ${k}`).join(", ")}`);
@@ -156,6 +157,7 @@ async function runInit(argv: readonly string[]): Promise<number> {
 
   out("");
   out(`  ${style.label(present ? "extended" : "wrote")}  ${style.strong(path)}`);
+  out(`  ${rule(54)}`);
   out("");
   out(`  ${style.quiet("Every tool is guarded until you say how to undo it.")}`);
   out(`  ${style.quiet("Work through the TODOs, then point your MCP client at:")}`);
@@ -243,6 +245,7 @@ function runList(journal: Journal, asJson: boolean): number {
   }
   out("");
   out(`  ${style.label("runs")}  ${style.quiet("most recent first")}`);
+  out(`  ${rule(96)}`);
   out("");
   out(
     style.quiet(
@@ -280,6 +283,7 @@ function runShow(argv: readonly string[], journal: Journal, asJson: boolean): nu
 
   out("");
   out(`  ${style.label("run")}  ${style.strong(run.id)}`);
+  out(`  ${rule(54)}`);
   out("");
   out(`  ${style.quiet("agent  ")} ${run.label ?? "-"}`);
   out(`  ${style.quiet("started")} ${run.startedAt}`);
@@ -298,6 +302,7 @@ function runShow(argv: readonly string[], journal: Journal, asJson: boolean): nu
   out("");
   out("");
   out(`  ${style.label("timeline")}`);
+  out(`  ${rule(72)}`);
   out("");
   for (const action of actions) {
     out(
@@ -387,6 +392,7 @@ function runGates(journal: Journal, asJson: boolean): number {
   }
   out("");
   out(`  ${style.label("awaiting approval")}`);
+  out(`  ${rule(72)}`);
   out("");
   for (const action of waiting) {
     out(`  ${style.strong(action.id)}  ${style.quiet(action.ts)}`);
@@ -453,6 +459,7 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
 function report(result: RollbackReport): number {
   out("");
   out(`  ${style.label(result.dryRun ? "dry run" : "undo")}  ${style.strong(result.runId)}`);
+  out(`  ${rule(72)}`);
   out("");
   for (const step of result.steps) {
     const unverified =
