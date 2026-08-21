@@ -7,7 +7,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FS="$ROOT/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js"
-DEMO="${TMPDIR:-/tmp}/synartesis-demo-fs"
+# TMPDIR usually ends in a slash on macOS; a doubled one is ugly in every path
+# the demo then prints.
+DEMO="${TMPDIR:-/tmp}"
+DEMO="${DEMO%/}/synartesis-demo-fs"
 WORK="$DEMO/work"
 
 say() { printf '\n\033[1m%s\033[0m\n' "$*"; }
