@@ -11,7 +11,7 @@ import { ToyCrmStore } from "../../fixtures/toy-crm/store.js";
 import { openJournal, type Journal } from "../../src/journal/journal.js";
 import { loadManifest, parseManifest } from "../../src/manifest/load.js";
 import { createProxyServer } from "../../src/proxy/proxy.js";
-import type { Gate, GateDecision } from "../../src/gate/gate.js";
+import { createJournalGate, type Gate, type GateDecision } from "../../src/gate/gate.js";
 import type { Upstream } from "../../src/proxy/upstream.js";
 
 /**
@@ -55,10 +55,11 @@ export interface HarnessOptions {
   /** Manifest source to use instead of manifests/toy-crm.yaml. */
   readonly manifest?: string;
   /**
-   * "journal" uses the real out-of-band gate. The default approves instantly,
-   * so that tests about other behaviour are not all also tests of the gate.
+   * "journal" is the suspend-and-wait gate, "retry" the refuse-and-retry one
+   * that the proxy now defaults to. Anything else approves instantly, so tests
+   * about other behaviour are not all also tests of the gate.
    */
-  readonly gate?: "journal" | "auto-approve" | Gate;
+  readonly gate?: "journal" | "retry" | "auto-approve" | Gate;
   readonly gateTimeoutMs?: number;
 }
 
@@ -75,9 +76,20 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
         ? loadManifest("manifests/toy-crm.yaml")
         : parseManifest(options.manifest, "manifest.yaml"),
     journal,
-    ...(options.gate === "journal"
+    ...(options.gate === "retry"
       ? {}
-      : { gate: typeof options.gate === "object" ? options.gate : autoApproveGate }),
+      : {
+          gate:
+            options.gate === "journal"
+              ? createJournalGate(journal, {
+                  ...(options.gateTimeoutMs === undefined
+                    ? {}
+                    : { timeoutMs: options.gateTimeoutMs }),
+                })
+              : typeof options.gate === "object"
+                ? options.gate
+                : autoApproveGate,
+        }),
     ...(options.gateTimeoutMs === undefined ? {} : { gateTimeoutMs: options.gateTimeoutMs }),
   });
   const proxied = await link(proxy.server, "test-client");

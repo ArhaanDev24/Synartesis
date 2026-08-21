@@ -192,7 +192,24 @@ export interface Journal {
    * still not carried out.
    */
   settleAsDenied(actionId: string, by: string | undefined, reason: string): void;
+  /**
+   * Moves an approval granted in an earlier session onto the action that is
+   * about to run, and spends the original so it cannot be used twice.
+   */
+  adoptApproval(actionId: string, granted: ActionRow): void;
   listGated(): readonly ActionRow[];
+  /**
+   * An approval that was granted but never carried out, for this exact call.
+   * A retry after an out-of-band approval reuses that row rather than opening
+   * a second one, so the approval sits on the action that actually ran.
+   */
+  findApproval(query: {
+    server: string;
+    tool: string;
+    args: unknown;
+    /** ISO timestamp; approvals older than this are ignored. */
+    notBefore: string;
+  }): ActionRow | undefined;
   getAction(actionId: string): ActionRow | undefined;
   listRuns(): readonly RunRow[];
   getRun(runId: string): RunRow | undefined;
@@ -432,10 +449,54 @@ class SqliteJournal implements Journal {
     });
   }
 
+  adoptApproval(actionId: string, granted: ActionRow): void {
+    this.#run("adoptApproval", () => {
+      const move = this.#db.transaction((): void => {
+        this.#db
+          .prepare("UPDATE actions SET approved_by = ?, approved_at = ? WHERE id = ?")
+          .run(granted.approvedBy ?? null, granted.approvedAt ?? null, actionId);
+        this.#db
+          .prepare("UPDATE actions SET status = 'denied', error = ? WHERE id = ?")
+          .run(`approval was used by action ${actionId}`, granted.id);
+      });
+      move();
+    });
+  }
+
   listGated(): readonly ActionRow[] {
     return this.#run("listGated", () =>
       this.#db.prepare("SELECT * FROM actions WHERE status = 'gated' ORDER BY ts").all().map(toAction),
     );
+  }
+
+  findApproval(query: {
+    server: string;
+    tool: string;
+    args: unknown;
+    notBefore: string;
+  }): ActionRow | undefined {
+    return this.#run("findApproval", () => {
+      // Not scoped to one run: people restart their client, and an approval
+      // stranded in a dead session is the same as no approval at all. Bounded
+      // by time and by being single use instead, so a decision made this
+      // morning cannot silently authorise the same call tomorrow.
+      const raw = this.#db
+        .prepare(
+          `SELECT * FROM actions
+            WHERE server = ? AND tool = ? AND args_json = ?
+              AND status = 'pending' AND approved_by IS NOT NULL
+              AND approved_at >= ?
+            ORDER BY approved_at DESC
+            LIMIT 1`,
+        )
+        .get(
+          query.server,
+          query.tool,
+          JSON.stringify(query.args ?? {}),
+          query.notBefore,
+        );
+      return raw === undefined ? undefined : toAction(raw);
+    });
   }
 
   getAction(actionId: string): ActionRow | undefined {

@@ -256,24 +256,11 @@ describe("the gate, driven from a second process", () => {
     await client.connect(
       new StdioClientTransport({
         command: "node",
-        args: [PROXY, "--manifest", space.manifest, "--journal", space.journal, "--gate-timeout", "30"],
+        args: [PROXY, "--manifest", space.manifest, "--journal", space.journal],
         stderr: "ignore",
       }),
     );
     return client;
-  }
-
-  async function waitForGate(journalPath: string): Promise<string> {
-    for (let attempt = 0; attempt < 200; attempt += 1) {
-      const journal = openJournal(journalPath);
-      const gated = journal.listGated()[0]?.id;
-      journal.close();
-      if (gated !== undefined) {
-        return gated;
-      }
-      await new Promise<void>((resolveWait) => setTimeout(resolveWait, 25));
-    }
-    throw new Error("nothing reached the gate");
   }
 
   const email = {
@@ -281,80 +268,119 @@ describe("the gate, driven from a second process", () => {
     arguments: { to: "ada@example.com", subject: "Hi", body: "Automated" },
   };
 
-  it("blocks an email until a human approves it in another terminal", async () => {
+  function gatedAction(journalPath: string): string {
+    const journal = openJournal(journalPath);
+    const id = journal.listGated()[0]?.id;
+    journal.close();
+    if (id === undefined) {
+      throw new Error("nothing is awaiting approval");
+    }
+    return id;
+  }
+
+  it("refuses at once and tells the agent how to get approval", async () => {
     const space = workspace();
     const client = await agentAgainst(space);
-    const call = client.callTool(email).catch((error: unknown) => error);
 
-    const actionId = await waitForGate(space.journal);
-    const listed = await run("node", [CLI, "gates", "--journal", space.journal]);
-    expect(listed.stdout).toContain("crm.send_email");
+    const started = performance.now();
+    const thrown = await client.callTool(email).catch((error: unknown) => error);
+    const elapsed = performance.now() - started;
 
+    // The whole point: no held connection. A client's own tool timeout is
+    // shorter than any useful window for a person to decide, so waiting is
+    // not something the two can ever agree on.
+    expect(elapsed).toBeLessThan(2000);
+    expect(thrown).toBeInstanceOf(McpError);
+    expect(String(thrown)).toContain("Synartesis is holding this call for approval");
+    expect(String(thrown)).toContain("synartesis approve");
+    await client.close();
+  });
+
+  it("lets the same call through once a person has approved it", async () => {
+    const space = workspace();
+    const first = await agentAgainst(space);
+    await first.callTool(email).catch(() => undefined);
+    await first.close();
+
+    const actionId = gatedAction(space.journal);
     const approved = await run("node", [
       CLI, "approve", actionId, "--by", "arhaan", "--journal", space.journal,
     ]);
     expect(approved.code).toBe(0);
 
-    const result = await call;
-    expect(result).not.toBeInstanceOf(McpError);
-    await client.close();
+    // A different session entirely: people restart their client, and an
+    // approval stranded in a dead one would be no approval at all.
+    const second = await agentAgainst(space);
+    const result = await second.callTool(email);
+    expect(result.isError).toBeFalsy();
 
-    const shown = await run("node", [
-      CLI, "show", await onlyRunId(space.journal), "--journal", space.journal,
-    ]);
-    expect(shown.stdout).toContain("approved by arhaan");
+    // And it is spent: the next identical call has to be approved again.
+    const again = await second.callTool(email).catch((error: unknown) => error);
+    expect(again).toBeInstanceOf(McpError);
+    await second.close();
   });
 
-  it("returns a readable error on denial and leaves the agent able to continue", async () => {
+  it("records who approved the call that actually ran", async () => {
+    const space = workspace();
+    const first = await agentAgainst(space);
+    await first.callTool(email).catch(() => undefined);
+    await first.close();
+
+    await run("node", [
+      CLI, "approve", gatedAction(space.journal), "--by", "arhaan", "--journal", space.journal,
+    ]);
+    const second = await agentAgainst(space);
+    await second.callTool(email);
+    await second.close();
+
+    const journal = openJournal(space.journal);
+    const applied = journal
+      .listRuns()
+      .flatMap((run_) => journal.getActions(run_.id))
+      .filter((action) => action.status === "applied" && action.tool === "send_email");
+    expect(applied).toHaveLength(1);
+    expect(applied[0]?.approvedBy).toBe("arhaan");
+    journal.close();
+  });
+
+  it("leaves a denied call refused, and says who refused it", async () => {
     const space = workspace();
     const client = await agentAgainst(space);
-    const call = client.callTool(email).catch((error: unknown) => error);
+    await client.callTool(email).catch(() => undefined);
 
-    const actionId = await waitForGate(space.journal);
+    const actionId = gatedAction(space.journal);
     await run("node", [
-      CLI, "deny", actionId, "--by", "arhaan", "--reason", "we do not email customers", "--journal", space.journal,
+      CLI, "deny", actionId, "--by", "arhaan", "--reason", "we do not email customers",
+      "--journal", space.journal,
     ]);
 
-    const thrown = await call;
+    const thrown = await client.callTool(email).catch((error: unknown) => error);
     expect(thrown).toBeInstanceOf(McpError);
-    expect(String(thrown)).toContain("we do not email customers");
 
-    // The session survives the refusal; the agent keeps working.
+    // The agent keeps working after a refusal.
     const after = await client.callTool({ name: "get_customer", arguments: { id: "c_001" } });
     expect(after.isError).toBeFalsy();
     await client.close();
-  });
-
-  it("denies anything still suspended when the proxy exits", async () => {
-    const space = workspace();
-    const client = await agentAgainst(space);
-    const call = client.callTool(email).catch(() => undefined);
-    const actionId = await waitForGate(space.journal);
-
-    // Nobody is left to answer once the proxy is gone. Left alone these linger
-    // in `synartesis gates` forever with no one waiting on them.
-    await client.close();
-    await call;
 
     const journal = openJournal(space.journal);
-    expect(journal.listGated()).toEqual([]);
-    const settled = journal.getAction(actionId);
-    expect(settled?.status).toBe("denied");
-    expect(settled?.error).toContain("proxy exited");
+    const denied = journal
+      .listRuns()
+      .flatMap((run_) => journal.getActions(run_.id))
+      .find((action) => action.status === "denied");
+    expect(denied?.error).toContain("we do not email customers");
     journal.close();
   });
 
   it("reports a decision that arrives after the action is settled", async () => {
     const space = workspace();
     const client = await agentAgainst(space);
-    const call = client.callTool(email).catch(() => undefined);
-    const actionId = await waitForGate(space.journal);
-    await run("node", [CLI, "approve", actionId, "--journal", space.journal]);
-    await call;
+    await client.callTool(email).catch(() => undefined);
+    await client.close();
 
+    const actionId = gatedAction(space.journal);
+    await run("node", [CLI, "approve", actionId, "--journal", space.journal]);
     const late = await run("node", [CLI, "deny", actionId, "--journal", space.journal]);
     expect(late.code).toBe(1);
     expect(late.stderr).toContain("no longer awaiting approval");
-    await client.close();
   });
 });

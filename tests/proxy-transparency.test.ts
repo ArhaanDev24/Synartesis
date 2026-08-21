@@ -21,7 +21,14 @@ describe("proxy transparency", () => {
     harness = await createHarness();
     expect(harness.proxied.getServerVersion()).toEqual(harness.direct.getServerVersion());
     expect(harness.proxied.getServerCapabilities()).toEqual(harness.direct.getServerCapabilities());
-    expect(harness.proxied.getInstructions()).toEqual(harness.direct.getInstructions());
+
+    // Instructions are the one thing deliberately not passed through
+    // unchanged. An agent that does not know it is being guarded cannot tell
+    // its user why a call was held, so the upstream's own instructions are
+    // kept and Synartesis introduces itself above them.
+    const instructions = harness.proxied.getInstructions() ?? "";
+    expect(instructions).toContain(harness.direct.getInstructions() ?? "");
+    expect(instructions).toContain("Synartesis");
   });
 
   it("returns an identical tool list", async () => {

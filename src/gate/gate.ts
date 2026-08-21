@@ -12,13 +12,51 @@ export interface GateRequest {
 
 export type GateDecision =
   | { readonly approved: true; readonly by: string }
-  | { readonly approved: false; readonly by?: string; readonly reason: string };
+  | {
+      readonly approved: false;
+      readonly by?: string;
+      readonly reason: string;
+      /**
+       * Nobody has refused; the request is simply waiting for a person. The
+       * agent should tell its user how to approve and then try again.
+       */
+      readonly awaiting?: boolean;
+    };
 
 export interface Gate {
   decide(request: GateRequest): Promise<GateDecision>;
 }
 
 export const DEFAULT_GATE_TIMEOUT_MS = 300_000;
+
+/**
+ * Records the request and refuses immediately, rather than holding the call
+ * open until someone answers.
+ *
+ * Holding it open cannot work against a real client. Measured against Claude
+ * Code: a suspended call sat for the full five minutes while the client had
+ * long since reported it as failed, and any approval in that gap would have
+ * sent something the agent had already said it had not sent. Every useful
+ * window for a person to notice, open a terminal and decide is longer than a
+ * client will wait, so the two cannot be reconciled by choosing a better
+ * timeout. Refusing at once and letting the agent retry removes the conflict
+ * instead of tuning it.
+ */
+export function createRetryGate(journal: Journal): Gate {
+  return {
+    decide(request: GateRequest): Promise<GateDecision> {
+      journal.markGated(request.actionId);
+      return Promise.resolve({
+        approved: false,
+        awaiting: true,
+        reason:
+          `it is waiting for a person to approve it. ` +
+          `Have someone run: synartesis approve ${request.actionId}` +
+          `  --- then make this exact call again.`,
+      });
+    },
+  };
+}
 
 export interface JournalGateOptions {
   readonly timeoutMs?: number;

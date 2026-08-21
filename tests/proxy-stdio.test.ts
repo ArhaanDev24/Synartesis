@@ -98,7 +98,7 @@ describe("proxy over real stdio", () => {
 
     expect(proxied.getServerVersion()).toEqual(direct.getServerVersion());
     expect(proxied.getServerCapabilities()).toEqual(direct.getServerCapabilities());
-    expect(proxied.getInstructions()).toEqual(direct.getInstructions());
+    expect(proxied.getInstructions() ?? "").toContain(direct.getInstructions() ?? "");
     expect(await proxied.listTools()).toEqual(await direct.listTools());
     expect(await proxied.listResources()).toEqual(await direct.listResources());
 

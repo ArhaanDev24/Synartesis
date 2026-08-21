@@ -102,19 +102,6 @@ async function main(): Promise<void> {
     }
     shuttingDown = true;
     void (async (): Promise<void> => {
-      // Nobody is left to answer a suspended call once we exit, and the call
-      // definitively never went out, so denying is the accurate record. Left
-      // alone these would linger in `synartesis gates` with no one waiting.
-      const abandoned = proxy.runId === undefined ? [] : journal.listGated();
-      for (const action of abandoned) {
-        if (action.runId === proxy.runId) {
-          journal.deny(action.id, undefined, "the proxy exited before a decision was made");
-        }
-      }
-      if (abandoned.length > 0) {
-        log.warn({ count: abandoned.length }, "denied suspended calls on shutdown");
-      }
-
       // Let in-flight calls settle before tearing the connection down. An
       // aborted write leaves the journal unable to say whether it applied.
       await Promise.race([

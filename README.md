@@ -187,12 +187,18 @@ nothing.
 ## Approving what cannot be undone
 
 `send_email` is classified `irreversible`, so the agent cannot send one on its
-own. The call suspends and waits.
+own. The call is **refused immediately** with an action id and the command that
+would approve it. The agent tells you, you decide, and it tries again.
 
-Approval does not happen on the terminal the agent is using: the proxy talks
-MCP over stdin and stdout, so there is nothing there to prompt on, and a
-desktop client has no terminal at all. Instead the request is written to the
-journal, and you answer it from anywhere:
+It does not hold the call open while waiting. That was the first design and it
+does not survive contact with a real client: every useful window for a person
+to notice, open a terminal and decide is longer than a client will wait for a
+tool, so the two cannot be reconciled by picking a better timeout.
+
+Approval also does not happen on the terminal the agent is using: the proxy
+talks MCP over stdin and stdout, so there is nothing there to prompt on, and a
+desktop client has no terminal at all. The request goes to the journal, and you
+answer it from anywhere:
 
 ```bash
 node SYNARTESIS/dist/cli.js gates --journal ./journal.db
@@ -206,9 +212,16 @@ node SYNARTESIS/dist/cli.js approve ACTION_ID --by your-name --journal ./journal
 node SYNARTESIS/dist/cli.js deny ACTION_ID --by your-name --reason "not this one" --journal ./journal.db
 ```
 
-If nobody answers within the timeout, the call is **denied**. Silence is not
-consent. The agent receives a readable error and can carry on with other work;
-one suspended call does not stall the session.
+An approval is **single use** and expires after an hour, so it covers the retry
+it was granted for and cannot quietly authorise the same call tomorrow. It is
+not tied to one session, because people restart their client and an approval
+stranded in a dead session would be no approval at all.
+
+Nothing is ever approved by silence. An unanswered request simply stays
+unanswered, visible in `synartesis gates` until someone decides.
+
+The agent is told all of this when it connects, so it can explain itself rather
+than reporting an opaque failure.
 
 ## A real server
 

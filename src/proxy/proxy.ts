@@ -22,7 +22,7 @@ import type {
 import { z } from "zod";
 
 import { SnapshotError, UpstreamError, describe } from "../errors.js";
-import { createJournalGate, type Gate } from "../gate/gate.js";
+import { createRetryGate, type Gate } from "../gate/gate.js";
 import { shouldGateOnWrite } from "../gate/heuristic.js";
 import type { Journal } from "../journal/journal.js";
 import type { Logger } from "../logging.js";
@@ -65,6 +65,13 @@ export interface ProxyServer {
 }
 
 type Passthrough = { [key: string]: unknown };
+
+/**
+ * How long an approval stays usable. Long enough to survive a client restart
+ * and a person walking away from their desk, short enough that a decision made
+ * this morning cannot quietly authorise the same call tomorrow.
+ */
+const APPROVAL_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * Results are read through loose schemas. The SDK's typed schemas strip fields
@@ -140,25 +147,38 @@ function identityFor(router: Router): Implementation {
   return { name: "synartesis", version: "0.0.0" };
 }
 
-function instructionsFor(router: Router): string | undefined {
+/**
+ * Told to the agent at connect time. Without it a gated call is just an opaque
+ * failure, and the person watching has no idea why their agent stopped or what
+ * they are supposed to do about it. With it, the agent explains itself.
+ */
+const SYNARTESIS_INSTRUCTIONS = [
+  "These tools are guarded by Synartesis, which records every change so it can be undone later.",
+  "",
+  "Some actions cannot be undone. Those are held until a person approves them, and the call",
+  "will fail with a message beginning \"Synartesis is holding this call for approval\".",
+  "When that happens:",
+  "  1. Tell the user plainly that you are asking Synartesis for approval, and what for.",
+  "  2. Give them the exact `synartesis approve ...` command from the error.",
+  "  3. Once they say they have approved it, make the same call again. It will go through.",
+  "Do not try to work around a held call by using a different tool to achieve the same thing.",
+].join("\n");
+
+function instructionsFor(router: Router): string {
   const sections = router.upstreams
     .map((upstream) => ({
       name: upstream.name,
       text: upstream.client.getInstructions(),
     }))
     .filter(
-      (section): section is { name: string; text: string } =>
-        section.text !== undefined,
+      (section): section is { name: string; text: string } => section.text !== undefined,
     );
-  if (sections.length === 0) {
-    return undefined;
-  }
-  if (!router.prefixed) {
-    return sections[0]?.text;
-  }
-  return sections
-    .map((section) => `Tools prefixed ${section.name}__:\n${section.text}`)
-    .join("\n\n");
+
+  const upstream = router.prefixed
+    ? sections.map((section) => `Tools prefixed ${section.name}__:\n${section.text}`).join("\n\n")
+    : (sections[0]?.text ?? "");
+
+  return upstream === "" ? SYNARTESIS_INSTRUCTIONS : `${SYNARTESIS_INSTRUCTIONS}\n\n${upstream}`;
 }
 
 /** Walks every page so that aggregation across servers is never partial. */
@@ -184,33 +204,14 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
 
   const log = options.logger;
 
-  const gate =
-    options.gate ??
-    createJournalGate(journal, {
-      ...(options.gateTimeoutMs === undefined ? {} : { timeoutMs: options.gateTimeoutMs }),
-      notify: (request) => {
-        // The operator's real discovery path is `synartesis gates`; this line
-        // exists so the reason a call is hanging is visible in client logs.
-        log?.warn(
-          {
-            action: request.actionId,
-            tool: `${request.server}.${request.tool}`,
-            approve: `synartesis approve ${request.actionId}`,
-          },
-          "awaiting approval",
-        );
-      },
-    });
+  const gate = options.gate ?? createRetryGate(journal);
 
   const capabilities = mergeCapabilities(
     upstreams.map((upstream) => upstream.client.getServerCapabilities() ?? {}),
   );
   const instructions = instructionsFor(router);
 
-  const wrapper = new McpServer(identityFor(router), {
-    capabilities,
-    ...(instructions === undefined ? {} : { instructions }),
-  });
+  const wrapper = new McpServer(identityFor(router), { capabilities, instructions });
   const server = wrapper.server;
 
   let runId: string | undefined;
@@ -419,13 +420,51 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
       // the action, and a shutdown that aborts it blocks a legitimate write.
       inflight += 1;
       try {
-        const pending = journal.recordPending({
-          runId: activeRun,
-          server: route.upstream.name,
-          tool: route.tool,
-          args,
-          class: policy.class,
-        });
+        const wantsGate =
+          policy.gate === "always" || (policy.gate === "on_write" && shouldGateOnWrite(args));
+
+        // A retry after an out-of-band approval reuses the row that was
+        // approved, so the approval ends up on the action that actually ran
+        // rather than on an abandoned twin of it.
+        const granted = wantsGate
+          ? journal.findApproval({
+              server: route.upstream.name,
+              tool: route.tool,
+              args,
+              notBefore: new Date(Date.now() - APPROVAL_WINDOW_MS).toISOString(),
+            })
+          : undefined;
+
+        // An approval granted in an earlier session cannot simply be adopted:
+        // the action belongs to the run happening now, or undoing this run
+        // would not include it.
+        const inherited =
+          granted !== undefined && granted.runId !== activeRun ? granted : undefined;
+
+        const pending =
+          granted === undefined || inherited !== undefined
+            ? journal.recordPending({
+                runId: activeRun,
+                server: route.upstream.name,
+                tool: route.tool,
+                args,
+                class: policy.class,
+              })
+            : {
+                actionId: granted.id,
+                seq: granted.seq,
+                idempotencyKey: granted.idempotencyKey,
+              };
+
+        if (inherited !== undefined) {
+          journal.adoptApproval(pending.actionId, inherited);
+        }
+        if (granted !== undefined) {
+          log?.info(
+            { action: pending.actionId, by: granted.approvedBy, from: granted.runId },
+            "proceeding on a standing approval",
+          );
+        }
 
         const decide = async (why: string): Promise<void> => {
           // Parked, not working: a suspended call must not hold up shutdown,
@@ -465,6 +504,20 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             );
           }
           if (!decision.approved) {
+            if (decision.awaiting === true) {
+              log?.warn(
+                {
+                  action: pending.actionId,
+                  tool: `${route.upstream.name}.${route.tool}`,
+                  approve: `synartesis approve ${pending.actionId}`,
+                },
+                "awaiting approval",
+              );
+              throw new McpError(
+                ErrorCode.InvalidRequest,
+                `Synartesis is holding this call for approval, because ${why}. ${decision.reason}`,
+              );
+            }
             const who = decision.by === undefined ? "" : ` by ${decision.by}`;
             throw new McpError(
               ErrorCode.InvalidRequest,
@@ -476,9 +529,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         // D4/3.4: a policy gate suspends before anything is read or written, so
         // a gated action never even looks at the resource.
         // decide() throws on refusal, so getting past this means approved.
-        const askedAlready =
-          policy.gate === "always" || (policy.gate === "on_write" && shouldGateOnWrite(args));
-        if (askedAlready) {
+        const askedAlready = wantsGate;
+        if (wantsGate && granted === undefined) {
           await decide("this action cannot be undone");
         }
 
