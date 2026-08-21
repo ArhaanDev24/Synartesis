@@ -34,7 +34,9 @@
     --measure: 60ch;
     /* Grows with the margin it sits in, so a wide display gets a plate
        rather than a stamp, and 1440px still gets one that fits. */
-    --niche: clamp(104px, calc((100vw - 1140px) / 2 - 2.6rem), 188px);
+    /* Sized from the margin it hangs in: the visible 62% always clears the
+       text column by the same gap, whatever the display. */
+    --medal: clamp(200px, calc(((100vw - 1140px) / 2 - 1.6rem) / 0.62), 380px);
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -505,11 +507,14 @@
 
 
   /* --- the pantheon ----------------------------------------------------- */
-  /* Eight figures in the margins, in the idiom of a nineteenth century plate
-     of the gods. They are not ornament for its own sake: each one is named for
-     the part of this system it stands for, so the margin says something the
-     page would otherwise have to repeat. They appear only where there is
-     genuinely empty space to put them, and nowhere else. */
+  /* Eight gods as outline medallions, each one pressed half into the edge of
+     the page. Cropping them is not a compromise: a roundel cut by the margin
+     can be three times the size of one sitting politely inside it, and half a
+     medal pressed into an edge is an old habit rather than a new idea.
+
+     They are not ornament for its own sake. Each is named for the part of this
+     system it stands for, so the margin says something the column would
+     otherwise have to repeat. */
 
   main { position: relative; }
 
@@ -524,52 +529,56 @@
   .niche {
     position: absolute;
     top: var(--at);
-    width: var(--niche);
+    width: var(--medal);
     margin: 0;
   }
 
-  .niche.left { left: 1.25rem; }
-  .niche.right { right: 1.25rem; }
+  /* The fraction of the medal that hangs off the page. */
+  .niche { --cut: 0.38; }
+  .niche.left { left: calc(var(--medal) * var(--cut) * -1); }
+  .niche.right { right: calc(var(--medal) * var(--cut) * -1); }
 
   .niche canvas {
     display: block;
-    width: var(--niche);
-    height: calc(var(--niche) * 260 / 160);
-    /* Weighed against the ground at the size it is actually drawn: below about
-       a third it disappears, above a half it starts arguing with the column. */
-    opacity: 0.4;
+    width: var(--medal);
+    height: var(--medal);
+    opacity: 0.42;
   }
 
   .niche figcaption {
-    display: block;
-    text-align: center;
-    margin-top: 0.4rem;
-    border-top: 1px solid color-mix(in srgb, var(--ink) 18%, var(--ground));
+    position: absolute;
+    bottom: 0.1rem;
+    width: calc(100% - var(--medal) * var(--cut));
     padding-top: 0.35rem;
+    border-top: 1px solid color-mix(in srgb, var(--ink) 16%, var(--ground));
   }
+
+  .niche.left figcaption { left: calc(var(--medal) * var(--cut)); text-align: left; }
+  .niche.right figcaption { left: 0; text-align: right; }
 
   .niche figcaption b {
     display: block;
     font-family: var(--mono);
     font-weight: 500;
-    font-size: 0.58rem;
+    font-size: 0.6rem;
     letter-spacing: 0.2em;
     text-transform: uppercase;
-    color: color-mix(in srgb, var(--ink) 46%, var(--ground));
+    color: color-mix(in srgb, var(--ink) 48%, var(--ground));
   }
 
   .niche figcaption span {
     display: block;
     font-family: var(--display);
     font-style: italic;
-    font-size: 0.78rem;
+    font-size: 0.82rem;
     line-height: 1.25;
-    margin-top: 0.1rem;
-    color: color-mix(in srgb, var(--ink) 32%, var(--ground));
+    margin-top: 0.05rem;
+    color: color-mix(in srgb, var(--ink) 34%, var(--ground));
   }
 
-  /* Only once the margin is wide enough to hold one without crowding the
-     column. Below this the page is exactly as it was. */
+  /* Only once the margin can hold one without crowding the column, and sized
+     from the margin itself so the visible part always clears the text by the
+     same amount. */
   @media (min-width: 1440px) {
     .pantheon { display: block; }
   }
@@ -591,35 +600,35 @@
 
 <main>
 <div class="pantheon" role="presentation">
-  <figure class="niche left" style="--at: 5%">
-    <canvas data-god="hermes" aria-hidden="true"></canvas>
+  <figure class="niche left" style="--at: 4%">
+    <canvas data-god="hermes" data-flip="true" aria-hidden="true"></canvas>
     <figcaption><b>Hermes</b><span>carries the call</span></figcaption>
   </figure>
-  <figure class="niche right" style="--at: 17%">
+  <figure class="niche right" style="--at: 16%">
     <canvas data-god="athena" aria-hidden="true"></canvas>
     <figcaption><b>Athena</b><span>asks before it is done</span></figcaption>
   </figure>
-  <figure class="niche left" style="--at: 29%">
-    <canvas data-god="hephaistos" aria-hidden="true"></canvas>
+  <figure class="niche left" style="--at: 28%">
+    <canvas data-god="hephaistos" data-flip="true" aria-hidden="true"></canvas>
     <figcaption><b>Hephaistos</b><span>makes the undoing</span></figcaption>
   </figure>
-  <figure class="niche right" style="--at: 41%">
+  <figure class="niche right" style="--at: 40%">
     <canvas data-god="apollo" aria-hidden="true"></canvas>
     <figcaption><b>Apollo</b><span>sees it before it happens</span></figcaption>
   </figure>
-  <figure class="niche left" style="--at: 53%">
-    <canvas data-god="zeus" aria-hidden="true"></canvas>
+  <figure class="niche left" style="--at: 52%">
+    <canvas data-god="zeus" data-flip="true" aria-hidden="true"></canvas>
     <figcaption><b>Zeus</b><span>the last word</span></figcaption>
   </figure>
-  <figure class="niche right" style="--at: 65%">
+  <figure class="niche right" style="--at: 64%">
     <canvas data-god="poseidon" aria-hidden="true"></canvas>
     <figcaption><b>Poseidon</b><span>the ground moves</span></figcaption>
   </figure>
-  <figure class="niche left" style="--at: 77%">
-    <canvas data-god="atlas" aria-hidden="true"></canvas>
+  <figure class="niche left" style="--at: 76%">
+    <canvas data-god="atlas" data-flip="true" aria-hidden="true"></canvas>
     <figcaption><b>Atlas</b><span>bears the whole record</span></figcaption>
   </figure>
-  <figure class="niche right" style="--at: 82%">
+  <figure class="niche right" style="--at: 86%">
     <canvas data-god="hades" aria-hidden="true"></canvas>
     <figcaption><b>Hades</b><span>keeps what he is given</span></figcaption>
   </figure>
@@ -1380,31 +1389,26 @@
 </script>
 
 <script>
-/* The gods, engraved.
+/* The gods, as outline medallions cut in half by the edge of the page.
  *
- * Drawn rather than embedded: the page has to carry every asset inline, and an
- * engraving is a silhouette, a great deal of hatching, and light coming out of
- * the back of it. All three are things a canvas is good at.
+ * Drawn rather than embedded: the page carries every asset inline, and line
+ * art is a set of curves, which is a thing a canvas is good at. Outline only,
+ * no fills: these are engravings after the sun-and-face plates, where every
+ * value is carried by the weight and spacing of the line itself.
  *
- * The composition is the one those old plates use. A burst of straight rays
- * fanned into groups, so the outer edge is serrated rather than round. A panel
- * behind the figure filled with drawn flame. The figure itself cross-hatched on
- * one side, because an engraver models form by removing light, never by adding
- * grey. Each god is the same body carrying a different thing: you know Poseidon
- * by the trident, not by his face, and a face at this size would be four pixels.
+ * They hang off the edge on purpose. A roundel cropped by the margin can be
+ * three times the size one sitting politely inside it could, and a half medal
+ * pressed into the edge of a page is an old habit rather than a new idea.
  */
 (() => {
   const INK = "#f6e9e5";
-  const GROUND = "#5e1420";
-  /* Everything is drawn in a 160 by 260 space and scaled to whatever fits. */
-  const W = 160;
-  const H = 260;
-  const CX = 80;
-  const HEM = 206;
-  const PLATE = { left: 34, right: 126, top: 46, bottom: 196 };
+  /* Drawn in a 300 by 300 square, scaled to whatever it is given. */
+  const S = 300;
+  const C = 150;
+  /** Where the portrait sits inside the field, and how big. */
+  const HEAD = { x: C + 12, y: C + 8, scale: 1.34 };
 
-  /** A repeatable wobble, so every panel is different and none of them moves. */
-  function noise(seed) {
+  function seeded(seed) {
     let n = seed >>> 0;
     return () => {
       n = (n * 1664525 + 1013904223) >>> 0;
@@ -1412,203 +1416,276 @@
     };
   }
 
+  function ring(g, radius, width, alpha) {
+    g.globalAlpha = alpha;
+    g.lineWidth = width;
+    g.beginPath();
+    g.arc(C, C, radius, 0, Math.PI * 2);
+    g.stroke();
+    g.globalAlpha = 1;
+  }
+
   /**
-   * The burst. Rays in groups whose lengths rise and fall, which is what gives
-   * the old plates their serrated outer edge instead of a plain disc.
+   * The corona: long tapering spikes with a curl of flame between each pair,
+   * which is what the sun-and-face plates do and what makes the outer edge
+   * read as light rather than as a cog.
    */
-  function rays(g, seed) {
-    const random = noise(seed);
-    g.strokeStyle = INK;
-    g.lineCap = "butt";
-    const count = 132;
-    for (let i = 0; i < count; i += 1) {
-      const angle = (i / count) * Math.PI * 2;
-      const phase = i % 11;
-      const fan = phase < 6 ? phase : 11 - phase;
-      const length = 46 + fan * 15 + random() * 7;
-      const start = 30 + random() * 4;
-      g.globalAlpha = 0.2 + (fan / 6) * 0.4;
-      g.lineWidth = 0.55;
+  function corona(g, seed) {
+    const random = seeded(seed);
+    const spikes = 16;
+    for (let i = 0; i < spikes; i += 1) {
+      const angle = (i / spikes) * Math.PI * 2 - Math.PI / 2;
+      const long = i % 2 === 0;
+      const reach = long ? 146 : 126;
+      const half = long ? 0.055 : 0.042;
+      const base = 102;
+
+      g.globalAlpha = 0.9;
+      g.lineWidth = 1.5;
       g.beginPath();
-      g.moveTo(CX + Math.cos(angle) * start, 118 + Math.sin(angle) * start);
-      g.lineTo(CX + Math.cos(angle) * (start + length), 118 + Math.sin(angle) * (start + length));
+      g.moveTo(C + Math.cos(angle - half) * base, C + Math.sin(angle - half) * base);
+      g.lineTo(C + Math.cos(angle) * reach, C + Math.sin(angle) * reach);
+      g.lineTo(C + Math.cos(angle + half) * base, C + Math.sin(angle + half) * base);
       g.stroke();
+
+      // The shading inside a spike: a few lines along its length, never across.
+      g.globalAlpha = 0.5;
+      g.lineWidth = 0.8;
+      for (const t of [-0.4, 0, 0.4]) {
+        g.beginPath();
+        g.moveTo(C + Math.cos(angle + half * t) * (base + 4), C + Math.sin(angle + half * t) * (base + 4));
+        g.lineTo(C + Math.cos(angle + half * t * 0.2) * (reach - 14), C + Math.sin(angle + half * t * 0.2) * (reach - 14));
+        g.stroke();
+      }
+
+      // A curl of flame in the gap to the next spike.
+      const between = angle + Math.PI / spikes;
+      const spin = random() > 0.5 ? 1 : -1;
+      g.globalAlpha = 0.85;
+      g.lineWidth = 1.3;
+      spiral(g, C + Math.cos(between) * 120, C + Math.sin(between) * 120, between, spin);
     }
     g.globalAlpha = 1;
   }
 
-  /** The panel the figure stands against, filled with drawn flame. */
-  function panel(g, seed) {
-    g.fillStyle = GROUND;
-    g.fillRect(PLATE.left, PLATE.top, PLATE.right - PLATE.left, PLATE.bottom - PLATE.top);
-
-    g.save();
+  /** A wave that runs out and finishes in a curl, the way flame is engraved. */
+  function spiral(g, x, y, direction, spin) {
+    const nx = Math.cos(direction);
+    const ny = Math.sin(direction);
+    const px = -ny * spin;
+    const py = nx * spin;
     g.beginPath();
-    g.rect(PLATE.left, PLATE.top, PLATE.right - PLATE.left, PLATE.bottom - PLATE.top);
-    g.clip();
+    g.moveTo(x - nx * 18, y - ny * 18);
+    g.bezierCurveTo(
+      x - nx * 6 + px * 9, y - ny * 6 + py * 9,
+      x + nx * 6 - px * 9, y + ny * 6 - py * 9,
+      x + nx * 15, y + ny * 15,
+    );
+    g.stroke();
+    // The curl itself, an inward turn of about one and a quarter revolutions.
+    const cx = x + nx * 21 + px * 5;
+    const cy = y + ny * 21 + py * 5;
+    g.beginPath();
+    for (let t = 0; t <= 1; t += 0.05) {
+      const a = direction + Math.PI * 2.2 * t * spin;
+      const r = 8 * (1 - t * 0.82);
+      const ax = cx + Math.cos(a) * r;
+      const ay = cy + Math.sin(a) * r;
+      if (t === 0) g.moveTo(ax, ay);
+      else g.lineTo(ax, ay);
+    }
+    g.stroke();
+  }
 
-    const random = noise(seed + 977);
-    g.strokeStyle = INK;
-    g.lineWidth = 0.7;
-    for (let x = PLATE.left + 1; x < PLATE.right; x += 2.6) {
-      g.globalAlpha = 0.22 + random() * 0.3;
+  /**
+   * A head in profile, facing right, in outline.
+   *
+   * The one line that has to be right is the forehead running into the bridge
+   * of the nose without a dip; that continuous line is what makes a profile
+   * read as antique rather than as a person.
+   */
+  function profile(g, x, y, scale) {
+    g.save();
+    g.translate(x, y);
+    g.scale(scale, scale);
+    g.lineWidth = 2 / scale;
+    g.lineJoin = "round";
+    g.lineCap = "round";
+
+    g.beginPath();
+    g.moveTo(-6, -46);              // crown, where the hair takes over
+    g.bezierCurveTo(12, -46, 20, -34, 21, -22);   // forehead
+    g.bezierCurveTo(22, -14, 24, -8, 27, -2);     // bridge, straight into it
+    g.lineTo(29, 4);                               // tip of the nose
+    g.bezierCurveTo(26, 7, 22, 7, 18, 7);          // under the nose
+    g.bezierCurveTo(21, 10, 21, 11, 19, 13);       // upper lip
+    g.bezierCurveTo(22, 15, 22, 17, 18, 19);       // lower lip
+    g.bezierCurveTo(20, 23, 20, 28, 15, 32);       // chin
+    g.bezierCurveTo(8, 37, -2, 38, -10, 34);       // jaw
+    g.stroke();
+
+    // Eye: a lid, a lower line, and the iris as a short arc under the lid.
+    g.lineWidth = 1.6 / scale;
+    g.beginPath();
+    g.moveTo(6, -10);
+    g.bezierCurveTo(12, -14, 18, -12, 20, -8);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(7, -8);
+    g.bezierCurveTo(12, -4, 17, -5, 20, -8);
+    g.stroke();
+    g.beginPath();
+    g.arc(14, -8, 3, 0.1, Math.PI - 0.1);
+    g.stroke();
+    // Brow.
+    g.beginPath();
+    g.moveTo(4, -17);
+    g.bezierCurveTo(11, -20, 18, -18, 21, -14);
+    g.stroke();
+    // Mouth, ear, neck.
+    g.beginPath();
+    g.moveTo(12, 16);
+    g.bezierCurveTo(15, 15, 17, 15, 19, 16);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(-2, 2);
+    g.bezierCurveTo(-8, -2, -12, 4, -6, 10);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(-10, 34);
+    g.lineTo(-14, 48);
+    g.moveTo(12, 34);
+    g.bezierCurveTo(10, 42, 8, 46, 6, 52);
+    g.stroke();
+    g.restore();
+  }
+
+  /**
+   * Waved hair, drawn the way the plates draw it: locks lying along the skull
+   * from the brow back, each one waving. The first attempt sent strands
+   * radially outward from the head, which is not hair, it is a second and
+   * smaller sunburst.
+   */
+  function hair(g, x, y, scale, seed, covered) {
+    const random = seeded(seed);
+    g.save();
+    g.translate(x, y);
+    g.scale(scale, scale);
+    g.lineWidth = 1.4 / scale;
+    g.lineCap = "round";
+    const skull = { x: -1, y: -15 };
+    // Kept off the brow and off the crown: locks that carry on round to the
+    // front hide the one line that makes a profile antique, and a hair mass
+    // that reaches the top of the skull leaves nowhere for a helm to sit.
+    // Under a helm or a crown there is no mane to draw: a few locks escaping at
+    // the nape, and the rest of the skull belongs to the thing worn on it.
+    // Drawing both put the hair and the headgear in the same narrow ring, where
+    // neither could be told from the other or from the rim.
+    const locks = covered === true ? 5 : 9;
+    for (let i = 0; i < locks; i += 1) {
+      const radius = (covered === true ? 26 : 25) + i * 2.1 + random() * 1.4;
+      const from = Math.PI * ((covered === true ? 0.72 : 0.94) + random() * 0.05);
+      const to = Math.PI * ((covered === true ? 1.14 : 1.9) + random() * 0.07);
+      const waves = 3 + (i % 3);
+      const depth = 1.6 + random() * 1.8;
       g.beginPath();
-      let y = PLATE.bottom;
-      let cx = x;
-      g.moveTo(cx, y);
-      const top = PLATE.top + random() * 46;
-      while (y > top) {
-        const step = 9 + random() * 9;
-        const sway = (random() - 0.5) * 7;
-        g.quadraticCurveTo(cx + sway, y - step * 0.5, cx + sway * 0.4, y - step);
-        cx += sway * 0.4;
-        y -= step;
+      for (let t = 0; t <= 1.0001; t += 0.04) {
+        const a = from + (to - from) * t;
+        const r = radius + Math.sin(t * Math.PI * waves) * depth;
+        const px = skull.x + Math.cos(a) * r;
+        const py = skull.y + Math.sin(a) * r * 1.06;
+        if (t === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
       }
       g.stroke();
     }
+    // The knot at the nape, which is where all of it ends up.
+    g.lineWidth = 1.5 / scale;
+    for (let i = 0; i < 4; i += 1) {
+      g.beginPath();
+      g.moveTo(-22 - i * 2, 12 + i * 3);
+      g.bezierCurveTo(-38 - i * 3, 16 + i * 2, -36 - i * 3, 34 + i * 3, -20 - i * 2, 36 + i * 3);
+      g.stroke();
+    }
     g.restore();
-
-    g.globalAlpha = 0.8;
-    g.strokeStyle = INK;
-    g.lineWidth = 1;
-    g.strokeRect(PLATE.left, PLATE.top, PLATE.right - PLATE.left, PLATE.bottom - PLATE.top);
-    g.globalAlpha = 1;
   }
 
-  /** The silhouette every one of them shares, as a path that can be reused. */
-  function silhouette(g) {
+  function laurel(g, x, y, scale) {
+    g.save();
+    g.translate(x, y);
+    g.scale(scale, scale);
+    g.lineWidth = 1.6 / scale;
     g.beginPath();
-    // Shoulders, squared off rather than domed: a rounded top reads as a blob
-    // with a head balanced on it.
-    g.moveTo(CX - 16, 108);
-    g.bezierCurveTo(CX - 14, 122, CX - 11, 130, CX - 10, 142);
-    g.bezierCurveTo(CX - 15, 172, CX - 17, 190, CX - 19, HEM);
-    g.quadraticCurveTo(CX, HEM + 5, CX + 18, HEM);
-    g.bezierCurveTo(CX + 16, 190, CX + 14, 172, CX + 10, 142);
-    g.bezierCurveTo(CX + 11, 130, CX + 14, 122, CX + 16, 108);
-    g.quadraticCurveTo(CX + 9, 99, CX + 4, 97);
-    g.lineTo(CX - 3, 97);
-    g.quadraticCurveTo(CX - 9, 99, CX - 16, 108);
-    g.closePath();
+    g.moveTo(-26, -30);
+    g.quadraticCurveTo(0, -48, 24, -32);
+    g.stroke();
+    for (let i = 0; i < 7; i += 1) {
+      const t = i / 6;
+      const bx = -26 + t * 50;
+      const by = -30 - Math.sin(Math.PI * t) * 16;
+      g.beginPath();
+      g.ellipse(bx, by - 5, 7, 3.4, -0.5 + t * 1.1, 0, Math.PI * 2);
+      g.stroke();
+    }
+    g.restore();
   }
 
   /**
-   * A mantle over the shoulders. An earlier version threw a cloak out to one
-   * side and it read as a second limb hanging in the air; drapery only works
-   * when you can see what it is attached to.
+   * Where the skull sits in the field, and how far the hair reaches from it.
+   * Anything worn on the head has to clear that, which the first version did
+   * not: a helm drawn smaller than the hair mass sits inside it and reads as a
+   * comb.
    */
-  function mantle(g) {
-    g.fillStyle = INK;
-    g.beginPath();
-    g.moveTo(CX - 17, 106);
-    g.quadraticCurveTo(CX, 96, CX + 17, 106);
-    g.bezierCurveTo(CX + 18, 122, CX + 10, 134, CX, 137);
-    g.bezierCurveTo(CX - 10, 134, CX - 18, 122, CX - 17, 106);
-    g.closePath();
-    g.fill();
-    g.strokeStyle = GROUND;
-    g.lineWidth = 1.1;
-    for (const side of [-1, 1]) {
-      g.beginPath();
-      g.moveTo(CX + side * 12, 108);
-      g.quadraticCurveTo(CX + side * 9, 124, CX + side * 3, 134);
-      g.stroke();
-    }
-  }
-
-  function body(g) {
-    g.fillStyle = INK;
-
-    // Neck, so the head sits on something.
-    g.fillRect(CX - 3.4, 88, 7, 14);
-
-    g.beginPath();
-    g.ellipse(CX, 80, 7.4, 8.8, 0, 0, Math.PI * 2);
-    g.fill();
-
-    silhouette(g);
-    g.fill();
-    mantle(g);
-
-    // No internal modelling. At the size this is really seen, hatching over
-    // the whole form reads as stripes and nothing else; the drama here comes
-    // from a bright figure against a dark panel with light behind it, which is
-    // what carries these plates at a thumbnail anyway.
-
-    // The fluting of the drapery, cut back out in the ground colour.
-    g.strokeStyle = GROUND;
-    g.lineWidth = 1.4;
-    g.lineWidth = 1.2;
-    for (const [top, bottom] of [[-7, -13], [-3.5, -6], [0, 0], [3.5, 6], [7, 13]]) {
-      g.beginPath();
-      g.moveTo(CX + top * 0.7, 138);
-      g.quadraticCurveTo(CX + top, 170, CX + bottom, HEM - 1);
-      g.stroke();
-    }
-  }
-
-  function plinth(g) {
-    g.fillStyle = INK;
-    g.fillRect(CX - 28, HEM + 3, 56, 7);
-    g.globalAlpha = 0.55;
-    g.fillRect(CX - 36, HEM + 12, 72, 2.6);
-    g.globalAlpha = 1;
-  }
-
-  function arm(g, x, y) {
-    g.strokeStyle = INK;
-    g.lineCap = "round";
-    // Upper arm and forearm as two strokes, the second thinner. One even
-    // stroke of constant weight reads as a shelf bolted to the shoulder.
-    g.lineWidth = 5.6;
-    g.beginPath();
-    g.moveTo(CX + 11, 114);
-    g.quadraticCurveTo(CX + 20, 106, (CX + 20 + x) / 2, (106 + y) / 2);
-    g.stroke();
-    g.lineWidth = 4.2;
-    g.beginPath();
-    g.moveTo((CX + 20 + x) / 2, (106 + y) / 2);
-    g.lineTo(x, y);
-    g.stroke();
-    g.lineWidth = 5;
-    g.beginPath();
-    g.arc(x, y, 2.6, 0, Math.PI * 2);
-    g.fill();
-    g.lineCap = "butt";
-  }
-
-  function staff(g, x, top) {
-    g.strokeStyle = INK;
-    g.lineWidth = 2.6;
-    g.beginPath();
-    g.moveTo(x, top);
-    g.lineTo(x, HEM + 1);
-    g.stroke();
-  }
+  const SKULL = { x: C + 11, y: C - 12 };
+  /** Nothing may cross the rim: an emblem that does reads as a mistake. */
+  const FIELD = 84;
+  /** Where anything worn on the head sits, measured from the skull. */
+  const WORN = 46;
 
   const GODS = {
+    apollo(g) {
+      // Laurel, over the hair rather than in it.
+      g.lineWidth = 2.4;
+      g.beginPath();
+      g.moveTo(SKULL.x - WORN - 12, SKULL.y - 8);
+      g.bezierCurveTo(SKULL.x - 40, SKULL.y - WORN - 34, SKULL.x + 28, SKULL.y - WORN - 36, SKULL.x + WORN + 6, SKULL.y - 18);
+      g.stroke();
+      g.lineWidth = 1.6;
+      for (let i = 0; i < 10; i += 1) {
+        const t = i / 9;
+        const a = Math.PI * (1.06 + t * 0.78);
+        const bx = SKULL.x + Math.cos(a) * (WORN + 12);
+        const by = SKULL.y + Math.sin(a) * (WORN + 12);
+        g.save();
+        g.translate(bx, by);
+        g.rotate(a + Math.PI / 2);
+        g.beginPath();
+        g.ellipse(0, -7, 9, 4, 0, 0, Math.PI * 2);
+        g.stroke();
+        g.restore();
+      }
+    },
+
     hermes(g) {
-      arm(g, 119, 110);
-      staff(g, 118, 66);
-      g.strokeStyle = INK;
-      g.lineWidth = 1.7;
+      // The winged cap: a skullcap clear of the hair, and a swept fan each side.
+      g.lineWidth = 2.6;
+      g.beginPath();
+      g.arc(SKULL.x, SKULL.y, WORN, Math.PI * 1.02, Math.PI * 1.98);
+      g.stroke();
+      g.lineWidth = 1.4;
+      for (let i = 1; i < 4; i += 1) {
+        g.beginPath();
+        g.arc(SKULL.x, SKULL.y, WORN - i * 5, Math.PI * 1.1, Math.PI * 1.9);
+        g.stroke();
+      }
+      g.lineWidth = 2;
       for (const side of [-1, 1]) {
-        g.beginPath();
-        g.moveTo(118, 70);
-        g.quadraticCurveTo(118 + side * 15, 60, 118 + side * 5, 50);
-        g.stroke();
-        g.beginPath();
-        g.moveTo(118, 76);
-        g.bezierCurveTo(118 + side * 9, 86, 118 - side * 9, 96, 118, 106);
-        g.stroke();
-        // The winged cap, as a swept fan. Drawn as two curls it read as a
-        // pair of antennae.
-        for (let f = 0; f < 3; f += 1) {
+        for (let f = 0; f < 4; f += 1) {
           g.beginPath();
-          g.moveTo(CX + side * 6, 78);
+          g.moveTo(SKULL.x + side * (WORN - 10), SKULL.y - 14);
           g.quadraticCurveTo(
-            CX + side * (14 + f * 3), 74 - f * 2,
-            CX + side * (17 + f * 4), 80 - f * 4,
+            SKULL.x + side * (WORN + 12 + f * 4), SKULL.y - 28 - f * 4,
+            SKULL.x + side * (WORN + 15 + f * 5), SKULL.y - 8 - f * 7,
           );
           g.stroke();
         }
@@ -1616,185 +1693,167 @@
     },
 
     athena(g) {
-      g.fillStyle = INK;
+      // Dome, brow band and crest, all outside the hair.
+      const r = WORN;
+      g.lineWidth = 2.6;
       g.beginPath();
-      g.moveTo(CX - 6, 76);
-      g.quadraticCurveTo(CX + 1, 56, CX + 9, 76);
-      g.fill();
-      arm(g, 117, 108);
-      staff(g, 116, 50);
-      g.strokeStyle = INK;
-      g.lineWidth = 2.2;
-      g.beginPath();
-      g.arc(52, 154, 16, 0, Math.PI * 2);
+      g.arc(SKULL.x, SKULL.y, r, Math.PI * 1.02, Math.PI * 1.98);
       g.stroke();
-      g.lineWidth = 1.1;
+      g.lineWidth = 2;
       g.beginPath();
-      g.arc(52, 154, 10, 0, Math.PI * 2);
+      g.arc(SKULL.x, SKULL.y, r - 9, Math.PI * 1.02, Math.PI * 1.98);
       g.stroke();
-      g.fillStyle = INK;
-      g.beginPath();
-      g.arc(52, 154, 3.6, 0, Math.PI * 2);
-      g.fill();
-    },
-
-    hephaistos(g) {
-      g.strokeStyle = INK;
-      g.lineCap = "round";
-      g.lineWidth = 5.4;
-      g.beginPath();
-      g.moveTo(CX + 10, 112);
-      g.quadraticCurveTo(CX + 22, 96, 108, 82);
-      g.stroke();
-      g.lineCap = "butt";
-      g.lineWidth = 2.8;
-      g.beginPath();
-      g.moveTo(107, 84);
-      g.lineTo(122, 56);
-      g.stroke();
-      g.save();
-      g.translate(124, 53);
-      g.rotate(-1.06);
-      g.fillStyle = INK;
-      g.fillRect(-12, -5.6, 24, 11.2);
-      g.restore();
-    },
-
-    apollo(g) {
-      g.strokeStyle = INK;
-      g.lineWidth = 1.4;
-      for (let i = 0; i <= 14; i += 1) {
-        const a = Math.PI + (i / 14) * Math.PI;
-        g.beginPath();
-        g.moveTo(CX + 1 + Math.cos(a) * 13, 82 + Math.sin(a) * 15);
-        g.lineTo(CX + 1 + Math.cos(a) * 23, 82 + Math.sin(a) * 26);
-        g.stroke();
-      }
-      arm(g, 102, 134);
       g.lineWidth = 2.4;
       g.beginPath();
-      g.moveTo(100, 168);
-      g.bezierCurveTo(90, 142, 98, 118, 108, 122);
+      g.moveTo(SKULL.x - r + 6, SKULL.y - 22);
+      g.bezierCurveTo(SKULL.x - 30, SKULL.y - r - 26, SKULL.x + 24, SKULL.y - r - 26, SKULL.x + r - 10, SKULL.y - 24);
       g.stroke();
-      g.beginPath();
-      g.moveTo(130, 168);
-      g.bezierCurveTo(138, 142, 130, 118, 120, 122);
-      g.stroke();
-      g.beginPath();
-      g.moveTo(100, 168);
-      g.lineTo(130, 168);
-      g.stroke();
-      g.lineWidth = 0.9;
-      for (let x = 105; x <= 126; x += 4.2) {
+      g.lineWidth = 1.5;
+      for (let i = 0; i < 12; i += 1) {
+        const t = i / 11;
+        const a = Math.PI * (1.08 + t * 0.84);
+        const bx = SKULL.x + Math.cos(a) * (r + 12);
+        const by = SKULL.y + Math.sin(a) * (r + 12) - 8;
         g.beginPath();
-        g.moveTo(x, 128);
-        g.lineTo(x, 167);
+        g.moveTo(bx, by + 10);
+        g.quadraticCurveTo(bx - 7, by - 4, bx + 4, by - 12);
         g.stroke();
       }
-    },
-
-    zeus(g) {
-      arm(g, 108, 98);
-      g.strokeStyle = INK;
-      g.lineWidth = 3.6;
-      g.lineJoin = "miter";
-      g.beginPath();
-      g.moveTo(100, 56);
-      g.lineTo(120, 78);
-      g.lineTo(107, 85);
-      g.lineTo(128, 116);
-      g.stroke();
-      g.lineWidth = 1.8;
-      g.beginPath();
-      g.moveTo(92, 68);
-      g.lineTo(110, 98);
-      g.stroke();
-    },
-
-    poseidon(g) {
-      arm(g, 119, 110);
-      staff(g, 118, 68);
-      g.strokeStyle = INK;
-      g.lineWidth = 2.2;
-      g.beginPath();
-      g.moveTo(107, 68);
-      g.lineTo(129, 68);
-      g.stroke();
-      g.beginPath();
-      g.moveTo(118, 68);
-      g.lineTo(118, 44);
-      g.stroke();
-      for (const side of [-1, 1]) {
-        g.beginPath();
-        g.moveTo(118 + side * 11, 68);
-        g.quadraticCurveTo(118 + side * 12, 54, 118 + side * 6, 48);
-        g.stroke();
-      }
-      g.lineWidth = 1.2;
-      g.globalAlpha = 0.72;
-      for (let i = 0; i < 3; i += 1) {
-        const y = 176 + i * 8;
-        g.beginPath();
-        g.moveTo(38, y);
-        g.bezierCurveTo(48, y - 5, 56, y + 5, 66, y);
-        g.stroke();
-      }
-      g.globalAlpha = 1;
-    },
-
-    // Both arms up under the weight of it. He does not put it down.
-    atlas(g) {
-      g.strokeStyle = INK;
-      g.lineCap = "round";
-      g.lineWidth = 5.4;
-      for (const side of [-1, 1]) {
-        g.beginPath();
-        g.moveTo(CX + side * 11, 110);
-        g.quadraticCurveTo(CX + side * 26, 96, CX + side * 22, 70);
-        g.stroke();
-      }
-      g.lineCap = "butt";
-      g.fillStyle = GROUND;
-      g.beginPath();
-      g.arc(CX + 1, 46, 26, 0, Math.PI * 2);
-      g.fill();
-      g.strokeStyle = INK;
-      g.lineWidth = 1.8;
-      g.beginPath();
-      g.arc(CX + 1, 46, 26, 0, Math.PI * 2);
-      g.stroke();
-      g.lineWidth = 0.9;
-      g.globalAlpha = 0.8;
-      for (const r of [8, 17]) {
-        g.beginPath();
-        g.ellipse(CX + 1, 46, r, 26, 0, 0, Math.PI * 2);
-        g.stroke();
-      }
-      for (const dy of [-13, 0, 13]) {
-        g.beginPath();
-        g.ellipse(CX + 1, 46 + dy, Math.sqrt(Math.max(1, 676 - dy * dy)), 3.4, 0, 0, Math.PI * 2);
-        g.stroke();
-      }
-      g.globalAlpha = 1;
     },
 
     hades(g) {
-      g.fillStyle = INK;
-      for (const dx of [-8, 1, 10]) {
-        g.beginPath();
-        g.moveTo(CX + dx - 4, 76);
-        g.lineTo(CX + dx, 62);
-        g.lineTo(CX + dx + 4, 76);
-        g.closePath();
-        g.fill();
-      }
-      arm(g, 119, 112);
-      staff(g, 118, 82);
+      // A spiked crown standing off the hair.
+      const r = WORN;
+      g.lineWidth = 2.6;
       g.beginPath();
-      g.arc(118, 76, 6.4, 0, Math.PI * 2);
-      g.fill();
+      g.arc(SKULL.x, SKULL.y, r, Math.PI * 1.1, Math.PI * 1.9);
+      g.stroke();
+      for (let i = 0; i <= 5; i += 1) {
+        const a = Math.PI * (1.1 + (i / 5) * 0.8);
+        const bx = SKULL.x + Math.cos(a) * r;
+        const by = SKULL.y + Math.sin(a) * r;
+        g.beginPath();
+        g.moveTo(bx - Math.cos(a + 1.4) * 9, by - Math.sin(a + 1.4) * 9);
+        g.lineTo(SKULL.x + Math.cos(a) * (r + 22), SKULL.y + Math.sin(a) * (r + 22));
+        g.lineTo(bx + Math.cos(a + 1.4) * 9, by + Math.sin(a + 1.4) * 9);
+        g.stroke();
+      }
+      beard(g);
+    },
+
+    zeus(g) {
+      // The bolt, kept clear of the rim.
+      g.lineWidth = 3;
+      g.lineJoin = "miter";
+      g.beginPath();
+      g.moveTo(C - 66, C - 52);
+      g.lineTo(C - 34, C - 18);
+      g.lineTo(C - 54, C - 10);
+      g.lineTo(C - 24, C + 40);
+      g.stroke();
+      g.lineWidth = 1.6;
+      g.beginPath();
+      g.moveTo(C - 54, C - 36);
+      g.lineTo(C - 30, C - 4);
+      g.stroke();
+      beard(g);
+    },
+
+    poseidon(g) {
+      const x = C - 44;
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(x, C - 32);
+      g.lineTo(x, C + 62);
+      g.stroke();
+      g.lineWidth = 2.6;
+      g.beginPath();
+      g.moveTo(x - 20, C - 32);
+      g.lineTo(x + 20, C - 32);
+      g.stroke();
+      g.beginPath();
+      g.moveTo(x, C - 32);
+      g.lineTo(x, C - 68);
+      g.stroke();
+      for (const side of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(x + side * 20, C - 32);
+        g.bezierCurveTo(x + side * 24, C - 52, x + side * 16, C - 63, x + side * 8, C - 65);
+        g.stroke();
+      }
+      beard(g);
+    },
+
+    hephaistos(g) {
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(C - 30, C + 56);
+      g.lineTo(C - 62, C - 26);
+      g.stroke();
+      g.save();
+      g.translate(C - 62, C - 40);
+      g.rotate(-1.2);
+      g.lineWidth = 2.6;
+      g.strokeRect(-19, -9.5, 38, 19);
+      g.beginPath();
+      g.moveTo(-6, -9.5);
+      g.lineTo(-6, 9.5);
+      g.stroke();
+      g.restore();
+      beard(g);
+    },
+
+    atlas(g) {
+      // The sphere as an emblem beside the head rather than a burden over it.
+      // Drawn overhead it sat outside the rim, which reads as an accident.
+      const gx = C - 44;
+      const gy = C - 22;
+      g.lineWidth = 2.4;
+      g.beginPath();
+      g.arc(gx, gy, 34, 0, Math.PI * 2);
+      g.stroke();
+      g.lineWidth = 1;
+      g.globalAlpha = 0.85;
+      for (const r of [11, 23]) {
+        g.beginPath();
+        g.ellipse(gx, gy, r, 34, 0, 0, Math.PI * 2);
+        g.stroke();
+      }
+      for (const dy of [-17, 0, 17]) {
+        const rx = Math.sqrt(Math.max(1, 34 * 34 - dy * dy));
+        g.beginPath();
+        g.ellipse(gx, gy + dy, rx, 4, 0, 0, Math.PI * 2);
+        g.stroke();
+      }
+      g.globalAlpha = 1;
+      // The shoulder taking its weight.
+      g.lineWidth = 2.6;
+      g.lineCap = "round";
+      g.beginPath();
+      g.moveTo(C - 20, C + 62);
+      g.quadraticCurveTo(C - 44, C + 40, gx + 22, gy + 26);
+      g.stroke();
+      g.lineCap = "butt";
     },
   };
+
+  /** Zeus, Poseidon, Hades and Hephaistos are the bearded four. */
+  function beard(g) {
+    g.lineWidth = 1.5;
+    g.lineCap = "round";
+    for (let i = 0; i < 9; i += 1) {
+      const t = i / 8;
+      const sx = C + 2 + t * 12;
+      const sy = C + 20 + t * 10;
+      g.beginPath();
+      g.moveTo(sx, sy);
+      g.bezierCurveTo(sx - 6, sy + 14, sx + 6, sy + 22, sx - 4 + t * 6, sy + 34);
+      g.stroke();
+    }
+  }
+
+  /** The four who wear something on the head, and so keep their hair under it. */
+  const COVERED = new Set(["athena", "hades", "hermes", "apollo"]);
 
   const SEEDS = {
     hermes: 11, athena: 29, hephaistos: 47, apollo: 61,
@@ -1813,22 +1872,33 @@
     canvas.height = Math.round(height * dpr);
     const g = canvas.getContext("2d");
     if (g === null) return;
-    g.scale((width / W) * dpr, (height / H) * dpr);
+    g.scale((width / S) * dpr, (height / S) * dpr);
+    // Mirrored for the rail that is cropped on the other side, so the emblem
+    // is never the half that got cut off.
+    if (canvas.dataset.flip === "true") {
+      g.translate(S, 0);
+      g.scale(-1, 1);
+    }
+    g.strokeStyle = INK;
+    g.fillStyle = INK;
+
     const seed = SEEDS[key] ?? 7;
-    rays(g, seed);
-    panel(g, seed);
-    body(g);
+    corona(g, seed);
+    ring(g, 100, 1.7, 0.9);
+    ring(g, 93, 1, 0.55);
+    // The head fills the field, the way a portrait fills a medal. Drawn small
+    // and centred it read as a coin with a pinhead stamped on it.
+    hair(g, HEAD.x, HEAD.y, HEAD.scale, seed, COVERED.has(key));
+    profile(g, HEAD.x, HEAD.y, HEAD.scale);
+    // Last, so the thing that says which god this is never ends up underneath
+    // his own hair.
     god(g);
-    plinth(g);
   }
 
   const all = document.querySelectorAll("canvas[data-god]");
   const drawAll = () => { for (const canvas of all) draw(canvas); };
   drawAll();
 
-  // The niches exist only above a breakpoint and grow with the margin, so a
-  // window that is resized has canvases drawn at the wrong size. Redrawing
-  // once it settles costs nothing.
   let settle;
   addEventListener("resize", () => {
     clearTimeout(settle);
