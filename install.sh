@@ -20,9 +20,10 @@ note() { printf '  %s\n' "$*"; }
 fail() { printf '\nsynartesis: %s\n' "$*" >&2; exit 1; }
 
 step "Checking what is here"
-command -v node >/dev/null || fail "node is not installed. Synartesis needs Node 20 or newer."
+command -v node >/dev/null || fail "node is not installed. Synartesis needs Node 22 or newer."
 major="$(node -p 'process.versions.node.split(".")[0]')"
-[ "$major" -ge 20 ] || fail "node $(node --version) is too old. Synartesis needs Node 20 or newer."
+# 22, not 20: better-sqlite3 segfaults on 20 rather than failing politely.
+[ "$major" -ge 22 ] || fail "node $(node --version) is too old. Synartesis needs Node 22 or newer."
 note "node $(node --version)"
 
 if ! command -v pnpm >/dev/null; then

@@ -37,7 +37,7 @@ worth avoiding most.
 
 | Tool | Version | Check with |
 |---|---|---|
-| Node | 20 or newer | `node --version` |
+| Node | 22 or newer | `node --version` |
 | pnpm | 9 or newer | `pnpm --version` |
 | A C toolchain | any | `cc --version` |
 
@@ -415,7 +415,7 @@ pnpm test
 pnpm typecheck && pnpm lint
 ```
 
-Every push runs those on Linux and macOS across Node 20 and 22, plus the demo
+Every push runs those on Linux and macOS across Node 22 and 24, plus the demo
 and the installer.
 
 ## Licence

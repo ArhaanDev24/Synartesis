@@ -1,4 +1,17 @@
 #!/usr/bin/env node
+/**
+ * better-sqlite3 requires Node 22, and on Node 20 it does not fail politely:
+ * it segfaults the moment a database is opened. Saying so is better than
+ * letting somebody meet exit code 139.
+ */
+const NODE_MAJOR = Number(process.versions.node.split(".")[0]);
+if (NODE_MAJOR < 22) {
+  process.stderr.write(
+    `synartesis: needs Node 22 or newer, and this is ${process.version}.\n`,
+  );
+  process.exit(2);
+}
+
 import { resolve } from "node:path";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
