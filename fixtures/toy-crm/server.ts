@@ -83,6 +83,7 @@ export function createToyCrmServer(store: ToyCrmStore): McpServer {
     {
       description: "Fetch a single customer record by id.",
       inputSchema: { id: z.string().describe("Customer id, for example c_001.") },
+      annotations: { readOnlyHint: true },
     },
     ({ id }) => guard(() => json(store.getCustomer(id))),
   );

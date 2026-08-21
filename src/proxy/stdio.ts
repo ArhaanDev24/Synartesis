@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { describe } from "../errors.js";
 import { DEFAULT_GATE_TIMEOUT_MS } from "../gate/gate.js";
+import { createLogger, isLogLevel, LOG_LEVELS, type LogLevel } from "../logging.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
 import { createProxyServer } from "./proxy.js";
@@ -13,12 +14,13 @@ import { connectStdioUpstream, type Upstream } from "./upstream.js";
  * how to start it, so there is nothing left for flags to say.
  *
  *   synartesis-proxy [--manifest synartesis.yaml] [--journal .synartesis/journal.db]
- *                    [--gate-timeout <seconds>]
+ *                    [--gate-timeout <seconds>] [--log-level <level>]
  */
 interface Argv {
   readonly manifest: string;
   readonly journal: string;
   readonly gateTimeoutMs: number;
+  readonly logLevel: LogLevel;
 }
 
 function parseArgv(argv: readonly string[]): Argv {
@@ -26,7 +28,7 @@ function parseArgv(argv: readonly string[]): Argv {
     const at = argv.indexOf(flag);
     return at === -1 ? undefined : argv[at + 1];
   };
-  const known = ["--manifest", "--journal", "--gate-timeout"];
+  const known = ["--manifest", "--journal", "--gate-timeout", "--log-level"];
   const unknown = argv.find((token) => token.startsWith("--") && !known.includes(token));
   if (unknown !== undefined) {
     throw new Error(`unknown flag ${unknown}; expected one of ${known.join(", ")}`);
@@ -38,15 +40,22 @@ function parseArgv(argv: readonly string[]): Argv {
     throw new Error("--gate-timeout needs a positive number of seconds");
   }
 
+  const level = read("--log-level") ?? "info";
+  if (!isLogLevel(level)) {
+    throw new Error(`--log-level must be one of ${LOG_LEVELS.join(", ")}`);
+  }
+
   return {
     manifest: read("--manifest") ?? "synartesis.yaml",
     journal: read("--journal") ?? ".synartesis/journal.db",
     gateTimeoutMs: seconds === undefined ? DEFAULT_GATE_TIMEOUT_MS : seconds * 1000,
+    logLevel: level,
   };
 }
 
 async function main(): Promise<void> {
   const argv = parseArgv(process.argv.slice(2));
+  const log = createLogger(argv.logLevel);
   // Loaded before anything is spawned: never start with a broken policy.
   const manifest = loadManifest(argv.manifest);
   const journal = openJournal(argv.journal);
@@ -63,11 +72,22 @@ async function main(): Promise<void> {
     );
   }
 
+  log.info(
+    {
+      manifest: argv.manifest,
+      journal: argv.journal,
+      servers: upstreams.map((upstream) => upstream.name),
+      policies: manifest.tools.length,
+    },
+    "proxy ready",
+  );
+
   const proxy = createProxyServer({
     upstreams,
     manifest,
     journal,
     gateTimeoutMs: argv.gateTimeoutMs,
+    logger: log,
   });
 
   let shuttingDown = false;
@@ -77,6 +97,19 @@ async function main(): Promise<void> {
     }
     shuttingDown = true;
     void (async (): Promise<void> => {
+      // Nobody is left to answer a suspended call once we exit, and the call
+      // definitively never went out, so denying is the accurate record. Left
+      // alone these would linger in `synartesis gates` with no one waiting.
+      const abandoned = proxy.runId === undefined ? [] : journal.listGated();
+      for (const action of abandoned) {
+        if (action.runId === proxy.runId) {
+          journal.deny(action.id, undefined, "the proxy exited before a decision was made");
+        }
+      }
+      if (abandoned.length > 0) {
+        log.warn({ count: abandoned.length }, "denied suspended calls on shutdown");
+      }
+
       // Let in-flight calls settle before tearing the connection down. An
       // aborted write leaves the journal unable to say whether it applied.
       await Promise.race([

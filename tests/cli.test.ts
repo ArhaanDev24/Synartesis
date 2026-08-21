@@ -102,6 +102,28 @@ function frames(...calls: readonly { name: string; arguments: Record<string, unk
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * Anything on the proxy's stderr that is not a structured log below error
+ * level. A stray plain line would mean something wrote outside the logger.
+ */
+function problems(stderr: string): string[] {
+  return stderr
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .filter((line) => {
+      const parsed = z
+        .looseObject({ level: z.number() })
+        .safeParse(((): unknown => {
+          try {
+            return JSON.parse(line) as unknown;
+          } catch {
+            return undefined;
+          }
+        })());
+      return !parsed.success || parsed.data.level >= 50;
+    });
+}
+
 async function damage(space: Workspace): Promise<void> {
   const result = await run(
     "node",
@@ -112,15 +134,24 @@ async function damage(space: Workspace): Promise<void> {
       { name: "create_customer", arguments: { name: "Bogus", email: "b@e.com" } },
     ),
   );
-  expect(result.stderr).toBe("");
+  expect(problems(result.stderr)).toEqual([]);
 }
 
-function runIdFrom(listing: string): string {
-  const id = listing.trim().split(/\s+/)[0];
-  if (id === undefined) {
-    throw new Error(`no run id in listing: ${listing}`);
+const runsSchema = z.array(z.looseObject({ id: z.string(), actions: z.number() }));
+
+async function runs(journalPath: string): Promise<z.infer<typeof runsSchema>> {
+  const listed = await run("node", [CLI, "list", "--json", "--journal", journalPath]);
+  expect(listed.code).toBe(0);
+  return runsSchema.parse(JSON.parse(listed.stdout));
+}
+
+async function onlyRunId(journalPath: string): Promise<string> {
+  const all = await runs(journalPath);
+  const first = all[0];
+  if (first === undefined) {
+    throw new Error("no runs recorded");
   }
-  return id;
+  return first.id;
 }
 
 describe("the proxy under an abrupt disconnect", () => {
@@ -147,7 +178,8 @@ describe("the cli", () => {
     const listed = await run("node", [CLI, "list", "--journal", space.journal]);
     expect(listed.code).toBe(0);
     expect(listed.stdout).toContain("agent");
-    expect(listed.stdout).toContain("3 actions");
+    expect(listed.stdout).toContain("complete");
+    expect(await runs(space.journal)).toMatchObject([{ label: "agent", actions: 3 }]);
   });
 
   it("undoes a run against state left behind by a process that has exited", async () => {
@@ -158,8 +190,7 @@ describe("the cli", () => {
     expect(damaged.customers["c_001"]?.plan).toBe("free");
     expect(damaged.customers["c_002"]).toBeUndefined();
 
-    const listed = await run("node", [CLI, "list", "--journal", space.journal]);
-    const runId = runIdFrom(listed.stdout);
+    const runId = await onlyRunId(space.journal);
 
     const dry = await run("node", [
       CLI, "undo", runId, "--dry-run", "--manifest", space.manifest, "--journal", space.journal,
@@ -196,9 +227,8 @@ describe("the cli", () => {
     target.notes = "a human corrected this";
     writeFileSync(space.state, JSON.stringify(state, null, 2));
 
-    const listed = await run("node", [CLI, "list", "--journal", space.journal]);
     const undone = await run("node", [
-      CLI, "undo", runIdFrom(listed.stdout), "--manifest", space.manifest, "--journal", space.journal,
+      CLI, "undo", await onlyRunId(space.journal), "--manifest", space.manifest, "--journal", space.journal,
     ]);
 
     expect(undone.code).toBe(1);
@@ -269,9 +299,9 @@ describe("the gate, driven from a second process", () => {
     expect(result).not.toBeInstanceOf(McpError);
     await client.close();
 
-    const shown = await run("node", [CLI, "show", runIdFrom(
-      (await run("node", [CLI, "list", "--journal", space.journal])).stdout,
-    ), "--journal", space.journal]);
+    const shown = await run("node", [
+      CLI, "show", await onlyRunId(space.journal), "--journal", space.journal,
+    ]);
     expect(shown.stdout).toContain("approved by arhaan");
   });
 
@@ -293,6 +323,25 @@ describe("the gate, driven from a second process", () => {
     const after = await client.callTool({ name: "get_customer", arguments: { id: "c_001" } });
     expect(after.isError).toBeFalsy();
     await client.close();
+  });
+
+  it("denies anything still suspended when the proxy exits", async () => {
+    const space = workspace();
+    const client = await agentAgainst(space);
+    const call = client.callTool(email).catch(() => undefined);
+    const actionId = await waitForGate(space.journal);
+
+    // Nobody is left to answer once the proxy is gone. Left alone these linger
+    // in `synartesis gates` forever with no one waiting on them.
+    await client.close();
+    await call;
+
+    const journal = openJournal(space.journal);
+    expect(journal.listGated()).toEqual([]);
+    const settled = journal.getAction(actionId);
+    expect(settled?.status).toBe("denied");
+    expect(settled?.error).toContain("proxy exited");
+    journal.close();
   });
 
   it("reports a decision that arrives after the action is settled", async () => {

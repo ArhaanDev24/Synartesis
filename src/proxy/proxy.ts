@@ -25,6 +25,7 @@ import { UpstreamError, describe } from "../errors.js";
 import { createJournalGate, type Gate } from "../gate/gate.js";
 import { shouldGateOnWrite } from "../gate/heuristic.js";
 import type { Journal } from "../journal/journal.js";
+import type { Logger } from "../logging.js";
 import {
   createPolicyResolver,
   type PolicyResolver,
@@ -48,6 +49,7 @@ export interface ProxyOptions {
   /** Defaults to out-of-band approval through the journal. */
   readonly gate?: Gate;
   readonly gateTimeoutMs?: number;
+  readonly logger?: Logger;
 }
 
 export interface ProxyServer {
@@ -56,6 +58,8 @@ export interface ProxyServer {
   readonly ready: Promise<string>;
   /** Resolves when no tool call is in flight, so shutdown can drain first. */
   whenIdle(): Promise<void>;
+  /** The open run, once the session has initialized. */
+  readonly runId: string | undefined;
 }
 
 type Passthrough = { [key: string]: unknown };
@@ -176,16 +180,22 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
   const router = createRouter(upstreams, manifest);
   const policies: PolicyResolver = createPolicyResolver(manifest);
 
+  const log = options.logger;
+
   const gate =
     options.gate ??
     createJournalGate(journal, {
       ...(options.gateTimeoutMs === undefined ? {} : { timeoutMs: options.gateTimeoutMs }),
       notify: (request) => {
-        // stdout carries protocol frames, so the operator is told on stderr
-        // and, more usefully, by `synartesis gates`.
-        process.stderr.write(
-          `synartesis: awaiting approval for ${request.server}.${request.tool} ` +
-            `(action ${request.actionId}); run: synartesis approve ${request.actionId}\n`,
+        // The operator's real discovery path is `synartesis gates`; this line
+        // exists so the reason a call is hanging is visible in client logs.
+        log?.warn(
+          {
+            action: request.actionId,
+            tool: `${request.server}.${request.tool}`,
+            approve: `synartesis approve ${request.actionId}`,
+          },
+          "awaiting approval",
         );
       },
     });
@@ -430,6 +440,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         } finally {
           inflight += 1;
         }
+        log?.info(
+          { action: pending.actionId, approved: decision.approved },
+          decision.approved ? "approved" : "denied",
+        );
         if (!decision.approved) {
           const who = decision.by === undefined ? "" : ` by ${decision.by}`;
           throw new McpError(
@@ -502,7 +516,14 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             }
           }
 
-          journal.markApplied(pending.actionId, {
+          if (warnings.length > 0) {
+          log?.warn({ seq: pending.seq, tool: route.tool, warnings }, "applied with reservations");
+        }
+        log?.debug(
+          { seq: pending.seq, server: route.upstream.name, tool: route.tool, class: policy.class },
+          "applied",
+        );
+        journal.markApplied(pending.actionId, {
             result,
             ...(inverse === undefined ? {} : { inverse }),
             ...(verify === undefined ? {} : { verify }),
@@ -732,5 +753,12 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
     previousOnClose?.();
   };
 
-  return { server: wrapper, ready, whenIdle };
+  return {
+    server: wrapper,
+    ready,
+    whenIdle,
+    get runId(): string | undefined {
+      return runId;
+    },
+  };
 }
