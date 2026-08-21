@@ -15,6 +15,7 @@ export type ActionStatus =
   | "denied"
   | "applied"
   | "failed"
+  | "rolling_back"
   | "rolled_back"
   | "unrecoverable";
 
@@ -45,6 +46,8 @@ export interface ActionRow {
   readonly postSnapshot: unknown;
   readonly result: unknown;
   readonly inverse: unknown;
+  /** The read that detects drift, resolved at capture time. */
+  readonly verify: unknown;
   readonly error: string | undefined;
   readonly idempotencyKey: string;
   readonly status: ActionStatus;
@@ -65,6 +68,8 @@ export interface AppliedOutcome {
   readonly result: unknown;
   /** Fully resolved at capture time (D5); absent when the class has no inverse. */
   readonly inverse?: unknown;
+  /** The resolved read used to detect drift later. */
+  readonly verify?: unknown;
   /** Post-state for drift detection; absent when the post-read could not run. */
   readonly postSnapshot?: unknown;
   /**
@@ -101,6 +106,7 @@ const actionSchema = z.object({
   post_snapshot_json: z.string().nullable(),
   result_json: z.string().nullable(),
   inverse_json: z.string().nullable(),
+  verify_json: z.string().nullable(),
   error: z.string().nullable(),
   idempotency_key: z.string(),
   status: z.enum([
@@ -109,6 +115,7 @@ const actionSchema = z.object({
     "denied",
     "applied",
     "failed",
+    "rolling_back",
     "rolled_back",
     "unrecoverable",
   ]),
@@ -150,6 +157,7 @@ function toAction(raw: unknown): ActionRow {
     postSnapshot: decode(row.post_snapshot_json),
     result: decode(row.result_json),
     inverse: decode(row.inverse_json),
+    verify: decode(row.verify_json),
     error: orUndefined(row.error),
     idempotencyKey: row.idempotency_key,
     status: row.status,
@@ -168,6 +176,11 @@ export interface Journal {
   markApplied(actionId: string, outcome: AppliedOutcome): void;
   markFailed(actionId: string, error: string): void;
   markUnknown(actionId: string, error: string): void;
+  markRollingBack(actionId: string): void;
+  markRolledBack(actionId: string): void;
+  markUnrecoverable(actionId: string, error: string): void;
+  markInverseRejected(actionId: string, error: string): void;
+  markUnknownInverse(actionId: string, error: string): void;
   listRuns(): readonly RunRow[];
   getRun(runId: string): RunRow | undefined;
   getActions(runId: string): readonly ActionRow[];
@@ -186,6 +199,25 @@ class SqliteJournal implements Journal {
     // WAL so a reader (the CLI) never blocks the proxy mid-run.
     this.#db.pragma("journal_mode = WAL");
     this.#db.pragma("foreign_keys = ON");
+
+    const existing = z.number().parse(this.#db.pragma("user_version", { simple: true }));
+    const populated =
+      z
+        .object({ count: z.number() })
+        .parse(
+          this.#db
+            .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'runs'")
+            .get(),
+        ).count > 0;
+    if (populated && existing !== SCHEMA_VERSION) {
+      // Reinterpreting an older journal under a newer schema would risk
+      // reading a rollback state that was never written.
+      throw new JournalError(
+        "open",
+        `journal at ${path} was written by schema version ${String(existing)}, but this build expects ${String(SCHEMA_VERSION)}. Delete it or point --journal at a new file.`,
+      );
+    }
+
     this.#db.exec(SCHEMA_SQL);
     this.#db.pragma(`user_version = ${String(SCHEMA_VERSION)}`);
   }
@@ -266,6 +298,7 @@ class SqliteJournal implements Journal {
              SET status = 'applied',
                  result_json = ?,
                  inverse_json = ?,
+                 verify_json = ?,
                  post_snapshot_json = ?,
                  error = ?
            WHERE id = ?`,
@@ -273,6 +306,7 @@ class SqliteJournal implements Journal {
         .run(
           JSON.stringify(outcome.result ?? null),
           outcome.inverse === undefined ? null : JSON.stringify(outcome.inverse),
+          outcome.verify === undefined ? null : JSON.stringify(outcome.verify),
           outcome.postSnapshot === undefined ? null : JSON.stringify(outcome.postSnapshot),
           outcome.warning ?? null,
           actionId,
@@ -298,6 +332,53 @@ class SqliteJournal implements Journal {
     this.#run("markUnknown", () => {
       this.#db
         .prepare("UPDATE actions SET status = 'pending', error = ? WHERE id = ?")
+        .run(error, actionId);
+    });
+  }
+
+  markRollingBack(actionId: string): void {
+    this.#run("markRollingBack", () => {
+      this.#db.prepare("UPDATE actions SET status = 'rolling_back' WHERE id = ?").run(actionId);
+    });
+  }
+
+  markRolledBack(actionId: string): void {
+    this.#run("markRolledBack", () => {
+      this.#db.prepare("UPDATE actions SET status = 'rolled_back' WHERE id = ?").run(actionId);
+    });
+  }
+
+  /**
+   * The upstream processed the inverse and refused it, so nothing was applied
+   * and the action still needs undoing. Distinct from `unrecoverable`, which
+   * means a human has to look: a refused inverse may simply be a server that
+   * was briefly unwell, and rollback is expected to be retried (D7).
+   */
+  markInverseRejected(actionId: string, error: string): void {
+    this.#run("markInverseRejected", () => {
+      this.#db
+        .prepare("UPDATE actions SET status = 'applied', error = ? WHERE id = ?")
+        .run(error, actionId);
+    });
+  }
+
+  /**
+   * The inverse may or may not have reached the upstream. The row stays in
+   * `rolling_back` so the next attempt knows to resolve it by reading the
+   * current state rather than assuming either way.
+   */
+  markUnknownInverse(actionId: string, error: string): void {
+    this.#run("markUnknownInverse", () => {
+      this.#db
+        .prepare("UPDATE actions SET status = 'rolling_back', error = ? WHERE id = ?")
+        .run(error, actionId);
+    });
+  }
+
+  markUnrecoverable(actionId: string, error: string): void {
+    this.#run("markUnrecoverable", () => {
+      this.#db
+        .prepare("UPDATE actions SET status = 'unrecoverable', error = ? WHERE id = ?")
         .run(error, actionId);
     });
   }

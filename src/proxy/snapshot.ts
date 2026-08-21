@@ -78,48 +78,62 @@ export function planInverse(call: CallTemplate, context: TemplateContext): Inver
   return { server: target.server, tool: target.tool, args: resolveArgs(call, context) };
 }
 
+/** The snapshot read with its arguments already reduced to literals. */
+export interface ResolvedRead {
+  readonly server: string;
+  readonly tool: string;
+  readonly args: Record<string, unknown>;
+}
+
 /**
- * Runs a declared pre-read. Deliberately not journalled: this is the proxy's
- * own traffic, and recording it would bury the actions an operator needs.
+ * Resolves a declared pre-read against the current context. Stored on the
+ * action so that drift can be checked later without consulting a manifest
+ * that may have been edited in the meantime.
  */
-export async function readSnapshot(
-  router: Router,
-  call: CallTemplate,
-  context: TemplateContext,
-  signal: AbortSignal,
-): Promise<unknown> {
+export function planRead(call: CallTemplate, context: TemplateContext): ResolvedRead {
   const target = splitQualified(call.tool);
   if (target === undefined) {
     throw new SnapshotError(call.tool, "the snapshot tool is not qualified as server.tool");
   }
-  const upstream = router.byName(target.server);
-  if (upstream === undefined) {
-    throw new SnapshotError(call.tool, `server ${target.server} is not connected`);
-  }
-
-  let args: Record<string, unknown>;
   try {
-    args = resolveArgs(call, context);
+    return { server: target.server, tool: target.tool, args: resolveArgs(call, context) };
   } catch (error: unknown) {
     throw new SnapshotError(call.tool, describe(error), { cause: error });
   }
+}
+
+/**
+ * Runs a resolved pre-read. Deliberately not journalled: this is the proxy's
+ * own traffic, and recording it would bury the actions an operator needs.
+ */
+export async function runRead(
+  router: Router,
+  read: ResolvedRead,
+  signal: AbortSignal,
+): Promise<unknown> {
+  const label = `${read.server}.${read.tool}`;
+  const upstream = router.byName(read.server);
+  if (upstream === undefined) {
+    throw new SnapshotError(label, `server ${read.server} is not connected`);
+  }
+  const { tool, args } = read;
 
   let raw: unknown;
   try {
     raw = await upstream.client.request(
-      { method: "tools/call", params: { name: target.tool, arguments: args } },
+      { method: "tools/call", params: { name: tool, arguments: args } },
       z.looseObject({}),
       { signal },
     );
   } catch (error: unknown) {
-    throw new SnapshotError(call.tool, describe(error), { cause: error });
+    throw new SnapshotError(label, describe(error), { cause: error });
   }
 
   const parsed = ToolResult.safeParse(raw);
   if (parsed.success && parsed.data.isError) {
     // A tool-level error is still a failed read: whatever the write is about
     // to overwrite, we could not capture it.
-    throw new SnapshotError(call.tool, `the read reported an error: ${JSON.stringify(raw)}`, {
+    throw new SnapshotError(label, `the read reported an error: ${JSON.stringify(raw)}`, {
       absent: true,
     });
   }
@@ -135,12 +149,11 @@ export async function readSnapshot(
  */
 export async function observeState(
   router: Router,
-  call: CallTemplate,
-  context: TemplateContext,
+  read: ResolvedRead,
   signal: AbortSignal,
 ): Promise<StateObservation> {
   try {
-    return { present: true, value: await readSnapshot(router, call, context, signal) };
+    return { present: true, value: await runRead(router, read, signal) };
   } catch (error: unknown) {
     if (error instanceof SnapshotError && error.absent) {
       return { present: false };

@@ -23,10 +23,20 @@ import { z } from "zod";
 
 import { UpstreamError, describe } from "../errors.js";
 import type { Journal } from "../journal/journal.js";
-import { createPolicyResolver, type PolicyResolver } from "../manifest/match.js";
+import {
+  createPolicyResolver,
+  type PolicyResolver,
+} from "../manifest/match.js";
 import { qualify, type Manifest } from "../manifest/types.js";
 import { createRouter, type Router } from "./routing.js";
-import { observeState, planInverse, readSnapshot, toPayload } from "./snapshot.js";
+import {
+  observeState,
+  planInverse,
+  planRead,
+  runRead,
+  toPayload,
+  type ResolvedRead,
+} from "./snapshot.js";
 import type { Upstream } from "./upstream.js";
 
 export interface ProxyOptions {
@@ -70,7 +80,9 @@ const TemplateList = z.looseObject({
 
 function unwrap(error: McpError): string {
   const prefix = `MCP error ${String(error.code)}: `;
-  return error.message.startsWith(prefix) ? error.message.slice(prefix.length) : error.message;
+  return error.message.startsWith(prefix)
+    ? error.message.slice(prefix.length)
+    : error.message;
 }
 
 function rethrow(server: string, operation: string, error: unknown): never {
@@ -89,12 +101,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * upstream can do. Sub-objects are merged rather than replaced so that, for
  * example, one server's resources.subscribe survives another's resources {}.
  */
-function mergeCapabilities(all: readonly ServerCapabilities[]): ServerCapabilities {
+function mergeCapabilities(
+  all: readonly ServerCapabilities[],
+): ServerCapabilities {
   const merged: Record<string, unknown> = {};
   for (const capabilities of all) {
     for (const [key, value] of Object.entries(capabilities)) {
       const existing = merged[key];
-      merged[key] = isRecord(existing) && isRecord(value) ? { ...existing, ...value } : value;
+      merged[key] =
+        isRecord(existing) && isRecord(value)
+          ? { ...existing, ...value }
+          : value;
     }
   }
   return merged;
@@ -114,8 +131,14 @@ function identityFor(router: Router): Implementation {
 
 function instructionsFor(router: Router): string | undefined {
   const sections = router.upstreams
-    .map((upstream) => ({ name: upstream.name, text: upstream.client.getInstructions() }))
-    .filter((section): section is { name: string; text: string } => section.text !== undefined);
+    .map((upstream) => ({
+      name: upstream.name,
+      text: upstream.client.getInstructions(),
+    }))
+    .filter(
+      (section): section is { name: string; text: string } =>
+        section.text !== undefined,
+    );
   if (sections.length === 0) {
     return undefined;
   }
@@ -129,7 +152,9 @@ function instructionsFor(router: Router): string | undefined {
 
 /** Walks every page so that aggregation across servers is never partial. */
 async function drain<T>(
-  fetch: (cursor: string | undefined) => Promise<{ items: T[]; nextCursor: string | undefined }>,
+  fetch: (
+    cursor: string | undefined,
+  ) => Promise<{ items: T[]; nextCursor: string | undefined }>,
 ): Promise<T[]> {
   const collected: T[] = [];
   let cursor: string | undefined;
@@ -187,8 +212,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
     }
   };
 
-  const supports = (upstream: Upstream, key: keyof ServerCapabilities): boolean =>
-    upstream.client.getServerCapabilities()?.[key] !== undefined;
+  const supports = (
+    upstream: Upstream,
+    key: keyof ServerCapabilities,
+  ): boolean => upstream.client.getServerCapabilities()?.[key] !== undefined;
 
   const ask = async (
     upstream: Upstream,
@@ -196,7 +223,9 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
     signal: AbortSignal,
   ): Promise<Passthrough> => {
     try {
-      return await upstream.client.request(request, PassthroughResult, { signal });
+      return await upstream.client.request(request, PassthroughResult, {
+        signal,
+      });
     } catch (error: unknown) {
       return rethrow(upstream.name, request.method, error);
     }
@@ -222,7 +251,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
       const resources = await drain(async (cursor) => {
         const raw = await ask(
           upstream,
-          { method: "resources/list", params: cursor === undefined ? {} : { cursor } },
+          {
+            method: "resources/list",
+            params: cursor === undefined ? {} : { cursor },
+          },
           signal,
         );
         const page = ResourceList.parse(raw);
@@ -274,43 +306,58 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
     }
   };
 
-  const ownerOf = async (uri: string, signal: AbortSignal): Promise<Upstream> => {
+  const ownerOf = async (
+    uri: string,
+    signal: AbortSignal,
+  ): Promise<Upstream> => {
     await ensureResources(signal);
     const direct = owners?.get(uri);
     const scheme = uri.split(":")[0] ?? "";
     const name = direct ?? schemes?.get(scheme);
     const upstream = name === undefined ? undefined : router.byName(name);
     if (upstream === undefined) {
-      throw new McpError(ErrorCode.InvalidParams, `no configured server provides ${uri}`);
+      throw new McpError(
+        ErrorCode.InvalidParams,
+        `no configured server provides ${uri}`,
+      );
     }
     return upstream;
   };
 
   // --- handlers -----------------------------------------------------------
   if (capabilities.tools !== undefined) {
-    server.setRequestHandler(ListToolsRequestSchema, async (_request, extra) => {
-      const tools: Passthrough[] = [];
-      for (const upstream of router.upstreams) {
-        if (!supports(upstream, "tools")) {
-          continue;
+    server.setRequestHandler(
+      ListToolsRequestSchema,
+      async (_request, extra) => {
+        const tools: Passthrough[] = [];
+        for (const upstream of router.upstreams) {
+          if (!supports(upstream, "tools")) {
+            continue;
+          }
+          const items = await drain(async (cursor) => {
+            const raw = await ask(
+              upstream,
+              {
+                method: "tools/list",
+                params: cursor === undefined ? {} : { cursor },
+              },
+              extra.signal,
+            );
+            const page = ToolList.parse(raw);
+            return { items: page.tools, nextCursor: page.nextCursor };
+          });
+          for (const tool of items) {
+            tools.push({
+              ...tool,
+              name: router.expose(upstream.name, tool.name),
+            });
+          }
         }
-        const items = await drain(async (cursor) => {
-          const raw = await ask(
-            upstream,
-            { method: "tools/list", params: cursor === undefined ? {} : { cursor } },
-            extra.signal,
-          );
-          const page = ToolList.parse(raw);
-          return { items: page.tools, nextCursor: page.nextCursor };
-        });
-        for (const tool of items) {
-          tools.push({ ...tool, name: router.expose(upstream.name, tool.name) });
-        }
-      }
-      // Pagination is flattened: a cursor would have to encode a position
-      // across several independent servers, and the client gains nothing.
-      return { tools };
-    });
+        // Pagination is flattened: a cursor would have to encode a position
+        // across several independent servers, and the client gains nothing.
+        return { tools };
+      },
+    );
 
     server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       if (runId === undefined) {
@@ -325,84 +372,101 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         );
       }
 
-      const { policy } = policies.resolve(qualify(route.upstream.name, route.tool));
+      const { policy } = policies.resolve(
+        qualify(route.upstream.name, route.tool),
+      );
       const args = request.params.arguments ?? {};
-      const pending = journal.recordPending({
-        runId,
-        server: route.upstream.name,
-        tool: route.tool,
-        args,
-        class: policy.class,
-      });
-
-      // The pre-read happens before the write goes out, and a failure stops
-      // the write entirely: a reversible action without a snapshot is silently
-      // irreversible, which is worse than the action not happening at all.
-      let snapshot: unknown;
-      if (policy.snapshot !== undefined) {
-        try {
-          snapshot = await readSnapshot(router, policy.snapshot, { args }, extra.signal);
-        } catch (error: unknown) {
-          const reason = describe(error);
-          journal.markFailed(pending.actionId, reason);
-          throw new McpError(
-            ErrorCode.InternalError,
-            `synartesis blocked ${request.params.name}: ${reason}`,
-          );
-        }
-        journal.attachSnapshot(pending.actionId, snapshot);
-      }
-
-      const forwarded: Request = {
-        method: "tools/call",
-        params: { ...request.params, name: route.tool },
-      };
+      // Counted from here, not from the forward call: the pre-read is part of
+      // the action, and a shutdown that aborts it blocks a legitimate write.
       inflight += 1;
       try {
-        const result = await route.upstream.client.request(forwarded, PassthroughResult, {
-          signal: extra.signal,
+        const pending = journal.recordPending({
+          runId,
+          server: route.upstream.name,
+          tool: route.tool,
+          args,
+          class: policy.class,
         });
 
-        const context = { args, snapshot, result: toPayload(result) };
-        const warnings: string[] = [];
-
-        // Resolved now rather than at rollback time (D5).
-        let inverse: unknown;
-        if (policy.inverse !== undefined) {
-          try {
-            inverse = planInverse(policy.inverse, context);
-          } catch (error: unknown) {
-            warnings.push(`inverse could not be resolved: ${describe(error)}`);
-          }
-        }
-
-        // Best effort: the write has already applied, so a failed post-read
-        // cannot undo it. Phase 4 fails closed when the post-state is missing,
-        // because drift cannot be ruled out without it. A resource that is now
-        // absent is a captured post-state, not a missing one.
-        let postSnapshot: unknown;
+        // The pre-read happens before the write goes out, and a failure stops
+        // the write entirely: a reversible action without a snapshot is silently
+        // irreversible, which is worse than the action not happening at all.
+        let snapshot: unknown;
+        let verify: ResolvedRead | undefined;
         if (policy.snapshot !== undefined) {
           try {
-            postSnapshot = await observeState(router, policy.snapshot, context, extra.signal);
+            verify = planRead(policy.snapshot, { args });
+            snapshot = await runRead(router, verify, extra.signal);
           } catch (error: unknown) {
-            warnings.push(`post-state could not be captured: ${describe(error)}`);
+            const reason = describe(error);
+            journal.markFailed(pending.actionId, reason);
+            throw new McpError(
+              ErrorCode.InternalError,
+              `synartesis blocked ${request.params.name}: ${reason}`,
+            );
           }
+          journal.attachSnapshot(pending.actionId, snapshot);
         }
 
-        journal.markApplied(pending.actionId, {
-          result,
-          ...(inverse === undefined ? {} : { inverse }),
-          ...(postSnapshot === undefined ? {} : { postSnapshot }),
-          ...(warnings.length === 0 ? {} : { warning: warnings.join("; ") }),
-        });
-        return result;
-      } catch (error: unknown) {
-        if (extra.signal.aborted) {
-          journal.markUnknown(pending.actionId, describe(error));
-        } else {
-          journal.markFailed(pending.actionId, describe(error));
+        const forwarded: Request = {
+          method: "tools/call",
+          params: { ...request.params, name: route.tool },
+        };
+        try {
+          const result = await route.upstream.client.request(
+            forwarded,
+            PassthroughResult,
+            {
+              signal: extra.signal,
+            },
+          );
+
+          const context = { args, snapshot, result: toPayload(result) };
+          const warnings: string[] = [];
+
+          // Resolved now rather than at rollback time (D5).
+          let inverse: unknown;
+          if (policy.inverse !== undefined) {
+            try {
+              inverse = planInverse(policy.inverse, context);
+            } catch (error: unknown) {
+              warnings.push(
+                `inverse could not be resolved: ${describe(error)}`,
+              );
+            }
+          }
+
+          // Best effort: the write has already applied, so a failed post-read
+          // cannot undo it. Phase 4 fails closed when the post-state is missing,
+          // because drift cannot be ruled out without it. A resource that is now
+          // absent is a captured post-state, not a missing one.
+          let postSnapshot: unknown;
+          if (verify !== undefined) {
+            try {
+              postSnapshot = await observeState(router, verify, extra.signal);
+            } catch (error: unknown) {
+              warnings.push(
+                `post-state could not be captured: ${describe(error)}`,
+              );
+            }
+          }
+
+          journal.markApplied(pending.actionId, {
+            result,
+            ...(inverse === undefined ? {} : { inverse }),
+            ...(verify === undefined ? {} : { verify }),
+            ...(postSnapshot === undefined ? {} : { postSnapshot }),
+            ...(warnings.length === 0 ? {} : { warning: warnings.join("; ") }),
+          });
+          return result;
+        } catch (error: unknown) {
+          if (extra.signal.aborted) {
+            journal.markUnknown(pending.actionId, describe(error));
+          } else {
+            journal.markFailed(pending.actionId, describe(error));
+          }
+          return rethrow(route.upstream.name, "tools/call", error);
         }
-        return rethrow(route.upstream.name, "tools/call", error);
       } finally {
         inflight -= 1;
         if (inflight === 0) {
@@ -415,55 +479,70 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
   }
 
   if (capabilities.resources !== undefined) {
-    server.setRequestHandler(ListResourcesRequestSchema, async (_request, extra) => {
-      await refreshResources(extra.signal);
-      await ensureResources(extra.signal);
-      const resources: Passthrough[] = [];
-      for (const upstream of router.upstreams) {
-        if (!supports(upstream, "resources")) {
-          continue;
+    server.setRequestHandler(
+      ListResourcesRequestSchema,
+      async (_request, extra) => {
+        await refreshResources(extra.signal);
+        await ensureResources(extra.signal);
+        const resources: Passthrough[] = [];
+        for (const upstream of router.upstreams) {
+          if (!supports(upstream, "resources")) {
+            continue;
+          }
+          const items = await drain(async (cursor) => {
+            const raw = await ask(
+              upstream,
+              {
+                method: "resources/list",
+                params: cursor === undefined ? {} : { cursor },
+              },
+              extra.signal,
+            );
+            const page = ResourceList.parse(raw);
+            return { items: page.resources, nextCursor: page.nextCursor };
+          });
+          resources.push(...items);
         }
-        const items = await drain(async (cursor) => {
-          const raw = await ask(
-            upstream,
-            { method: "resources/list", params: cursor === undefined ? {} : { cursor } },
-            extra.signal,
-          );
-          const page = ResourceList.parse(raw);
-          return { items: page.resources, nextCursor: page.nextCursor };
-        });
-        resources.push(...items);
-      }
-      return { resources };
-    });
+        return { resources };
+      },
+    );
 
-    server.setRequestHandler(ListResourceTemplatesRequestSchema, async (_request, extra) => {
-      const resourceTemplates: Passthrough[] = [];
-      for (const upstream of router.upstreams) {
-        if (!supports(upstream, "resources")) {
-          continue;
+    server.setRequestHandler(
+      ListResourceTemplatesRequestSchema,
+      async (_request, extra) => {
+        const resourceTemplates: Passthrough[] = [];
+        for (const upstream of router.upstreams) {
+          if (!supports(upstream, "resources")) {
+            continue;
+          }
+          const items = await drain(async (cursor) => {
+            const raw = await ask(
+              upstream,
+              {
+                method: "resources/templates/list",
+                params: cursor === undefined ? {} : { cursor },
+              },
+              extra.signal,
+            );
+            const page = TemplateList.parse(raw);
+            return {
+              items: page.resourceTemplates,
+              nextCursor: page.nextCursor,
+            };
+          });
+          resourceTemplates.push(...items);
         }
-        const items = await drain(async (cursor) => {
-          const raw = await ask(
-            upstream,
-            {
-              method: "resources/templates/list",
-              params: cursor === undefined ? {} : { cursor },
-            },
-            extra.signal,
-          );
-          const page = TemplateList.parse(raw);
-          return { items: page.resourceTemplates, nextCursor: page.nextCursor };
-        });
-        resourceTemplates.push(...items);
-      }
-      return { resourceTemplates };
-    });
+        return { resourceTemplates };
+      },
+    );
 
-    server.setRequestHandler(ReadResourceRequestSchema, async (request, extra) => {
-      const upstream = await ownerOf(request.params.uri, extra.signal);
-      return ask(upstream, request, extra.signal);
-    });
+    server.setRequestHandler(
+      ReadResourceRequestSchema,
+      async (request, extra) => {
+        const upstream = await ownerOf(request.params.uri, extra.signal);
+        return ask(upstream, request, extra.signal);
+      },
+    );
 
     if (capabilities.resources.subscribe === true) {
       for (const schema of [SubscribeRequestSchema, UnsubscribeRequestSchema]) {
@@ -476,27 +555,36 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
   }
 
   if (capabilities.prompts !== undefined) {
-    server.setRequestHandler(ListPromptsRequestSchema, async (_request, extra) => {
-      const prompts: Passthrough[] = [];
-      for (const upstream of router.upstreams) {
-        if (!supports(upstream, "prompts")) {
-          continue;
+    server.setRequestHandler(
+      ListPromptsRequestSchema,
+      async (_request, extra) => {
+        const prompts: Passthrough[] = [];
+        for (const upstream of router.upstreams) {
+          if (!supports(upstream, "prompts")) {
+            continue;
+          }
+          const items = await drain(async (cursor) => {
+            const raw = await ask(
+              upstream,
+              {
+                method: "prompts/list",
+                params: cursor === undefined ? {} : { cursor },
+              },
+              extra.signal,
+            );
+            const page = PromptList.parse(raw);
+            return { items: page.prompts, nextCursor: page.nextCursor };
+          });
+          for (const prompt of items) {
+            prompts.push({
+              ...prompt,
+              name: router.expose(upstream.name, prompt.name),
+            });
+          }
         }
-        const items = await drain(async (cursor) => {
-          const raw = await ask(
-            upstream,
-            { method: "prompts/list", params: cursor === undefined ? {} : { cursor } },
-            extra.signal,
-          );
-          const page = PromptList.parse(raw);
-          return { items: page.prompts, nextCursor: page.nextCursor };
-        });
-        for (const prompt of items) {
-          prompts.push({ ...prompt, name: router.expose(upstream.name, prompt.name) });
-        }
-      }
-      return { prompts };
-    });
+        return { prompts };
+      },
+    );
 
     server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
       const route = router.route(request.params.name);
@@ -508,7 +596,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
       }
       return ask(
         route.upstream,
-        { method: "prompts/get", params: { ...request.params, name: route.tool } },
+        {
+          method: "prompts/get",
+          params: { ...request.params, name: route.tool },
+        },
         extra.signal,
       );
     });
@@ -520,13 +611,19 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
       if (reference.type === "ref/prompt") {
         const route = router.route(reference.name);
         if (route === undefined) {
-          throw new McpError(ErrorCode.InvalidParams, `unknown prompt ${reference.name}`);
+          throw new McpError(
+            ErrorCode.InvalidParams,
+            `unknown prompt ${reference.name}`,
+          );
         }
         return ask(
           route.upstream,
           {
             method: "completion/complete",
-            params: { ...request.params, ref: { ...reference, name: route.tool } },
+            params: {
+              ...request.params,
+              ref: { ...reference, name: route.tool },
+            },
           },
           extra.signal,
         );
@@ -551,7 +648,9 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
   // --- lifecycle ----------------------------------------------------------
   let connected = false;
   for (const upstream of router.upstreams) {
-    upstream.client.fallbackNotificationHandler = async (notification): Promise<void> => {
+    upstream.client.fallbackNotificationHandler = async (
+      notification,
+    ): Promise<void> => {
       if (notification.method.endsWith("list_changed")) {
         owners = undefined;
         schemes = undefined;

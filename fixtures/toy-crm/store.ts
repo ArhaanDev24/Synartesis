@@ -43,6 +43,14 @@ export type CustomerPatch = {
 export interface ToyCrmOptions {
   /** Injected so tests can pin email timestamps. */
   readonly now?: () => string;
+  /**
+   * Called before every mutating operation. Exists so a test can inject a
+   * failure at a chosen point, which is the only way to exercise an
+   * interrupted rollback.
+   */
+  readonly beforeWrite?: () => void;
+  /** Called after every mutating operation, so state can be persisted. */
+  readonly afterWrite?: () => void;
 }
 
 export class CustomerNotFoundError extends Error {
@@ -63,9 +71,13 @@ export class ToyCrmStore {
   #outbox: SentEmail[] = [];
   #nextId = SEED.length + 1;
   readonly #now: () => string;
+  readonly #beforeWrite: () => void;
+  readonly #afterWrite: () => void;
 
   constructor(options: ToyCrmOptions = {}) {
     this.#now = options.now ?? ((): string => new Date().toISOString());
+    this.#beforeWrite = options.beforeWrite ?? ((): void => undefined);
+    this.#afterWrite = options.afterWrite ?? ((): void => undefined);
     for (const customer of SEED) {
       this.#customers.set(customer.id, customer);
     }
@@ -84,12 +96,14 @@ export class ToyCrmStore {
   }
 
   createCustomer(draft: CustomerDraft): Customer {
+    this.#beforeWrite();
     // Ids are never recycled: a rolled-back delete followed by a fresh create
     // must not collide with the id the rollback restored.
     const id = `c_${String(this.#nextId).padStart(3, "0")}`;
     this.#nextId += 1;
     const customer: Customer = { id, ...draft };
     this.#customers.set(id, customer);
+    this.#afterWrite();
     return customer;
   }
 
@@ -99,11 +113,14 @@ export class ToyCrmStore {
    * leave every foreign key pointing at nothing.
    */
   restoreCustomer(customer: Customer): Customer {
+    this.#beforeWrite();
     this.#customers.set(customer.id, customer);
+    this.#afterWrite();
     return customer;
   }
 
   updateCustomer(id: string, patch: CustomerPatch): Customer {
+    this.#beforeWrite();
     const current = this.getCustomer(id);
     // Merged field by field rather than by spread: an absent optional arrives
     // over the wire as an explicit `undefined`, and spreading that would erase
@@ -116,19 +133,41 @@ export class ToyCrmStore {
       notes: patch.notes ?? current.notes,
     };
     this.#customers.set(id, updated);
+    this.#afterWrite();
     return updated;
   }
 
   deleteCustomer(id: string): Customer {
+    this.#beforeWrite();
     const customer = this.getCustomer(id);
     this.#customers.delete(id);
+    this.#afterWrite();
     return customer;
   }
 
   sendEmail(to: string, subject: string, body: string): SentEmail {
+    this.#beforeWrite();
     const email: SentEmail = { to, subject, body, sentAt: this.#now() };
     this.#outbox = [...this.#outbox, email];
+    this.#afterWrite();
     return email;
+  }
+
+  /**
+   * Replaces the whole store. Used to hydrate a persisted fixture so that a
+   * rollback run in a separate process sees the state the agent left behind.
+   */
+  __restore(state: ToyCrmState): void {
+    this.#customers.clear();
+    let highest = 0;
+    for (const [id, customer] of Object.entries(state.customers)) {
+      this.#customers.set(id, { ...customer });
+      const numeric = Number(/^c_(\d+)$/.exec(id)?.[1] ?? "0");
+      highest = Math.max(highest, numeric);
+    }
+    this.#outbox = state.outbox.map((email) => ({ ...email }));
+    // Ids are never recycled, so the counter resumes past anything restored.
+    this.#nextId = highest + 1;
   }
 
   /**

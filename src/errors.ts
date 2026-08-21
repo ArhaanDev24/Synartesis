@@ -76,6 +76,43 @@ export class SnapshotError extends SynartesisError {
 }
 
 /**
+ * The resource changed after the agent touched it. Writing the old value back
+ * would silently destroy whatever happened in between, so both values are
+ * carried here for a human to judge.
+ */
+export class DriftConflict extends SynartesisError {
+  readonly code = "DRIFT_CONFLICT";
+
+  constructor(
+    readonly seq: number,
+    readonly expected: unknown,
+    readonly actual: unknown,
+  ) {
+    super(
+      `drift at sequence ${String(seq)}: the resource is not in the state this run left it in.\n` +
+        `  expected: ${JSON.stringify(expected)}\n` +
+        `  actual:   ${JSON.stringify(actual)}`,
+    );
+  }
+}
+
+/**
+ * An inverse failed, so the run is partially reverted. Continuing past it would
+ * produce a state that is neither the before nor the after (D6).
+ */
+export class RollbackHalted extends SynartesisError {
+  readonly code = "ROLLBACK_HALTED";
+
+  constructor(
+    readonly seq: number,
+    reason: string,
+    options?: { cause?: unknown },
+  ) {
+    super(`rollback halted at sequence ${String(seq)}: ${reason}`, options);
+  }
+}
+
+/**
  * Not in spec 3.5, which covers failures on the proxy's forward path. A journal
  * write failing is different in kind: it means the record of what the agent did
  * is incomplete, so the call must not proceed. Always fatal, never swallowed.
