@@ -438,7 +438,7 @@
 <header class="masthead">
   <span class="label">Undo layer</span>
   <span class="wordmark">Synartesis</span>
-  <a class="label" href="https://github.com/ArhaanDev24/Synartesis">Source</a>
+  <a class="label" href="https://github.com/ArhaanDev24/Synartesis">GitHub &rarr;</a>
 </header>
 
 <main>
@@ -663,22 +663,21 @@
     <div class="section-head">
       <h2 class="display">Install<br>via terminal</h2>
       <p class="lede">
-        The script checks your Node version, builds, and links
+        Node 20 or newer. The script checks that, builds, and links
         <code class="inline">synartesis</code> into a directory already on your
-        PATH. It edits no shell profile and needs no sudo. There is no
-        <code class="inline">curl | bash</code> yet, because the repository is
-        private and a command that fails for everyone without access is worse
-        than one that says what it does.
+        PATH. It edits no shell profile, needs no sudo, and writes nothing
+        outside its own directory. Read it first if you would rather: it is
+        short, and it is the same file this command fetches.
       </p>
     </div>
 
     <div class="install-box">
       <div class="install-tabs">
         <button type="button" data-os="unix" aria-pressed="true">macOS / Linux</button>
-        <button type="button" data-os="any" aria-pressed="false">Any platform</button>
+        <button type="button" data-os="clone" aria-pressed="false">From a clone</button>
       </div>
       <div class="install-line">
-        <code id="install-command">git clone git@github.com:ArhaanDev24/Synartesis.git &amp;&amp; cd Synartesis &amp;&amp; ./install.sh</code>
+        <code id="install-command">curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash</code>
         <button type="button" id="install-copy">Copy</button>
       </div>
     </div>
@@ -749,7 +748,7 @@
 </main>
 
 <footer class="colophon">
-  <span class="label">Synartesis &middot; pre-release &middot; not yet licensed for use</span>
+  <span class="label">Synartesis 0.1.0 &middot; MIT licence &middot; open source</span>
   <span class="label">Built on the Model Context Protocol</span>
 </footer>
 
@@ -1040,8 +1039,8 @@
   // falls back to selecting the text where the clipboard is not available.
   (function () {
     const COMMANDS = {
-      unix: "git clone git@github.com:ArhaanDev24/Synartesis.git && cd Synartesis && ./install.sh",
-      any: "git clone git@github.com:ArhaanDev24/Synartesis.git && cd Synartesis && pnpm install && pnpm build",
+      unix: "curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash",
+      clone: "git clone https://github.com/ArhaanDev24/Synartesis.git && cd Synartesis && ./install.sh",
     };
 
     const code = document.getElementById("install-command");

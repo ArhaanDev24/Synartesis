@@ -2,6 +2,9 @@
 
 An undo layer for AI agents.
 
+[![check](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml/badge.svg)](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml)
+[![MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+
 An agent with write access to a real system runs twenty steps, misreads step
 seven, and applies the rest to the wrong records. Today your options are to
 reverse it by hand from the transcript, restore a backup and lose every
@@ -48,6 +51,12 @@ The C toolchain is needed once, to compile SQLite's native bindings. On macOS
 run `xcode-select --install`; on Debian or Ubuntu, `apt install build-essential`.
 
 ## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash
+```
+
+Or from a clone, if you would rather read it first:
 
 ```bash
 git clone https://github.com/ArhaanDev24/Synartesis.git && cd Synartesis && ./install.sh
@@ -405,3 +414,10 @@ pnpm test
 ```bash
 pnpm typecheck && pnpm lint
 ```
+
+Every push runs those on Linux and macOS across Node 20 and 22, plus the demo
+and the installer.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
