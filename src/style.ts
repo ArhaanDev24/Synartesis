@@ -7,11 +7,11 @@
  * restraint.
  */
 const ESC = "\u001b[";
-const GREEN = `${ESC}38;2;56;205;115m`;
-// A bright plate with dark ink on it, so the wordmark holds on a light
-// terminal as well as a dark one.
-const ON_GREEN = `${ESC}48;2;74;222;128m${ESC}38;2;5;46;22m`;
-const BRIGHT = `${ESC}38;2;190;250;215m`;
+const ACCENT = `${ESC}38;2;226;134;118m`;
+// Deep oxblood with a warm off-white on it, which holds on a light terminal
+// as well as a dark one.
+const ON_ACCENT = `${ESC}48;2;94;20;32m${ESC}38;2;246;233;229m`;
+const BRIGHT = `${ESC}38;2;246;233;229m`;
 const DIM = `${ESC}2m`;
 const BOLD = `${ESC}1m`;
 const RESET = `${ESC}0m`;
@@ -40,13 +40,13 @@ export function spaced(text: string): string {
 
 export const style = {
   /** A section label: small, capital, spaced out. */
-  label: (text: string): string => paint(GREEN + DIM, spaced(text.toUpperCase())),
+  label: (text: string): string => paint(ACCENT + DIM, spaced(text.toUpperCase())),
   heading: (text: string): string => paint(BRIGHT + BOLD, text.toUpperCase()),
-  accent: (text: string): string => paint(GREEN, text),
+  accent: (text: string): string => paint(ACCENT, text),
   strong: (text: string): string => paint(BOLD, text),
   quiet: (text: string): string => paint(DIM, text),
   /** White on ultramarine, the way the wordmark is set. */
-  plate: (text: string): string => paint(ON_GREEN + BOLD, ` ${text} `),
+  plate: (text: string): string => paint(ON_ACCENT + BOLD, ` ${text} `),
 };
 
 export const WORDMARK = spaced("SYNARTESIS");

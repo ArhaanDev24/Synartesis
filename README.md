@@ -50,24 +50,19 @@ run `xcode-select --install`; on Debian or Ubuntu, `apt install build-essential`
 ## Install
 
 ```bash
-git clone https://github.com/ArhaanDev24/Synartesis.git && cd Synartesis && pnpm install && pnpm build
+git clone https://github.com/ArhaanDev24/Synartesis.git && cd Synartesis && ./install.sh
 ```
 
-Check it built:
+The script checks your Node version, builds, and links `synartesis` and
+`synartesis-proxy` into the first writable directory already on your PATH. It
+edits no shell profile and needs no sudo. Pass `--no-link` to build only.
 
 ```bash
-node dist/cli.js --help
+synartesis --help
 ```
 
-Optionally put it on your PATH, so `synartesis` works from anywhere. Any
-directory already on your PATH will do, and this touches no shell profile:
-
-```bash
-ln -sf "$PWD/dist/cli.js" /opt/homebrew/bin/synartesis && ln -sf "$PWD/dist/proxy.js" /opt/homebrew/bin/synartesis-proxy
-```
-
-Without it nothing breaks: every command Synartesis prints spells itself out in
-whichever form actually runs on your machine.
+If nothing could be linked, nothing breaks: every command Synartesis prints
+spells itself out in whichever form actually runs on your machine.
 
 ## Walkthrough
 

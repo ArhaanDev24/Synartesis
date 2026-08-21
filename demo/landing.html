@@ -9,34 +9,46 @@
      unreadable. Every colour is painted explicitly so the page holds whatever
      ground the viewer's theme paints behind it. */
   :root {
-    --ground: #4ade80;
-    --ground-deep: #22c55e;
-    --ground-lift: #86efac;
-    --ink: #052e16;
-    --ink-soft: rgba(5, 46, 22, 0.72);
-    --ink-faint: rgba(5, 46, 22, 0.52);
-    --rule: rgba(5, 46, 22, 0.22);
-    --panel: #052e16;
-    --panel-ink: #bbf7d0;
-    --panel-faint: rgba(187, 247, 208, 0.6);
+    /* Oxblood: a deep red ground with a warm off-white on it. Everything is
+       painted explicitly so the page holds whatever ground the viewer's own
+       theme paints behind it. */
+    --ground: #5e1420;
+    --ground-lift: #7a1c2b;
+    --ink: #f6e9e5;
+    --panel: #2c080f;
+    --panel-ink: #f0d3cc;
+    --panel-hit: #e8927f;
+
+    --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--ground));
+    --ink-faint: color-mix(in srgb, var(--ink) 52%, var(--ground));
+    --rule: color-mix(in srgb, var(--ink) 24%, var(--ground));
+    --panel-faint: color-mix(in srgb, var(--panel-ink) 62%, var(--panel));
+    --panel-rule: color-mix(in srgb, var(--panel-ink) 26%, var(--panel));
 
     --display: "Cormorant Garamond", "Times New Roman", serif;
     --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
     --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
 
-    --gutter: clamp(1.25rem, 5vw, 5rem);
-    --measure: 62ch;
+    --gutter: clamp(1.1rem, 4vw, 2.5rem);
+    --max: 1140px;
+    --measure: 60ch;
   }
 
   *, *::before, *::after { box-sizing: border-box; }
+
+  /* One column, centred, rather than text running the full width of a big
+     display. The gutter grows into the margin instead of the content. */
+  .masthead, .hero, section, .colophon {
+    padding-inline: max(var(--gutter), (100% - var(--max)) / 2);
+  }
 
   body {
     margin: 0;
     background: var(--ground);
     color: var(--ink);
     font-family: var(--sans);
-    font-size: clamp(0.95rem, 0.9rem + 0.2vw, 1.05rem);
-    line-height: 1.6;
+    font-size: clamp(0.9rem, 0.86rem + 0.14vw, 0.97rem);
+    line-height: 1.62;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -75,10 +87,17 @@
      which is what the name means. It divides the page rather than decorating
      the margins of it. */
   .fret {
-    height: 28px;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='%23052e16' stroke-opacity='0.34' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
-    background-repeat: repeat-x;
-    background-position: center;
+    height: 24px;
+    /* Masked rather than drawn: a data-uri cannot read a custom property, and
+       the fret has to follow whichever ink the palette is using. */
+    background-color: var(--ink);
+    opacity: 0.32;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    -webkit-mask-repeat: repeat-x;
+    mask-repeat: repeat-x;
+    -webkit-mask-position: center;
+    mask-position: center;
   }
 
   /* --- masthead ------------------------------------------------------ */
@@ -88,7 +107,7 @@
     align-items: baseline;
     justify-content: space-between;
     gap: 1rem;
-    padding: 1.5rem var(--gutter);
+    padding-block: 1rem;
     border-bottom: 1px solid var(--rule);
     flex-wrap: wrap;
   }
@@ -109,16 +128,16 @@
   .hero {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-    gap: clamp(2rem, 5vw, 4rem);
+    gap: clamp(1.5rem, 3.5vw, 3rem);
     align-items: center;
-    padding: clamp(3rem, 8vw, 6rem) var(--gutter) clamp(3rem, 7vw, 5rem);
+    padding-block: clamp(2.2rem, 4.5vw, 3.4rem);
   }
 
-  .hero h1 { font-size: clamp(3rem, 10.5vw, 8.5rem); }
+  .hero h1 { font-size: clamp(2.1rem, 6.4vw, 4.4rem); }
 
   .etymology {
-    margin: 2rem 0 0;
-    padding-left: 1.1rem;
+    margin: 1.4rem 0 0;
+    padding-left: 1rem;
     border-left: 1px solid var(--rule);
     max-width: 46ch;
     color: var(--ink-soft);
@@ -140,7 +159,7 @@
     margin-bottom: 0.55rem;
   }
 
-  .hero-figure { position: relative; aspect-ratio: 1; width: 100%; }
+  .hero-figure { position: relative; aspect-ratio: 1; width: 100%; max-width: 21rem; justify-self: end; }
   .hero-figure canvas { display: block; width: 100%; height: 100%; }
 
   /* --- terminal ------------------------------------------------------ */
@@ -160,7 +179,7 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.5rem 1rem;
-    border-bottom: 1px solid rgba(187, 247, 208, 0.24);
+    border-bottom: 1px solid var(--panel-rule);
     color: var(--panel-faint);
     font-size: 0.68rem;
     letter-spacing: 0.16em;
@@ -170,7 +189,7 @@
   .terminal pre { margin: 0; padding: 1rem; white-space: pre; }
   .terminal .prompt { color: var(--panel-faint); }
   .terminal .dim { color: var(--panel-faint); }
-  .terminal .hit { color: #4ade80; font-weight: 500; }
+  .terminal .hit { color: var(--panel-hit); font-weight: 500; }
   .terminal .plate {
     background: var(--ground);
     color: var(--ink);
@@ -178,17 +197,74 @@
     padding: 0 0.35em;
   }
 
-  .install { margin-top: 2.5rem; max-width: 46rem; }
+  .install { margin-top: 1.75rem; max-width: 40rem; }
 
   /* Four terminals side by side, so the whole sequence is visible at once
      rather than read one panel at a time. */
   .steps-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
-    gap: 1.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+    gap: 1.25rem;
   }
 
   .steps-grid .label { margin: 0 0 0.6rem; }
+
+  /* One command, in a box, because that is the thing a person came for. */
+  .install-box {
+    background: var(--panel);
+    color: var(--panel-ink);
+    border: 1px solid var(--panel);
+    max-width: 46rem;
+    margin-bottom: 1.75rem;
+  }
+
+  .install-tabs { display: flex; border-bottom: 1px solid var(--panel-rule); }
+
+  .install-tabs button {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: none;
+    border: 0;
+    border-right: 1px solid var(--panel-rule);
+    color: var(--panel-faint);
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+  }
+
+  .install-tabs button[aria-pressed="true"] { color: var(--panel-ink); background: var(--ground-lift); }
+
+  .install-line {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .install-line code {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    flex: 1;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--panel-ink);
+  }
+
+  .install-line button {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: none;
+    border: 1px solid var(--panel-rule);
+    color: var(--panel-faint);
+    padding: 0.35rem 0.7rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .install-line button:hover { color: var(--panel-ink); border-color: var(--panel-ink); }
 
   .inline {
     font-family: var(--mono);
@@ -199,52 +275,70 @@
 
   /* --- generic section ----------------------------------------------- */
 
-  section { padding: clamp(3rem, 7vw, 5.5rem) var(--gutter); }
+  section { padding-block: clamp(2rem, 4vw, 3.1rem); }
 
   .section-head {
     display: flex;
     align-items: baseline;
     gap: 1.5rem;
-    margin-bottom: 2.5rem;
+    margin-bottom: 1.6rem;
     flex-wrap: wrap;
   }
 
-  .section-head h2 { font-size: clamp(1.9rem, 4.2vw, 3rem); }
+  .section-head h2 { font-size: clamp(1.35rem, 2.9vw, 2.05rem); }
 
-  /* --- taxonomy ------------------------------------------------------ */
+  /* --- the four classes, as plates ----------------------------------- */
 
-  .taxonomy { display: grid; gap: 0; border-top: 1px solid var(--rule); }
-
-  .class-row {
+  .plates {
     display: grid;
-    grid-template-columns: 3rem minmax(9rem, 0.5fr) minmax(0, 1.4fr) minmax(0, 1fr);
-    gap: 1.5rem;
-    padding: 1.5rem 0;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: clamp(1.25rem, 2.5vw, 2rem);
+  }
+
+  .plate-card { display: flex; flex-direction: column; gap: 0.6rem; margin: 0; }
+
+  .plate-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
     border-bottom: 1px solid var(--rule);
-    align-items: start;
+    padding-bottom: 0.5rem;
   }
 
-  .class-mark {
+  .plate-mark {
     font-family: var(--mono);
-    font-size: 1.4rem;
-    line-height: 1.1;
+    font-size: 1.1rem;
     color: var(--ink-faint);
+    width: 1.1rem;
   }
 
-  .class-row[data-emphasis="true"] .class-mark { color: var(--ink); }
+  .plate-card[data-emphasis="true"] .plate-mark { color: var(--ink); }
 
-  .class-name {
-    font-family: var(--mono);
-    font-weight: 500;
-    letter-spacing: 0.1em;
+  .plate-head h3 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 300;
     text-transform: uppercase;
-    font-size: 0.82rem;
-    padding-top: 0.3rem;
+    letter-spacing: 0.07em;
+    font-size: 1.3rem;
+    line-height: 1;
   }
 
-  .class-what { color: var(--ink-soft); }
-  .class-does { font-family: var(--mono); font-size: 0.78rem; color: var(--ink-soft); }
-  .class-row[data-emphasis="true"] .class-does { color: var(--ink); }
+  .plate-card canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    border: 1px solid var(--rule);
+  }
+
+  .plate-card figcaption {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    line-height: 1.7;
+    color: var(--ink-soft);
+  }
+
+  .plate-card figcaption b { color: var(--ink); font-weight: 500; }
 
   /* --- ordered path --------------------------------------------------- */
 
@@ -254,7 +348,7 @@
     display: grid;
     grid-template-columns: 4.5rem minmax(0, 1fr);
     gap: 1.5rem;
-    padding: 1.4rem 0;
+    padding: 0.95rem 0;
     border-bottom: 1px solid var(--rule);
   }
 
@@ -290,19 +384,19 @@
     align-items: center;
   }
 
-  .refusal h2 { font-size: clamp(1.9rem, 4vw, 2.9rem); }
+  .refusal h2 { font-size: clamp(1.35rem, 2.9vw, 2.05rem); }
 
   /* --- commands -------------------------------------------------------- */
 
   .commands {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
     gap: 1px;
     background: var(--rule);
     border: 1px solid var(--rule);
   }
 
-  .command { background: var(--ground); padding: 1.4rem; }
+  .command { background: var(--ground); padding: 1.1rem; }
   .command:hover { background: var(--ground-lift); }
 
   .command code {
@@ -317,7 +411,7 @@
 
   /* --- limits ---------------------------------------------------------- */
 
-  .limits { display: grid; gap: 1.6rem; max-width: var(--measure); }
+  .limits { display: grid; gap: 1.1rem; max-width: var(--measure); }
   .limits p { margin: 0; color: var(--ink-soft); }
   .limits strong { color: var(--ink); font-weight: 500; }
 
@@ -328,7 +422,7 @@
     justify-content: space-between;
     gap: 1rem;
     flex-wrap: wrap;
-    padding: 2rem var(--gutter) 3rem;
+    padding-block: 1.4rem 2rem;
     border-top: 1px solid var(--rule);
   }
 
@@ -400,32 +494,36 @@
       </p>
     </div>
 
-    <div class="taxonomy">
-      <div class="class-row">
-        <span class="class-mark">&middot;</span>
-        <span class="class-name">Readonly</span>
-        <span class="class-what">Changes nothing. A lookup, a search, a list.</span>
-        <span class="class-does">Recorded, forwarded.</span>
-      </div>
-      <div class="class-row">
-        <span class="class-mark">&#8592;</span>
-        <span class="class-name">Reversible</span>
-        <span class="class-what">The prior state can be restored exactly, because it was read before the write went out.</span>
-        <span class="class-does">Written back on undo.</span>
-      </div>
-      <div class="class-row">
-        <span class="class-mark">&#8776;</span>
-        <span class="class-name">Compensable</span>
-        <span class="class-what">Cannot be reversed, but a second call neutralises it. A refund against a charge.</span>
-        <span class="class-does">Offset on undo.</span>
-      </div>
-      <div class="class-row" data-emphasis="true">
-        <span class="class-mark">!</span>
-        <span class="class-name">Irreversible</span>
-        <span class="class-what">Neither. An email that has been read. A message somebody screenshotted.</span>
-        <span class="class-does">Held until a person says yes.</span>
-      </div>
+    <div class="plates">
+      <figure class="plate-card">
+        <div class="plate-head"><span class="plate-mark">&middot;</span><h3>Readonly</h3></div>
+        <canvas data-plate="readonly" width="440" height="440" role="img"
+                aria-label="A hatched record passing under a lens, unaltered"></canvas>
+        <figcaption>Changes nothing. A lookup, a search, a list.<br><b>Recorded, forwarded.</b></figcaption>
+      </figure>
+
+      <figure class="plate-card">
+        <div class="plate-head"><span class="plate-mark">&#8592;</span><h3>Reversible</h3></div>
+        <canvas data-plate="reversible" width="440" height="440" role="img"
+                aria-label="Two states joined by an arc returning to the earlier one"></canvas>
+        <figcaption>The prior state was read before the write went out.<br><b>Written back on undo.</b></figcaption>
+      </figure>
+
+      <figure class="plate-card">
+        <div class="plate-head"><span class="plate-mark">&#8776;</span><h3>Compensable</h3></div>
+        <canvas data-plate="compensable" width="440" height="440" role="img"
+                aria-label="Two opposed hatchings crossing where they cancel"></canvas>
+        <figcaption>Cannot be reversed, but a second call neutralises it.<br><b>Offset on undo.</b></figcaption>
+      </figure>
+
+      <figure class="plate-card" data-emphasis="true">
+        <div class="plate-head"><span class="plate-mark">!</span><h3>Irreversible</h3></div>
+        <canvas data-plate="irreversible" width="440" height="440" role="img"
+                aria-label="A hatched record stopping at a bar and dispersing beyond it"></canvas>
+        <figcaption>An email that has been read. A message somebody kept.<br><b>Held until a person says yes.</b></figcaption>
+      </figure>
     </div>
+
   </section>
 
   <div class="fret" role="presentation"></div>
@@ -565,38 +663,29 @@
     <div class="section-head">
       <h2 class="display">Install<br>via terminal</h2>
       <p class="lede">
-        Node 20 or newer, and a C toolchain once, for SQLite. There is no
-        installer to pipe into a shell: the repository is private, and a command
-        that only works for people who already have access is worse than one
-        that says what it does.
+        The script checks your Node version, builds, and links
+        <code class="inline">synartesis</code> into a directory already on your
+        PATH. It edits no shell profile and needs no sudo. There is no
+        <code class="inline">curl | bash</code> yet, because the repository is
+        private and a command that fails for everyone without access is worse
+        than one that says what it does.
       </p>
+    </div>
+
+    <div class="install-box">
+      <div class="install-tabs">
+        <button type="button" data-os="unix" aria-pressed="true">macOS / Linux</button>
+        <button type="button" data-os="any" aria-pressed="false">Any platform</button>
+      </div>
+      <div class="install-line">
+        <code id="install-command">git clone git@github.com:ArhaanDev24/Synartesis.git &amp;&amp; cd Synartesis &amp;&amp; ./install.sh</code>
+        <button type="button" id="install-copy">Copy</button>
+      </div>
     </div>
 
     <div class="steps-grid">
       <div>
-        <p class="label">1 &middot; Build it</p>
-        <div class="terminal">
-          <div class="terminal-bar"><span>macOS / Linux</span><span>~1 minute</span></div>
-<pre><span class="prompt">$</span> <span class="hit">git clone</span> \
-     git@github.com:ArhaanDev24/Synartesis.git
-<span class="prompt">$</span> <span class="hit">cd</span> Synartesis
-<span class="prompt">$</span> <span class="hit">pnpm install</span> &amp;&amp; <span class="hit">pnpm build</span></pre>
-        </div>
-      </div>
-
-      <div>
-        <p class="label">2 &middot; Put it on your path</p>
-        <div class="terminal">
-          <div class="terminal-bar"><span>optional</span><span>no shell profile touched</span></div>
-<pre><span class="prompt">$</span> <span class="hit">ln -sf</span> "$PWD/dist/cli.js" \
-     /opt/homebrew/bin/synartesis
-<span class="prompt">$</span> <span class="hit">ln -sf</span> "$PWD/dist/proxy.js" \
-     /opt/homebrew/bin/synartesis-proxy</pre>
-        </div>
-      </div>
-
-      <div>
-        <p class="label">3 &middot; Write a policy for a server</p>
+        <p class="label">Then &middot; write a policy for a server</p>
         <div class="terminal">
           <div class="terminal-bar"><span>any MCP server</span><span>everything starts guarded</span></div>
 <pre><span class="prompt">$</span> <span class="hit">synartesis init</span> crm \
@@ -610,7 +699,7 @@
       </div>
 
       <div>
-        <p class="label">4 &middot; See it, then undo it</p>
+        <p class="label">Then &middot; see it, and undo it</p>
         <div class="terminal">
           <div class="terminal-bar"><span>no paths to type</span><span>found from here upwards</span></div>
 <pre><span class="prompt">$</span> <span class="hit">synartesis list</span>
@@ -675,6 +764,12 @@
     if (!ctx) return;
 
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Read rather than hardcoded, so the drawing follows the palette.
+    function ink(alpha) {
+      const value = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim();
+      return "color-mix(in srgb, " + value + " " + Math.round(alpha * 100) + "%, transparent)";
+    }
     const SIZE = 720;
     const CENTRE = SIZE / 2;
     const GAP_FROM = -0.42;
@@ -709,7 +804,7 @@
     function fretBorder(side, unit) {
       const half = side / 2;
       ctx.save();
-      ctx.strokeStyle = "rgba(5,46,22,0.48)";
+      ctx.strokeStyle = ink(0.48);
       ctx.lineWidth = 2;
       ctx.lineJoin = "miter";
       for (let quarter = 0; quarter < 4; quarter++) {
@@ -747,7 +842,7 @@
         ctx.beginPath();
         ctx.moveTo(CENTRE + Math.cos(angle) * inner, CENTRE + Math.sin(angle) * inner);
         ctx.lineTo(CENTRE + Math.cos(angle) * outer, CENTRE + Math.sin(angle) * outer);
-        ctx.strokeStyle = "rgba(5,46,22," + (0.3 + 0.45 * swell) + ")";
+        ctx.strokeStyle = ink(0.3 + 0.45 * swell);
         ctx.lineWidth = 0.75 + 0.7 * swell;
         ctx.stroke();
 
@@ -757,7 +852,7 @@
           ctx.beginPath();
           ctx.moveTo(CENTRE + Math.cos(angle) * (outer + 12), CENTRE + Math.sin(angle) * (outer + 12));
           ctx.lineTo(CENTRE + Math.cos(angle) * far, CENTRE + Math.sin(angle) * far);
-          ctx.strokeStyle = "rgba(5,46,22,0.2)";
+          ctx.strokeStyle = ink(0.2);
           ctx.lineWidth = 0.7;
           ctx.stroke();
         }
@@ -779,7 +874,7 @@
         ctx.lineTo(30, 26);
         ctx.lineTo(-30, 26);
         ctx.closePath();
-        ctx.fillStyle = "rgba(5,46,22,0.92)";
+        ctx.fillStyle = ink(0.92);
         ctx.fill();
         ctx.restore();
       }
@@ -799,5 +894,188 @@
       if (linear < 1) requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
+  })();
+</script>
+
+<script>
+  // Four plates, each drawing what its class actually does. Engraved schematics
+  // rather than photographs: the subject here is a mechanism, and a mechanism
+  // is better drawn than illustrated.
+  (function () {
+    const SIZE = 440;
+
+    function ink(alpha) {
+      const value = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim();
+      return "color-mix(in srgb, " + value + " " + Math.round(alpha * 100) + "%, transparent)";
+    }
+
+    /**
+     * Parallel burin lines filling a box, the way a plate is shaded. The
+     * canvas is rotated rather than the lines skewed, so coverage is complete
+     * at any angle instead of leaving a wedge at the corners.
+     */
+    function hatch(ctx, x, y, w, h, spacing, angle, alpha) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, w, h);
+      ctx.clip();
+      ctx.translate(x + w / 2, y + h / 2);
+      ctx.rotate(angle);
+      ctx.strokeStyle = ink(alpha);
+      ctx.lineWidth = 1.4;
+      const reach = Math.hypot(w, h) / 2 + spacing;
+      for (let offset = -reach; offset <= reach; offset += spacing) {
+        ctx.beginPath();
+        ctx.moveTo(-reach, offset);
+        ctx.lineTo(reach, offset);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function arrowHead(ctx, x, y, angle, size, alpha) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.beginPath();
+      ctx.moveTo(size, 0);
+      ctx.lineTo(-size * 0.8, size * 0.62);
+      ctx.lineTo(-size * 0.8, -size * 0.62);
+      ctx.closePath();
+      ctx.fillStyle = ink(alpha);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    const plates = {
+      // Looked at, and unchanged by the looking.
+      readonly(ctx) {
+        hatch(ctx, 70, 150, 300, 140, 9, 0.38, 0.5);
+        ctx.strokeStyle = ink(0.75);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(220, 220, 86, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(282, 282);
+        ctx.lineTo(340, 340);
+        ctx.stroke();
+        ctx.strokeStyle = ink(0.55);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(46, 360);
+        ctx.lineTo(360, 360);
+        ctx.stroke();
+        arrowHead(ctx, 366, 360, 0, 11, 0.7);
+      },
+
+      // Two states, and an arc back to the earlier one.
+      reversible(ctx) {
+        hatch(ctx, 70, 96, 300, 92, 9, 0.42, 0.68);
+        hatch(ctx, 70, 260, 300, 92, 9, -0.42, 0.34);
+        ctx.strokeStyle = ink(0.8);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(360, 306);
+        ctx.bezierCurveTo(430, 306, 430, 142, 372, 142);
+        ctx.stroke();
+        arrowHead(ctx, 366, 142, Math.PI, 12, 0.9);
+      },
+
+      // Two opposed marks, crossing where one cancels the other.
+      compensable(ctx) {
+        hatch(ctx, 58, 120, 190, 200, 10, 0.7, 0.55);
+        hatch(ctx, 192, 120, 190, 200, 10, -0.7, 0.55);
+        ctx.strokeStyle = ink(0.85);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(192, 120);
+        ctx.lineTo(192, 320);
+        ctx.moveTo(248, 120);
+        ctx.lineTo(248, 320);
+        ctx.stroke();
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(96, 366); ctx.lineTo(140, 366);
+        ctx.moveTo(118, 344); ctx.lineTo(118, 388);
+        ctx.moveTo(300, 366); ctx.lineTo(344, 366);
+        ctx.stroke();
+      },
+
+      // Everything past the bar disperses, and cannot be gathered again.
+      irreversible(ctx) {
+        hatch(ctx, 46, 130, 176, 180, 9, 0.3, 0.62);
+        ctx.fillStyle = ink(0.9);
+        ctx.fillRect(228, 96, 12, 248);
+        ctx.fillStyle = ink(0.45);
+        let seed = 7;
+        const random = () => {
+          seed = (seed * 1103515245 + 12345) % 2147483648;
+          return seed / 2147483648;
+        };
+        for (let i = 0; i < 190; i += 1) {
+          const t = random();
+          const x = 256 + t * 150;
+          const y = 120 + random() * 200;
+          const r = 2.6 * (1 - t) + 0.5;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      },
+    };
+
+    for (const canvas of document.querySelectorAll("canvas[data-plate]")) {
+      const ctx = canvas.getContext("2d");
+      const kind = canvas.dataset.plate;
+      if (!ctx || !(kind in plates)) continue;
+      ctx.clearRect(0, 0, SIZE, SIZE);
+      plates[kind](ctx);
+    }
+  })();
+</script>
+
+<script>
+  // The install box: two ways to get the same result, and a copy button that
+  // falls back to selecting the text where the clipboard is not available.
+  (function () {
+    const COMMANDS = {
+      unix: "git clone git@github.com:ArhaanDev24/Synartesis.git && cd Synartesis && ./install.sh",
+      any: "git clone git@github.com:ArhaanDev24/Synartesis.git && cd Synartesis && pnpm install && pnpm build",
+    };
+
+    const code = document.getElementById("install-command");
+    const copy = document.getElementById("install-copy");
+    const tabs = [...document.querySelectorAll(".install-tabs button")];
+    if (!code || !copy) return;
+
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => {
+        const os = tab.dataset.os;
+        code.textContent = COMMANDS[os] ?? COMMANDS.unix;
+        for (const other of tabs) {
+          other.setAttribute("aria-pressed", String(other === tab));
+        }
+      });
+    }
+
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent ?? "");
+        copy.textContent = "Copied";
+      } catch {
+        // Clipboard access is often refused in an embedded frame. Selecting the
+        // text leaves the reader one keystroke away rather than stuck.
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        copy.textContent = "Selected";
+      }
+      setTimeout(() => {
+        copy.textContent = "Copy";
+      }, 1600);
+    });
   })();
 </script>
