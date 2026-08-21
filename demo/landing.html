@@ -32,7 +32,9 @@
     --gutter: clamp(1.1rem, 4vw, 2.5rem);
     --max: 1140px;
     --measure: 60ch;
-    --niche: 104px;
+    /* Grows with the margin it sits in, so a wide display gets a plate
+       rather than a stamp, and 1440px still gets one that fits. */
+    --niche: clamp(104px, calc((100vw - 1140px) / 2 - 2.6rem), 188px);
   }
 
   *, *::before, *::after { box-sizing: border-box; }
@@ -532,7 +534,7 @@
   .niche canvas {
     display: block;
     width: var(--niche);
-    height: calc(var(--niche) * 210 / 112);
+    height: calc(var(--niche) * 260 / 160);
     /* Weighed against the ground at the size it is actually drawn: below about
        a third it disappears, above a half it starts arguing with the column. */
     opacity: 0.4;
@@ -614,8 +616,8 @@
     <figcaption><b>Poseidon</b><span>the ground moves</span></figcaption>
   </figure>
   <figure class="niche left" style="--at: 77%">
-    <canvas data-god="ares" aria-hidden="true"></canvas>
-    <figcaption><b>Ares</b><span>the call that destroys</span></figcaption>
+    <canvas data-god="atlas" aria-hidden="true"></canvas>
+    <figcaption><b>Atlas</b><span>bears the whole record</span></figcaption>
   </figure>
   <figure class="niche right" style="--at: 82%">
     <canvas data-god="hades" aria-hidden="true"></canvas>
@@ -1380,117 +1382,204 @@
 <script>
 /* The gods, engraved.
  *
- * Drawn rather than photographed: the page has to carry every asset inline,
- * and a woodcut is a silhouette and some hatching, which is a thing a canvas
- * is good at. Each figure is the same standing body with a different
- * attribute, exactly as the old plates did it. You know Poseidon by the
- * trident, not by his face, and at this size a face would be four pixels. */
+ * Drawn rather than embedded: the page has to carry every asset inline, and an
+ * engraving is a silhouette, a great deal of hatching, and light coming out of
+ * the back of it. All three are things a canvas is good at.
+ *
+ * The composition is the one those old plates use. A burst of straight rays
+ * fanned into groups, so the outer edge is serrated rather than round. A panel
+ * behind the figure filled with drawn flame. The figure itself cross-hatched on
+ * one side, because an engraver models form by removing light, never by adding
+ * grey. Each god is the same body carrying a different thing: you know Poseidon
+ * by the trident, not by his face, and a face at this size would be four pixels.
+ */
 (() => {
   const INK = "#f6e9e5";
   const GROUND = "#5e1420";
-  /* Everything below is drawn in a 112 by 210 space and scaled to fit. */
-  const CX = 56;
-  const HEM = 172;
-  const SPRING = 84;
-  const ARCH = { left: 13, right: 99, base: 190, radius: 43 };
+  /* Everything is drawn in a 160 by 260 space and scaled to whatever fits. */
+  const W = 160;
+  const H = 260;
+  const CX = 80;
+  const HEM = 206;
+  const PLATE = { left: 34, right: 126, top: 46, bottom: 196 };
 
-  function archPath(g) {
-    g.beginPath();
-    g.moveTo(ARCH.left, ARCH.base);
-    g.lineTo(ARCH.left, SPRING);
-    // Increasing angle in a y-down space sweeps through the top; the other
-    // direction quietly draws the bottom half of the circle instead.
-    g.arc(CX, SPRING, ARCH.radius, Math.PI, Math.PI * 2);
-    g.lineTo(ARCH.right, ARCH.base);
+  /** A repeatable wobble, so every panel is different and none of them moves. */
+  function noise(seed) {
+    let n = seed >>> 0;
+    return () => {
+      n = (n * 1664525 + 1013904223) >>> 0;
+      return n / 4294967296;
+    };
   }
 
-  /** The arch each figure stands in, and the hatched ground behind it. */
-  function niche(g) {
-    g.save();
-    archPath(g);
-    g.closePath();
-    g.clip();
+  /**
+   * The burst. Rays in groups whose lengths rise and fall, which is what gives
+   * the old plates their serrated outer edge instead of a plain disc.
+   */
+  function rays(g, seed) {
+    const random = noise(seed);
     g.strokeStyle = INK;
-    g.lineWidth = 0.6;
-    g.globalAlpha = 0.34;
-    for (let y = 30; y < ARCH.base; y += 3.1) {
+    g.lineCap = "butt";
+    const count = 132;
+    for (let i = 0; i < count; i += 1) {
+      const angle = (i / count) * Math.PI * 2;
+      const phase = i % 11;
+      const fan = phase < 6 ? phase : 11 - phase;
+      const length = 46 + fan * 15 + random() * 7;
+      const start = 30 + random() * 4;
+      g.globalAlpha = 0.2 + (fan / 6) * 0.4;
+      g.lineWidth = 0.55;
       g.beginPath();
-      g.moveTo(ARCH.left, y);
-      g.lineTo(ARCH.right, y);
+      g.moveTo(CX + Math.cos(angle) * start, 118 + Math.sin(angle) * start);
+      g.lineTo(CX + Math.cos(angle) * (start + length), 118 + Math.sin(angle) * (start + length));
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+  }
+
+  /** The panel the figure stands against, filled with drawn flame. */
+  function panel(g, seed) {
+    g.fillStyle = GROUND;
+    g.fillRect(PLATE.left, PLATE.top, PLATE.right - PLATE.left, PLATE.bottom - PLATE.top);
+
+    g.save();
+    g.beginPath();
+    g.rect(PLATE.left, PLATE.top, PLATE.right - PLATE.left, PLATE.bottom - PLATE.top);
+    g.clip();
+
+    const random = noise(seed + 977);
+    g.strokeStyle = INK;
+    g.lineWidth = 0.7;
+    for (let x = PLATE.left + 1; x < PLATE.right; x += 2.6) {
+      g.globalAlpha = 0.22 + random() * 0.3;
+      g.beginPath();
+      let y = PLATE.bottom;
+      let cx = x;
+      g.moveTo(cx, y);
+      const top = PLATE.top + random() * 46;
+      while (y > top) {
+        const step = 9 + random() * 9;
+        const sway = (random() - 0.5) * 7;
+        g.quadraticCurveTo(cx + sway, y - step * 0.5, cx + sway * 0.4, y - step);
+        cx += sway * 0.4;
+        y -= step;
+      }
       g.stroke();
     }
     g.restore();
 
-    g.strokeStyle = INK;
     g.globalAlpha = 0.8;
-    g.lineWidth = 1.2;
-    archPath(g);
-    g.stroke();
+    g.strokeStyle = INK;
+    g.lineWidth = 1;
+    g.strokeRect(PLATE.left, PLATE.top, PLATE.right - PLATE.left, PLATE.bottom - PLATE.top);
     g.globalAlpha = 1;
   }
 
+  /** The silhouette every one of them shares, as a path that can be reused. */
+  function silhouette(g) {
+    g.beginPath();
+    // Shoulders, squared off rather than domed: a rounded top reads as a blob
+    // with a head balanced on it.
+    g.moveTo(CX - 16, 108);
+    g.bezierCurveTo(CX - 14, 122, CX - 11, 130, CX - 10, 142);
+    g.bezierCurveTo(CX - 15, 172, CX - 17, 190, CX - 19, HEM);
+    g.quadraticCurveTo(CX, HEM + 5, CX + 18, HEM);
+    g.bezierCurveTo(CX + 16, 190, CX + 14, 172, CX + 10, 142);
+    g.bezierCurveTo(CX + 11, 130, CX + 14, 122, CX + 16, 108);
+    g.quadraticCurveTo(CX + 9, 99, CX + 4, 97);
+    g.lineTo(CX - 3, 97);
+    g.quadraticCurveTo(CX - 9, 99, CX - 16, 108);
+    g.closePath();
+  }
+
   /**
-   * The body every one of them shares. A draped standing figure, narrow enough
-   * to be a person: the first version of this was as wide at the hem as it was
-   * at the shoulders and read as a chess piece.
+   * A mantle over the shoulders. An earlier version threw a cloak out to one
+   * side and it read as a second limb hanging in the air; drapery only works
+   * when you can see what it is attached to.
    */
+  function mantle(g) {
+    g.fillStyle = INK;
+    g.beginPath();
+    g.moveTo(CX - 17, 106);
+    g.quadraticCurveTo(CX, 96, CX + 17, 106);
+    g.bezierCurveTo(CX + 18, 122, CX + 10, 134, CX, 137);
+    g.bezierCurveTo(CX - 10, 134, CX - 18, 122, CX - 17, 106);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = GROUND;
+    g.lineWidth = 1.1;
+    for (const side of [-1, 1]) {
+      g.beginPath();
+      g.moveTo(CX + side * 12, 108);
+      g.quadraticCurveTo(CX + side * 9, 124, CX + side * 3, 134);
+      g.stroke();
+    }
+  }
+
   function body(g) {
     g.fillStyle = INK;
 
-    g.beginPath();
-    g.ellipse(CX + 1, 44, 6.4, 7.8, 0, 0, Math.PI * 2);
-    g.fill();
+    // Neck, so the head sits on something.
+    g.fillRect(CX - 3.4, 88, 7, 14);
 
     g.beginPath();
-    g.moveTo(CX - 11, 60);
-    g.bezierCurveTo(CX - 12, 74, CX - 9, 84, CX - 8.5, 98);
-    g.bezierCurveTo(CX - 13, 126, CX - 15, 150, CX - 16.5, HEM);
-    g.quadraticCurveTo(CX, HEM + 4, CX + 15.5, HEM);
-    g.bezierCurveTo(CX + 14, 150, CX + 12, 126, CX + 8.5, 98);
-    g.bezierCurveTo(CX + 9, 84, CX + 12, 74, CX + 11, 60);
-    g.quadraticCurveTo(CX, 55, CX - 11, 60);
-    g.closePath();
+    g.ellipse(CX, 80, 7.4, 8.8, 0, 0, Math.PI * 2);
     g.fill();
 
-    // Cut back out in the ground colour: an engraver removes the lights rather
-    // than drawing them.
+    silhouette(g);
+    g.fill();
+    mantle(g);
+
+    // No internal modelling. At the size this is really seen, hatching over
+    // the whole form reads as stripes and nothing else; the drama here comes
+    // from a bright figure against a dark panel with light behind it, which is
+    // what carries these plates at a thumbnail anyway.
+
+    // The fluting of the drapery, cut back out in the ground colour.
     g.strokeStyle = GROUND;
-    g.lineWidth = 1.1;
-    for (const [top, bottom] of [[-6, -11], [-2, -4], [2, 4], [5.5, 11]]) {
+    g.lineWidth = 1.4;
+    g.lineWidth = 1.2;
+    for (const [top, bottom] of [[-7, -13], [-3.5, -6], [0, 0], [3.5, 6], [7, 13]]) {
       g.beginPath();
-      g.moveTo(CX + top * 0.8, 64);
-      g.quadraticCurveTo(CX + top, 104, CX + bottom, HEM - 1);
+      g.moveTo(CX + top * 0.7, 138);
+      g.quadraticCurveTo(CX + top, 170, CX + bottom, HEM - 1);
       g.stroke();
     }
-    g.beginPath();
-    g.moveTo(CX - 9, 97);
-    g.quadraticCurveTo(CX, 102, CX + 9, 97);
-    g.stroke();
   }
 
   function plinth(g) {
     g.fillStyle = INK;
-    g.fillRect(CX - 23, HEM + 2, 46, 6);
+    g.fillRect(CX - 28, HEM + 3, 56, 7);
     g.globalAlpha = 0.55;
-    g.fillRect(CX - 29, HEM + 10, 58, 2.2);
+    g.fillRect(CX - 36, HEM + 12, 72, 2.6);
     g.globalAlpha = 1;
   }
 
-  /** An arm reaching out of the drapery towards whatever it is holding. */
   function arm(g, x, y) {
     g.strokeStyle = INK;
     g.lineCap = "round";
+    // Upper arm and forearm as two strokes, the second thinner. One even
+    // stroke of constant weight reads as a shelf bolted to the shoulder.
+    g.lineWidth = 5.6;
+    g.beginPath();
+    g.moveTo(CX + 11, 114);
+    g.quadraticCurveTo(CX + 20, 106, (CX + 20 + x) / 2, (106 + y) / 2);
+    g.stroke();
     g.lineWidth = 4.2;
     g.beginPath();
-    g.moveTo(CX + 8, 68);
-    g.quadraticCurveTo(CX + 15, 63, x, y);
+    g.moveTo((CX + 20 + x) / 2, (106 + y) / 2);
+    g.lineTo(x, y);
     g.stroke();
+    g.lineWidth = 5;
+    g.beginPath();
+    g.arc(x, y, 2.6, 0, Math.PI * 2);
+    g.fill();
     g.lineCap = "butt";
   }
 
   function staff(g, x, top) {
     g.strokeStyle = INK;
-    g.lineWidth = 2.2;
+    g.lineWidth = 2.6;
     g.beginPath();
     g.moveTo(x, top);
     g.lineTo(x, HEM + 1);
@@ -1498,207 +1587,223 @@
   }
 
   const GODS = {
-    // Wings at the cap and at the staff. The one who goes between.
     hermes(g) {
-      arm(g, 78, 66);
-      staff(g, 83, 42);
+      arm(g, 119, 110);
+      staff(g, 118, 66);
       g.strokeStyle = INK;
-      g.lineWidth = 1.5;
+      g.lineWidth = 1.7;
       for (const side of [-1, 1]) {
         g.beginPath();
-        g.moveTo(83, 45);
-        g.quadraticCurveTo(83 + side * 12, 38, 83 + side * 4, 31);
+        g.moveTo(118, 70);
+        g.quadraticCurveTo(118 + side * 15, 60, 118 + side * 5, 50);
         g.stroke();
         g.beginPath();
-        g.moveTo(83, 50);
-        g.bezierCurveTo(83 + side * 7, 58, 83 - side * 7, 66, 83, 74);
+        g.moveTo(118, 76);
+        g.bezierCurveTo(118 + side * 9, 86, 118 - side * 9, 96, 118, 106);
         g.stroke();
-        g.beginPath();
-        g.moveTo(CX + 1 + side * 6, 40);
-        g.quadraticCurveTo(CX + 1 + side * 14, 34, CX + 1 + side * 12, 43);
-        g.stroke();
+        // The winged cap, as a swept fan. Drawn as two curls it read as a
+        // pair of antennae.
+        for (let f = 0; f < 3; f += 1) {
+          g.beginPath();
+          g.moveTo(CX + side * 6, 78);
+          g.quadraticCurveTo(
+            CX + side * (14 + f * 3), 74 - f * 2,
+            CX + side * (17 + f * 4), 80 - f * 4,
+          );
+          g.stroke();
+        }
       }
     },
 
-    // Helm, spear and shield. Everything about her is a question asked first.
     athena(g) {
       g.fillStyle = INK;
       g.beginPath();
-      g.moveTo(CX - 5.4, 39);
-      g.quadraticCurveTo(CX + 1, 25, CX + 7.4, 39);
+      g.moveTo(CX - 6, 76);
+      g.quadraticCurveTo(CX + 1, 56, CX + 9, 76);
       g.fill();
-      arm(g, 78, 64);
-      staff(g, 84, 28);
+      arm(g, 117, 108);
+      staff(g, 116, 50);
       g.strokeStyle = INK;
-      g.lineWidth = 2;
+      g.lineWidth = 2.2;
       g.beginPath();
-      g.arc(28, 114, 14, 0, Math.PI * 2);
+      g.arc(52, 154, 16, 0, Math.PI * 2);
       g.stroke();
-      g.lineWidth = 1;
+      g.lineWidth = 1.1;
       g.beginPath();
-      g.arc(28, 114, 8, 0, Math.PI * 2);
+      g.arc(52, 154, 10, 0, Math.PI * 2);
       g.stroke();
       g.fillStyle = INK;
       g.beginPath();
-      g.arc(28, 114, 3, 0, Math.PI * 2);
+      g.arc(52, 154, 3.6, 0, Math.PI * 2);
       g.fill();
     },
 
-    // The hammer, raised. What was made can be unmade.
     hephaistos(g) {
       g.strokeStyle = INK;
       g.lineCap = "round";
-      g.lineWidth = 4.2;
+      g.lineWidth = 5.4;
       g.beginPath();
-      g.moveTo(CX + 8, 68);
-      g.quadraticCurveTo(CX + 17, 58, 76, 48);
+      g.moveTo(CX + 10, 112);
+      g.quadraticCurveTo(CX + 22, 96, 108, 82);
       g.stroke();
       g.lineCap = "butt";
-      g.lineWidth = 2.4;
+      g.lineWidth = 2.8;
       g.beginPath();
-      g.moveTo(75, 50);
-      g.lineTo(88, 28);
+      g.moveTo(107, 84);
+      g.lineTo(122, 56);
       g.stroke();
       g.save();
-      g.translate(89, 26);
-      g.rotate(-1.03);
+      g.translate(124, 53);
+      g.rotate(-1.06);
       g.fillStyle = INK;
-      g.fillRect(-9.5, -4.6, 19, 9.2);
+      g.fillRect(-12, -5.6, 24, 11.2);
       g.restore();
     },
 
-    // The lyre, and the light around the head: what is about to happen, said
-    // out loud before it does.
     apollo(g) {
       g.strokeStyle = INK;
-      g.lineWidth = 1.2;
-      for (let i = 0; i <= 10; i += 1) {
-        const a = Math.PI + (i / 10) * Math.PI;
+      g.lineWidth = 1.4;
+      for (let i = 0; i <= 14; i += 1) {
+        const a = Math.PI + (i / 14) * Math.PI;
         g.beginPath();
-        g.moveTo(CX + 1 + Math.cos(a) * 11, 44 + Math.sin(a) * 12);
-        g.lineTo(CX + 1 + Math.cos(a) * 18, 44 + Math.sin(a) * 20);
+        g.moveTo(CX + 1 + Math.cos(a) * 13, 82 + Math.sin(a) * 15);
+        g.lineTo(CX + 1 + Math.cos(a) * 23, 82 + Math.sin(a) * 26);
         g.stroke();
       }
-      arm(g, 72, 84);
-      g.lineWidth = 2.1;
+      arm(g, 102, 134);
+      g.lineWidth = 2.4;
       g.beginPath();
-      g.moveTo(70, 106);
-      g.bezierCurveTo(62, 88, 68, 72, 75, 75);
+      g.moveTo(100, 168);
+      g.bezierCurveTo(90, 142, 98, 118, 108, 122);
       g.stroke();
       g.beginPath();
-      g.moveTo(94, 106);
-      g.bezierCurveTo(100, 88, 94, 72, 87, 75);
+      g.moveTo(130, 168);
+      g.bezierCurveTo(138, 142, 130, 118, 120, 122);
       g.stroke();
       g.beginPath();
-      g.moveTo(70, 106);
-      g.lineTo(94, 106);
+      g.moveTo(100, 168);
+      g.lineTo(130, 168);
       g.stroke();
-      g.lineWidth = 0.85;
-      for (let x = 75; x <= 90; x += 3.7) {
+      g.lineWidth = 0.9;
+      for (let x = 105; x <= 126; x += 4.2) {
         g.beginPath();
-        g.moveTo(x, 79);
-        g.lineTo(x, 105);
+        g.moveTo(x, 128);
+        g.lineTo(x, 167);
         g.stroke();
       }
     },
 
-    // The bolt. Nothing goes past him without it.
     zeus(g) {
-      arm(g, 76, 58);
+      arm(g, 108, 98);
       g.strokeStyle = INK;
-      g.lineWidth = 3;
+      g.lineWidth = 3.6;
       g.lineJoin = "miter";
       g.beginPath();
-      g.moveTo(70, 32);
-      g.lineTo(84, 48);
-      g.lineTo(75, 53);
-      g.lineTo(90, 76);
+      g.moveTo(100, 56);
+      g.lineTo(120, 78);
+      g.lineTo(107, 85);
+      g.lineTo(128, 116);
       g.stroke();
-      g.lineWidth = 1.5;
+      g.lineWidth = 1.8;
       g.beginPath();
-      g.moveTo(64, 41);
-      g.lineTo(76, 62);
+      g.moveTo(92, 68);
+      g.lineTo(110, 98);
       g.stroke();
     },
 
-    // The trident, and the sea under it that will not stay where you left it.
     poseidon(g) {
-      arm(g, 78, 66);
-      staff(g, 83, 44);
+      arm(g, 119, 110);
+      staff(g, 118, 68);
       g.strokeStyle = INK;
-      g.lineWidth = 1.9;
+      g.lineWidth = 2.2;
       g.beginPath();
-      g.moveTo(74, 44);
-      g.lineTo(92, 44);
+      g.moveTo(107, 68);
+      g.lineTo(129, 68);
       g.stroke();
-      for (const x of [74, 83, 92]) {
+      g.beginPath();
+      g.moveTo(118, 68);
+      g.lineTo(118, 44);
+      g.stroke();
+      for (const side of [-1, 1]) {
         g.beginPath();
-        g.moveTo(x, 44);
-        g.lineTo(x, 29);
+        g.moveTo(118 + side * 11, 68);
+        g.quadraticCurveTo(118 + side * 12, 54, 118 + side * 6, 48);
         g.stroke();
       }
-      g.lineWidth = 1;
+      g.lineWidth = 1.2;
       g.globalAlpha = 0.72;
       for (let i = 0; i < 3; i += 1) {
-        const y = 142 + i * 9;
+        const y = 176 + i * 8;
         g.beginPath();
-        g.moveTo(17, y);
-        g.bezierCurveTo(26, y - 5, 32, y + 5, 40, y);
+        g.moveTo(38, y);
+        g.bezierCurveTo(48, y - 5, 56, y + 5, 66, y);
         g.stroke();
       }
       g.globalAlpha = 1;
     },
 
-    // Helm and spear, levelled. The call that only destroys.
-    ares(g) {
-      g.fillStyle = INK;
-      g.beginPath();
-      g.moveTo(CX - 6, 39);
-      g.bezierCurveTo(CX - 4, 22, CX + 8, 22, CX + 8, 39);
-      g.fill();
+    // Both arms up under the weight of it. He does not put it down.
+    atlas(g) {
       g.strokeStyle = INK;
       g.lineCap = "round";
-      g.lineWidth = 4.2;
-      g.beginPath();
-      g.moveTo(CX + 8, 68);
-      g.quadraticCurveTo(CX + 16, 66, 74, 72);
-      g.stroke();
+      g.lineWidth = 5.4;
+      for (const side of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(CX + side * 11, 110);
+        g.quadraticCurveTo(CX + side * 26, 96, CX + side * 22, 70);
+        g.stroke();
+      }
       g.lineCap = "butt";
-      g.lineWidth = 2.2;
+      g.fillStyle = GROUND;
       g.beginPath();
-      g.moveTo(28, 166);
-      g.lineTo(92, 36);
-      g.stroke();
-      g.lineWidth = 1.9;
+      g.arc(CX + 1, 46, 26, 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = INK;
+      g.lineWidth = 1.8;
       g.beginPath();
-      g.moveTo(92, 36);
-      g.lineTo(86, 49);
-      g.moveTo(92, 36);
-      g.lineTo(81, 42);
+      g.arc(CX + 1, 46, 26, 0, Math.PI * 2);
       g.stroke();
+      g.lineWidth = 0.9;
+      g.globalAlpha = 0.8;
+      for (const r of [8, 17]) {
+        g.beginPath();
+        g.ellipse(CX + 1, 46, r, 26, 0, 0, Math.PI * 2);
+        g.stroke();
+      }
+      for (const dy of [-13, 0, 13]) {
+        g.beginPath();
+        g.ellipse(CX + 1, 46 + dy, Math.sqrt(Math.max(1, 676 - dy * dy)), 3.4, 0, 0, Math.PI * 2);
+        g.stroke();
+      }
+      g.globalAlpha = 1;
     },
 
-    // The sceptre and the crown. Whatever reaches him stays.
     hades(g) {
       g.fillStyle = INK;
-      for (const dx of [-6, 1, 8]) {
+      for (const dx of [-8, 1, 10]) {
         g.beginPath();
-        g.moveTo(CX + dx - 3.2, 39);
-        g.lineTo(CX + dx, 29);
-        g.lineTo(CX + dx + 3.2, 39);
+        g.moveTo(CX + dx - 4, 76);
+        g.lineTo(CX + dx, 62);
+        g.lineTo(CX + dx + 4, 76);
         g.closePath();
         g.fill();
       }
-      arm(g, 78, 68);
-      staff(g, 83, 52);
+      arm(g, 119, 112);
+      staff(g, 118, 82);
       g.beginPath();
-      g.arc(83, 47, 4.8, 0, Math.PI * 2);
+      g.arc(118, 76, 6.4, 0, Math.PI * 2);
       g.fill();
     },
   };
 
+  const SEEDS = {
+    hermes: 11, athena: 29, hephaistos: 47, apollo: 61,
+    zeus: 83, poseidon: 97, atlas: 113, hades: 131,
+  };
+
   function draw(canvas) {
-    const god = GODS[canvas.dataset.god];
+    const key = canvas.dataset.god;
+    const god = GODS[key];
     if (god === undefined) return;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
@@ -1708,8 +1813,10 @@
     canvas.height = Math.round(height * dpr);
     const g = canvas.getContext("2d");
     if (g === null) return;
-    g.scale((width / 112) * dpr, (height / 210) * dpr);
-    niche(g);
+    g.scale((width / W) * dpr, (height / H) * dpr);
+    const seed = SEEDS[key] ?? 7;
+    rays(g, seed);
+    panel(g, seed);
     body(g);
     god(g);
     plinth(g);
@@ -1719,8 +1826,9 @@
   const drawAll = () => { for (const canvas of all) draw(canvas); };
   drawAll();
 
-  // The niches only exist above a breakpoint, so a window that crosses it has
-  // canvases that were never sized. Redrawing once it settles costs nothing.
+  // The niches exist only above a breakpoint and grow with the margin, so a
+  // window that is resized has canvases drawn at the wrong size. Redrawing
+  // once it settles costs nothing.
   let settle;
   addEventListener("resize", () => {
     clearTimeout(settle);
