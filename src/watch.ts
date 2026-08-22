@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 
-import { openJournal, type ActionRow, type Journal } from "./journal/journal.js";
+import { labelFor, openJournal, wasRefused, type ActionRow, type Journal } from "./journal/journal.js";
 import { keysIn } from "./keys.js";
 import { rule, style, WORDMARK } from "./style.js";
 
@@ -62,12 +62,13 @@ function line(action: ActionRow): string {
   const mark = MARK[action.class] ?? "?";
   const badge = `${mark} ${action.class}`.padEnd(14);
   const when = action.ts.slice(11, 19);
+  const label = labelFor(action).padEnd(13);
   const status =
     action.status === "gated"
-      ? style.strong(action.status.padEnd(13))
-      : action.status === "denied" || action.status === "unrecoverable"
-        ? style.accent(action.status.padEnd(13))
-        : style.quiet(action.status.padEnd(13));
+      ? style.strong(label)
+      : wasRefused(action)
+        ? style.accent(label)
+        : style.quiet(label);
   return `  ${style.quiet(when)}  ${style.quiet(badge)} ${status} ${action.server}.${action.tool}`;
 }
 

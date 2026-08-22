@@ -18,7 +18,7 @@ import { dirname, resolve } from "node:path";
 import { ManifestError, SynartesisError, describe } from "./errors.js";
 import { draftManifest } from "./init/draft.js";
 import { loadManifest, parseManifest } from "./manifest/load.js";
-import { openJournal, type ActionClass, type ActionRow, type Journal } from "./journal/journal.js";
+import { labelFor, openJournal, wasRefused, type ActionClass, type ActionRow, type Journal } from "./journal/journal.js";
 import { verifyAgainstServers } from "./manifest/verify.js";
 import { createRouter } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
@@ -208,10 +208,20 @@ interface Noun {
   readonly many: string;
 }
 
+/**
+ * `newest` is for the commands whose default is a run rather than the only
+ * candidate. show and undo have always been documented as defaulting to the
+ * most recent run; without this that held only until a second run existed,
+ * after which both refused and listed every id -- offering --all, which
+ * neither of them takes. approve and deny stay strict: "the only one waiting"
+ * is a different promise, and guessing which of several to allow is not a
+ * guess anything should make.
+ */
 function pick<T extends { id: string }>(
   candidates: readonly T[],
   given: string | undefined,
   noun: Noun,
+  newest = false,
 ): T {
   const listed = (items: readonly T[]): string =>
     items.map((item) => `  ${item.id}`).join("\n");
@@ -221,7 +231,7 @@ function pick<T extends { id: string }>(
     if (only === undefined) {
       throw new UsageError(`there is no ${noun.one} to act on`);
     }
-    if (rest.length > 0) {
+    if (rest.length > 0 && !newest) {
       throw new UsageError(
         `there are ${String(candidates.length)} ${noun.many}; name one, or use --all:\n${listed(candidates)}`,
       );
@@ -304,7 +314,7 @@ function runList(journal: Journal, asJson: boolean): number {
 
 function runShow(argv: readonly string[], journal: Journal, asJson: boolean): number {
   const runs = [...journal.listRuns()].reverse();
-  const run = pick(runs, positional(argv)[1], RUN);
+  const run = pick(runs, positional(argv)[1], RUN, true);
   const runId = run.id;
 
   if (asJson) {
@@ -379,8 +389,8 @@ function badgeOf(action: ActionRow): string {
 }
 
 function statusOf(action: ActionRow): string {
-  const text = action.status.padEnd(13);
-  if (action.status === "denied" || action.status === "unrecoverable") {
+  const text = labelFor(action).padEnd(13);
+  if (wasRefused(action)) {
     return style.accent(text);
   }
   if (action.status === "gated") {
@@ -613,7 +623,7 @@ async function performUndo(
 async function runUndo(argv: readonly string[], journal: Journal): Promise<number> {
   // Defaults to the most recent run: the thing anyone wants to undo is
   // almost always the last thing that happened.
-  const runId = pick([...journal.listRuns()].reverse(), positional(argv)[1], RUN).id;
+  const runId = pick([...journal.listRuns()].reverse(), positional(argv)[1], RUN, true).id;
 
   const rawTo = flag(argv, "--to");
   const toSeq = rawTo === undefined ? undefined : Number(rawTo);

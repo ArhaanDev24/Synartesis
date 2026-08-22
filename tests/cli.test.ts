@@ -527,3 +527,31 @@ describe("the help on where things are", () => {
     expect(help.stdout).not.toContain("default .synartesis/journal.db");
   });
 });
+
+describe("defaulting to the most recent run", () => {
+  it("does it once there is more than one run, which is when it matters", async () => {
+    // --help says show and undo default to the most recent run. That held only
+    // while exactly one run existed; the second one turned both into an error
+    // listing every id and telling you to name one -- and offering --all,
+    // which neither command takes.
+    const space = workspace();
+    const journal = openJournal(space.journal);
+    const ids: string[] = [];
+    for (const label of ["first", "second", "third"]) {
+      const id = journal.beginRun(label);
+      journal.endRun(id, "complete");
+      ids.push(id);
+    }
+    journal.close();
+    const newest = ids[ids.length - 1] ?? "";
+
+    const shown = await run("node", [CLI, "show", "--json", "--journal", space.journal]);
+    expect(shown.code).toBe(0);
+    const parsed: unknown = JSON.parse(shown.stdout);
+    expect(parsed).toMatchObject({ run: { id: newest, label: "third" } });
+
+    const plain = await run("node", [CLI, "show", "--journal", space.journal]);
+    expect(plain.code).toBe(0);
+    expect(plain.stdout).toContain(newest);
+  });
+});

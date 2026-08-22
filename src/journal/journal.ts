@@ -10,6 +10,14 @@ import { SCHEMA_SQL, SCHEMA_VERSION } from "./schema.js";
 
 export type RunStatus = "active" | "complete" | "rolled_back" | "partial";
 
+/**
+ * How a row says its approval was moved onto the action that ran. There is no
+ * status for it -- adding one would change the schema, and an older journal
+ * cannot be read under a newer schema -- so the row is denied and this is how
+ * it is told apart from a person having said no.
+ */
+export const SPENT_APPROVAL = "approval was used by action";
+
 export type ActionStatus =
   | "pending"
   | "gated"
@@ -530,7 +538,7 @@ class SqliteJournal implements Journal {
           .run(granted.approvedBy ?? null, granted.approvedAt ?? null, actionId);
         this.#db
           .prepare("UPDATE actions SET status = 'denied', error = ? WHERE id = ?")
-          .run(`approval was used by action ${actionId}`, granted.id);
+          .run(`${SPENT_APPROVAL} ${actionId}`, granted.id);
       });
       move();
     });
@@ -682,4 +690,19 @@ export function openJournal(path: string, options: OpenOptions = {}): Journal {
     throw new JournalError("open", `there is no journal at ${path}`);
   }
   return new SqliteJournal(path);
+}
+
+/**
+ * A row denied because its approval was spent on the call that actually ran is
+ * not a refusal, and `watch` reported one as "denied" moments after the person
+ * had said yes and the call had gone through.
+ */
+export function labelFor(action: ActionRow): string {
+  return action.status === "denied" && (action.error ?? "").startsWith(SPENT_APPROVAL)
+    ? "used"
+    : action.status;
+}
+
+export function wasRefused(action: ActionRow): boolean {
+  return action.status === "unrecoverable" || labelFor(action) === "denied";
 }

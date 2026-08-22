@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 
-import { openJournal, type ActionRow, type Journal, type RunRow } from "./journal/journal.js";
+import { labelFor, openJournal, wasRefused, type ActionRow, type Journal, type RunRow } from "./journal/journal.js";
 import type { RollbackReport } from "./rollback/rollback.js";
 import { keysIn } from "./keys.js";
 import { rule, style, WORDMARK } from "./style.js";
@@ -185,8 +185,8 @@ function runsView(journal: Journal, screen: Screen, options: ConsoleOptions): st
 }
 
 function statusOf(action: ActionRow): string {
-  const text = action.status.padEnd(13);
-  if (action.status === "denied" || action.status === "unrecoverable") {
+  const text = labelFor(action).padEnd(13);
+  if (wasRefused(action)) {
     return style.accent(text);
   }
   return action.status === "gated" ? style.strong(text) : style.quiet(text);
