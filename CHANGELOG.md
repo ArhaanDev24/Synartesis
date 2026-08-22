@@ -2,6 +2,24 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.2.2 — 2026-08-22
+
+### Fixed
+
+- **Several agents sharing one journal no longer lose calls.** Eight proxies
+  writing at once lost two of their tool calls to `database is locked`, and
+  sharing a journal is the arrangement this tool recommends. Two causes: SQLite
+  was never told to wait for a contended write, and the transaction that
+  records an action reads the highest sequence number before inserting — a
+  lock SQLite will not upgrade while another writer has committed in between,
+  which `busy_timeout` does not cover. It takes the write lock up front now.
+  Sixteen at once, four rounds: every call recorded, nothing locked out.
+- **A pre-read that fails twice on a fresh connection says the reply may be too
+  large.** It said "Connection closed", which points at nothing. A file of more
+  than a few megabytes cannot be snapshotted, and a write that cannot be
+  snapshotted is refused rather than risked — but you had no way to know that
+  was the reason.
+
 ## 0.2.1 — 2026-08-22
 
 ### Fixed

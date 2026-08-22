@@ -197,9 +197,18 @@ export async function runRead(
       if (isDisconnected(retry)) {
         await upstream.reconnect().catch(() => undefined);
       }
+      // Twice, the same way, on a fresh connection: the request is fine and
+      // the reply is what cannot be carried. Saying so is the difference
+      // between a diagnosis and a shrug, because nothing else about
+      // "Connection closed" points at the size of a file.
+      const twice = isDisconnected(error) && isDisconnected(retry);
       throw new SnapshotError(
         label,
-        `${describe(error)} (the connection to ${read.server} was restarted and the read failed again: ${describe(retry)})`,
+        twice
+          ? `the connection to ${read.server} closed while reading, and again on a fresh one. ` +
+            `A reply too large to carry does this: if the resource is more than a few megabytes, ` +
+            `it cannot be snapshotted, and a write that cannot be snapshotted is refused rather than risked.`
+          : `${describe(error)} (the connection to ${read.server} was restarted and the read failed again: ${describe(retry)})`,
         { cause: retry },
       );
     }

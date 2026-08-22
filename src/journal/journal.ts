@@ -278,6 +278,13 @@ function openDatabase(path: string): Database.Database {
     // that is not a database is only found out on the first read.
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
+    // WAL lets readers and one writer work at once; a second writer still has
+    // to wait its turn, and without this SQLite does not wait at all -- it
+    // fails immediately with "database is locked". Six agents sharing one
+    // journal lost two of their calls that way, which is the arrangement this
+    // tool recommends. Writes here are tiny, so the wait is milliseconds; the
+    // five seconds is the ceiling before something is genuinely wedged.
+    db.pragma("busy_timeout = 5000");
     return db;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -400,7 +407,12 @@ class SqliteJournal implements Journal {
 
         return { actionId, seq, idempotencyKey };
       });
-      return insert();
+      // immediate, not deferred. This reads the highest seq and then inserts,
+      // and SQLite will not upgrade a read lock to a write one while another
+      // writer has committed in between -- it returns "database is locked"
+      // straight away, and busy_timeout does not apply to that case. Taking
+      // the write lock up front is what makes the wait actually happen.
+      return insert.immediate();
     });
   }
 
@@ -558,6 +570,7 @@ class SqliteJournal implements Journal {
 
   adoptApproval(actionId: string, granted: ActionRow): void {
     this.#run("adoptApproval", () => {
+      // Also immediate: adopting an approval reads one row and writes two.
       const move = this.#db.transaction((): void => {
         this.#db
           .prepare("UPDATE actions SET approved_by = ?, approved_at = ? WHERE id = ?")
@@ -566,7 +579,7 @@ class SqliteJournal implements Journal {
           .prepare("UPDATE actions SET status = 'denied', error = ? WHERE id = ?")
           .run(`${SPENT_APPROVAL} ${actionId}`, granted.id);
       });
-      move();
+      move.immediate();
     });
   }
 

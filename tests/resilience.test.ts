@@ -130,3 +130,38 @@ describe("two undos racing for the same run", () => {
     expect(halted.some((step) => step.reason.includes("another undo"))).toBe(true);
   });
 });
+
+describe("several proxies sharing one journal", () => {
+  it("waits its turn rather than failing the call", () => {
+    // WAL allows one writer at a time, and SQLite does not wait by default:
+    // a contended write returns "database is locked" straight away. Six agents
+    // on one journal lost two of their calls to it -- and sharing a journal is
+    // the arrangement this tool recommends.
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-busy-"));
+    const path = join(dir, "journal.db");
+
+    const writers = Array.from({ length: 8 }, () => openJournal(path));
+    try {
+      const runs = writers.map((journal, index) => journal.beginRun(`agent-${String(index)}`));
+      // Interleaved on purpose, so the writes actually contend.
+      for (let round = 0; round < 20; round += 1) {
+        for (const [index, journal] of writers.entries()) {
+          journal.recordPending({
+            runId: runs[index] ?? "",
+            server: "fs",
+            tool: "write_file",
+            args: { round },
+            class: "reversible",
+          });
+        }
+      }
+      const counted = writers[0]?.getActions(runs[0] ?? "").length;
+      expect(counted).toBe(20);
+    } finally {
+      for (const journal of writers) {
+        journal.close();
+      }
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
