@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 
 import { openJournal, type ActionRow, type Journal } from "./journal/journal.js";
+import { keysIn } from "./keys.js";
 import { rule, style, WORDMARK } from "./style.js";
 
 /**
@@ -199,10 +200,12 @@ async function* terminalKeys(): AsyncIterable<string> {
       // The stream's iterator is untyped, so the shape is checked rather than
       // asserted: a wrong guess here would be a key nobody can press.
       const raw: unknown = chunk;
-      if (typeof raw === "string") {
-        yield raw;
-      } else if (Buffer.isBuffer(raw)) {
-        yield raw.toString("utf8");
+      const text =
+        typeof raw === "string" ? raw : Buffer.isBuffer(raw) ? raw.toString("utf8") : "";
+      // Split, because a read is not a keypress: a terminal hands over
+      // everything that has accumulated, so two quick presses arrive together.
+      for (const key of keysIn(text)) {
+        yield key;
       }
     }
   } finally {
