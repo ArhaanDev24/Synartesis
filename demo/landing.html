@@ -612,11 +612,14 @@
         <div class="terminal">
           <div class="terminal-bar"><span>three commands</span><span>node 22 or newer</span></div>
 <pre><span class="prompt">$</span> <span class="hit">npm install -g synartesis</span>
-<span class="prompt">$</span> <span class="hit">synartesis init</span> fs -- npx -y @modelcontextprotocol/server-filesystem ~/notes
 
-  <span class="dim">Recognised 14 tools, so the policy that ships for filesystem was used.</span>
+<span class="prompt">$</span> <span class="hit">synartesis init</span> fs -- \
+    npx -y @modelcontextprotocol/server-filesystem ~/notes
 
-<span class="prompt">$</span> <span class="hit">synartesis undo</span>          <span class="dim">&#8592; when it goes wrong</span></pre>
+  <span class="dim">Recognised 14 tools &#8212; the bundled</span>
+  <span class="dim">filesystem policy was used.</span>
+
+<span class="prompt">$</span> <span class="hit">synartesis undo</span>   <span class="dim">&#8592; when it goes wrong</span></pre>
         </div>
         <p class="etymology" style="margin-top:1rem">
           Then point your client at <code class="inline">synartesis proxy</code> instead of the
