@@ -241,3 +241,32 @@ describe("the on_write heuristic", () => {
     expect(shouldGateOnWrite({ sql: "SELECT 1; DROP TABLE customers" })).toBe(true);
   });
 });
+
+describe("approving a call that had nothing to restore", () => {
+  it("lets the retry through, which is what the agent was told would happen", async () => {
+    // The commonest thing an agent does is create something that is not there
+    // yet. The pre-read finds nothing, so the call is held; a person approves
+    // it; the agent calls again, as the proxy's own instructions tell it to.
+    // That retry was held again, and again, forever: the approval was only
+    // ever looked up for a policy that asked to be gated, never for a write
+    // whose prior state was missing.
+    harness = await createHarness({ gate: "retry" });
+    const active = harness;
+
+    await active.proxied
+      .callTool({ name: "update_customer", arguments: { id: "c_absent", plan: "free" } })
+      .catch(() => undefined);
+
+    const held = active.journal.listGated();
+    expect(held).toHaveLength(1);
+    const actionId = held[0]?.id ?? "";
+    expect(active.journal.approve(actionId, "arhaan")).toBe(true);
+
+    const result = await active.proxied
+      .callTool({ name: "update_customer", arguments: { id: "c_absent", plan: "free" } })
+      .catch((error: unknown) => error);
+
+    expect(result).not.toBeInstanceOf(McpError);
+    expect(active.journal.listGated()).toHaveLength(0);
+  });
+});

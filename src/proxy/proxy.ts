@@ -599,7 +599,29 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         }
 
         if (missingPriorState !== undefined && !askedAlready) {
-          await decide("nothing exists here to restore, so this cannot be undone");
+          // An approval granted out of band counts here too. It was only ever
+          // looked up for a policy that asked to be gated, so a write whose
+          // prior state was missing -- an agent creating a file, the commonest
+          // thing an agent does -- asked, was approved, and asked again, and
+          // no number of approvals ever let it through. The instructions this
+          // proxy sends to every agent promise the opposite.
+          const standing = journal.findApproval({
+            server: route.upstream.name,
+            tool: route.tool,
+            args,
+            notBefore: new Date(Date.now() - APPROVAL_WINDOW_MS).toISOString(),
+          });
+          if (standing === undefined) {
+            await decide("nothing exists here to restore, so this cannot be undone");
+          } else {
+            // Moved onto the row that actually runs, which also spends it: an
+            // approval answers one call, not every call that looks like it.
+            journal.adoptApproval(pending.actionId, standing);
+            log?.info(
+              { action: pending.actionId, by: standing.approvedBy, from: standing.runId },
+              "proceeding on a standing approval",
+            );
+          }
         }
 
         const forwarded: Request = {

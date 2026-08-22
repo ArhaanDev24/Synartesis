@@ -80,13 +80,16 @@ tools:
   # Reversible from its arguments alone: no pre-read could say anything the
   # arguments do not already. Drift cannot be checked for the same reason, so
   # undo reports it as unverified.
+  # Only reversible when the destination did not exist. Moving onto a file
+  # that did overwrites it, and moving back afterwards restores the source and
+  # leaves nothing where the destination's contents were: undo reports success
+  # while the file it destroyed stays destroyed. There is no pre-read that
+  # would tell the two cases apart -- a snapshot that finds nothing is how this
+  # policy says "cannot be undone", which is backwards here, since finding
+  # nothing is the safe case. So it asks.
   - match: "fs.move_file"
-    class: reversible
-    inverse:
-      tool: "fs.move_file"
-      args:
-        source: "$.destination"
-        destination: "$.source"
+    class: irreversible
+    gate: always
 
   # No rmdir exists on this server, so a directory once created stays.
   - match: "fs.create_directory"
