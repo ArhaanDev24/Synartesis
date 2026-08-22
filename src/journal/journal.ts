@@ -565,7 +565,12 @@ class SqliteJournal implements Journal {
 
   listRuns(): readonly RunRow[] {
     return this.#run("listRuns", () =>
-      this.#db.prepare("SELECT * FROM runs ORDER BY started_at, id").all().map(toRun),
+      // Insertion order as the tiebreak, not the id. Two runs that start in
+      // the same millisecond have equal timestamps, and a uuid orders them at
+      // random -- which decides which one `show` and `undo` mean by "the most
+      // recent", so the answer has to come from when they were written rather
+      // than from what they happen to be called.
+      this.#db.prepare("SELECT * FROM runs ORDER BY started_at, rowid").all().map(toRun),
     );
   }
 

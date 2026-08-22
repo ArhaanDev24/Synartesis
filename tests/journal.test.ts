@@ -296,3 +296,23 @@ describe("journal", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("the order runs come back in", () => {
+  it("is the order they happened, even when two start in the same millisecond", () => {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-order-"));
+    const journal = openJournal(join(dir, "journal.db"));
+    // No sleeping between them: an agent restarting immediately, or a script
+    // running two in a row, and the timestamps collide.
+    const created = ["first", "second", "third", "fourth"].map((label) =>
+      journal.beginRun(label),
+    );
+    const listed = journal.listRuns().map((run) => run.id);
+    journal.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    // `show` and `undo` both default to the most recent run. If the order is
+    // decided by a random uuid whenever the clock has not moved, they default
+    // to an arbitrary one.
+    expect(listed).toEqual(created);
+  });
+});

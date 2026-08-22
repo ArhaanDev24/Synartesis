@@ -26,9 +26,12 @@ import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { banner, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
 import { watch } from "./watch.js";
+import { console as openConsole } from "./console.js";
 import { cliCommand } from "./invocation.js";
 
 const COMMANDS = `
+  synartesis                                      the screen; everything below,
+                                                  driven with the arrow keys
   synartesis init <server> -- <command> [args...]  [--manifest <path>]
   synartesis check [--manifest <path>]
   synartesis list [--journal <path>]
@@ -530,18 +533,18 @@ function report(result: RollbackReport): number {
   return result.status === "rolled_back" ? 0 : 1;
 }
 
-async function runUndo(argv: readonly string[], journal: Journal): Promise<number> {
-  // Defaults to the most recent run: the thing anyone wants to undo is
-  // almost always the last thing that happened.
-  const runId = pick([...journal.listRuns()].reverse(), positional(argv)[1], RUN).id;
-
-  const rawTo = flag(argv, "--to");
-  const toSeq = rawTo === undefined ? undefined : Number(rawTo);
-  if (toSeq !== undefined && (!Number.isInteger(toSeq) || toSeq < 1)) {
-    throw new UsageError("--to needs a positive whole number");
-  }
-
-  const manifest = loadManifest(findManifest(flag(argv, "--manifest")));
+/**
+ * Starting every server the manifest names, undoing, and shutting them down
+ * again. Shared, because the console does exactly this when somebody presses
+ * u and there must not be two answers to what undo means.
+ */
+async function performUndo(
+  manifestPath: string,
+  journal: Journal,
+  runId: string,
+  options: { dryRun: boolean; toSeq?: number; replan?: boolean },
+): Promise<RollbackReport> {
+  const manifest = loadManifest(manifestPath);
   const upstreams: Upstream[] = [];
   try {
     for (const [name, spec] of Object.entries(manifest.servers)) {
@@ -555,15 +558,14 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
         }),
       );
     }
-    const result = await rollback({
+    return await rollback({
       journal,
       router: createRouter(upstreams, manifest),
       runId,
-      ...(toSeq === undefined ? {} : { toSeq }),
-      dryRun: argv.includes("--dry-run"),
-      ...(argv.includes("--replan") ? { replanWith: manifest } : {}),
+      ...(options.toSeq === undefined ? {} : { toSeq: options.toSeq }),
+      dryRun: options.dryRun,
+      ...(options.replan === true ? { replanWith: manifest } : {}),
     });
-    return report(result);
   } finally {
     for (const upstream of upstreams) {
       await upstream.close();
@@ -571,13 +573,52 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   }
 }
 
+async function runUndo(argv: readonly string[], journal: Journal): Promise<number> {
+  // Defaults to the most recent run: the thing anyone wants to undo is
+  // almost always the last thing that happened.
+  const runId = pick([...journal.listRuns()].reverse(), positional(argv)[1], RUN).id;
+
+  const rawTo = flag(argv, "--to");
+  const toSeq = rawTo === undefined ? undefined : Number(rawTo);
+  if (toSeq !== undefined && (!Number.isInteger(toSeq) || toSeq < 1)) {
+    throw new UsageError("--to needs a positive whole number");
+  }
+
+  return report(
+    await performUndo(findManifest(flag(argv, "--manifest")), journal, runId, {
+      dryRun: argv.includes("--dry-run"),
+      ...(toSeq === undefined ? {} : { toSeq }),
+      replan: argv.includes("--replan"),
+    }),
+  );
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const command = positional(argv)[0];
-  const askedForHelp = argv.includes("--help") || argv.includes("-h");
-  if (askedForHelp || command === undefined) {
+  if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write(`${banner()}\n${COMMANDS}`);
-    // Asking for help is not a mistake; being invoked with nothing at all is.
-    return askedForHelp ? 0 : 2;
+    return 0;
+  }
+  // Nothing typed opens the screen. Being handed a page of eight commands is a
+  // fine answer for a script and a poor one for a person, who wants to see
+  // what happened rather than be told the names of the words for asking.
+  if (command === undefined) {
+    const manifestPath = findManifest(flag(argv, "--manifest"));
+    const journalPath = findJournal(flag(argv, "--journal"), manifestPath);
+    return await openConsole({
+      journalPath,
+      write: (text) => process.stdout.write(text),
+      live: process.stdout.isTTY,
+      decideAs: flag(argv, "--by") ?? process.env["USER"] ?? process.env["LOGNAME"] ?? "unknown",
+      undo: async (runId, dryRun) => {
+        const journal = openJournal(journalPath, { mustExist: true });
+        try {
+          return await performUndo(manifestPath, journal, runId, { dryRun });
+        } finally {
+          journal.close();
+        }
+      },
+    });
   }
 
   // None of these needs an existing journal, and none should create one.

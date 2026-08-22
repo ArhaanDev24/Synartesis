@@ -131,6 +131,16 @@ means everything it then did, it did somewhere else.
 ## 8. Read what it did
 
 ```bash
+synartesis
+```
+
+With no arguments that opens the screen: every run newest first, arrow keys to
+move, enter to open one and see the calls in order, **g** for anything held,
+**p** to preview an undo, **u** to perform one. The commands below all still
+exist and are what a script should use, but none of them has to be remembered
+to look at what just happened.
+
+```bash
 synartesis show
 ```
 
