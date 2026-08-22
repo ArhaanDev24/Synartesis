@@ -2,6 +2,20 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.2.1 — 2026-08-22
+
+### Fixed
+
+- **The CLI refuses a flag it does not know.** `synartesis undo --jounral
+  other.db` read the *default* journal and reversed whatever was in it, exit
+  zero and no warning: you would be looking at one run and undoing another. The
+  proxy has always rejected an unknown flag; the CLI quietly dropped it.
+  Everything past a bare `--` is still left alone, since that belongs to the
+  server `init` is starting.
+
+  This landed half an hour after 0.2.0 was published, so 0.2.0 does not have
+  it.
+
 ## 0.2.0 — 2026-08-22
 
 ### Added
