@@ -586,3 +586,27 @@ describe("a run left active by a proxy that was killed", () => {
     expect(closed.stderr).toMatch(/no run/i);
   });
 });
+
+describe("a flag that was typed wrong", () => {
+  it("is refused, rather than silently ignored", async () => {
+    // `undo --jounral other.db` read the default journal and undid whatever
+    // was in it. You would be looking at one run and reversing another, and
+    // nothing anywhere would say so.
+    const space = workspace();
+    const typo = await run("node", [CLI, "list", "--jounral", space.journal]);
+    expect(typo.code).toBe(2);
+    expect(typo.stderr).toMatch(/--jounral/);
+  });
+
+  it("still lets init pass flags through to the server it starts", async () => {
+    // Everything after `--` belongs to the command being started, and may well
+    // have flags of its own.
+    const space = workspace();
+    const started = await run("node", [
+      CLI, "init", "crm", "--manifest", join(space.dir, "new.yaml"),
+      "--", "node", FIXTURE, "--state", join(space.dir, "crm.json"),
+    ]);
+    expect(started.code).toBe(0);
+    expect(existsSync(join(space.dir, "new.yaml"))).toBe(true);
+  });
+});

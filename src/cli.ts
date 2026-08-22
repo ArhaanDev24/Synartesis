@@ -692,6 +692,41 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   );
 }
 
+/**
+ * Every flag any command takes. Checked as one set rather than per command:
+ * the failure worth catching is a typo, and `list --to 3` being tolerated is a
+ * far smaller problem than `undo --jounral other.db` silently reading the
+ * default journal and reversing whatever happened to be in it.
+ */
+const FLAGS = new Set([
+  "--manifest",
+  "--journal",
+  "--to",
+  "--by",
+  "--all",
+  "--once",
+  "--json",
+  "--dry-run",
+  "--replan",
+  "--reason",
+  "--force",
+  "--help",
+  "-h",
+]);
+
+function rejectUnknownFlags(argv: readonly string[]): void {
+  for (const token of argv) {
+    // Everything past a bare `--` belongs to the command init is starting, and
+    // that command has flags of its own.
+    if (token === "--") {
+      return;
+    }
+    if (token.startsWith("-") && token !== "-" && !FLAGS.has(token)) {
+      throw new UsageError(`unknown flag ${token}`);
+    }
+  }
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const command = positional(argv)[0];
   if (command === "proxy") {
@@ -707,6 +742,7 @@ async function main(argv: readonly string[]): Promise<number> {
     process.stdout.write(`${banner()}\n${COMMANDS}`);
     return 0;
   }
+  rejectUnknownFlags(argv);
   // Nothing typed opens the screen. Being handed a page of eight commands is a
   // fine answer for a script and a poor one for a person, who wants to see
   // what happened rather than be told the names of the words for asking.
