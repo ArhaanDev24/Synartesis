@@ -233,3 +233,53 @@ tools:
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("environment for a server", () => {
+  it("takes the value from the shell rather than passing the reference on", () => {
+    // Two shipped manifests tell people to write ${VAR} so a token never lands
+    // in a file that gets committed. If nothing expands it, what reaches the
+    // server is the six characters of the reference.
+    process.env["SYNARTESIS_TEST_TOKEN"] = "s3cret";
+    try {
+      const manifest = parseManifest(
+        [
+          "version: 1",
+          "servers:",
+          "  api:",
+          "    command: node",
+          "    env:",
+          '      TOKEN: "${SYNARTESIS_TEST_TOKEN}"',
+          '      MIXED: "Bearer ${SYNARTESIS_TEST_TOKEN}"',
+          '      PLAIN: "left alone"',
+          "tools: []",
+        ].join("\n"),
+        "manifest.yaml",
+      );
+      expect(manifest.servers["api"]?.env).toEqual({
+        TOKEN: "s3cret",
+        MIXED: "Bearer s3cret",
+        PLAIN: "left alone",
+      });
+    } finally {
+      delete process.env["SYNARTESIS_TEST_TOKEN"];
+    }
+  });
+
+  it("says which variable is missing rather than starting a server without it", () => {
+    delete process.env["SYNARTESIS_ABSENT"];
+    expect(() =>
+      parseManifest(
+        [
+          "version: 1",
+          "servers:",
+          "  api:",
+          "    command: node",
+          "    env:",
+          '      TOKEN: "${SYNARTESIS_ABSENT}"',
+          "tools: []",
+        ].join("\n"),
+        "manifest.yaml",
+      ),
+    ).toThrow(/SYNARTESIS_ABSENT/);
+  });
+});

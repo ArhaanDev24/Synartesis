@@ -71,6 +71,40 @@ class Source {
   }
 }
 
+/**
+ * `${VAR}` in a server's environment, taken from the shell the proxy was
+ * started from.
+ *
+ * This is how a token stays out of a file that gets committed, which is what
+ * the shipped manifests tell people to do. Without expansion the server
+ * receives the reference itself and fails with an authentication error that
+ * says nothing about the cause. A variable that is not set is refused at load
+ * time rather than passed on empty, for the same reason: never start with a
+ * policy that cannot work.
+ */
+const REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+function expandEnvironment(
+  source: Source,
+  path: Path,
+  env: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const expanded: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    expanded[key] = value.replace(REFERENCE, (whole, name: string) => {
+      const found = process.env[name];
+      if (found === undefined) {
+        source.fail(
+          [...path, "env", key],
+          `${whole} is not set in this environment; export ${name} before starting, or write the value here`,
+        );
+      }
+      return found;
+    });
+  }
+  return expanded;
+}
+
 function serverSegment(pattern: string): string {
   const dot = pattern.indexOf(".");
   return dot === -1 ? "" : pattern.slice(0, dot);
@@ -242,7 +276,9 @@ export function parseManifest(text: string, file: string): Manifest {
         {
           command: spec.command,
           args: spec.args,
-          ...(spec.env === undefined ? {} : { env: spec.env }),
+          ...(spec.env === undefined
+            ? {}
+            : { env: expandEnvironment(source, ["servers", name], spec.env) }),
         },
       ]),
     ),
