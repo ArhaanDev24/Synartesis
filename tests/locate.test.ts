@@ -79,3 +79,38 @@ describe("finding the policy and the journal", () => {
     expect(findJournal(undefined, manifest)).toBe(join(dir, "journal.db"));
   });
 });
+
+describe("when the work is not happening in a project at all", () => {
+  const savedHome = process.env["SYNARTESIS_HOME"];
+
+  afterEach(() => {
+    if (savedHome === undefined) {
+      delete process.env["SYNARTESIS_HOME"];
+    } else {
+      process.env["SYNARTESIS_HOME"] = savedHome;
+    }
+  });
+
+  it("falls back to one home, so nothing has to be set up per directory", () => {
+    const home = workspace();
+    const elsewhere = workspace();
+    process.env["SYNARTESIS_HOME"] = home;
+    process.chdir(elsewhere);
+
+    // Nothing here and nothing above it. Requiring a directory per server is
+    // how a home fills up with synartesis-this and synartesis-that.
+    expect(findManifest()).toBe(join(home, "synartesis.yaml"));
+    expect(findJournal(undefined, findManifest())).toBe(join(home, "journal.db"));
+  });
+
+  it("still prefers a policy belonging to the directory you are in", () => {
+    const home = workspace();
+    const project = workspace();
+    process.env["SYNARTESIS_HOME"] = home;
+    writeFileSync(join(home, "synartesis.yaml"), "version: 1\n");
+    writeFileSync(join(project, "synartesis.yaml"), "version: 1\n");
+    process.chdir(project);
+
+    expect(findManifest()).toBe(join(project, "synartesis.yaml"));
+  });
+});

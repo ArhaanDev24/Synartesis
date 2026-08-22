@@ -1,17 +1,30 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 /**
  * Where the policy and the journal are, when nobody said.
  *
  * Typing --manifest and --journal on every command is the friction people
- * actually feel, and both are almost always sitting in the directory the work
- * is happening in. So they are looked for the way a version control tool looks
- * for its root: from here, upwards, until found.
+ * actually feel. A policy that belongs to a project sits in it, so both are
+ * looked for the way a version control tool looks for its root: from here,
+ * upwards, until found.
+ *
+ * And when there is nothing above you either, there is one home. Most of what
+ * anyone guards -- an agent's memory, a notes directory, an account somewhere
+ * -- does not belong to a project at all, and making each one its own
+ * directory with its own manifest and its own journal is how a home ends up
+ * with synartesis-this and synartesis-that in it and no single place that
+ * knows what an agent has done.
  */
 export const MANIFEST_NAME = "synartesis.yaml";
 export const JOURNAL_NAME = "journal.db";
 const NESTED_JOURNAL = join(".synartesis", JOURNAL_NAME);
+
+/** Overridable, so a test never has to touch the real one. */
+export function home(): string {
+  return process.env["SYNARTESIS_HOME"] ?? join(homedir(), ".synartesis");
+}
 
 function walkUp(from: string, name: string): string | undefined {
   let dir = resolve(from);
@@ -32,7 +45,7 @@ export function findManifest(given?: string): string {
   if (given !== undefined) {
     return given;
   }
-  return walkUp(process.cwd(), MANIFEST_NAME) ?? MANIFEST_NAME;
+  return walkUp(process.cwd(), MANIFEST_NAME) ?? join(home(), MANIFEST_NAME);
 }
 
 /**
@@ -63,7 +76,7 @@ export function findJournal(given?: string, manifest?: string): string {
     return found;
   }
 
-  // Nothing exists yet. Put it beside the policy, so the proxy that creates it
-  // and the cli that reads it agree without either being told where to look.
-  return near === undefined ? NESTED_JOURNAL : join(near, JOURNAL_NAME);
+  // Nothing exists yet. Beside the policy, so the proxy that creates it and the
+  // cli that reads it agree without either being told where to look.
+  return near === undefined ? join(home(), JOURNAL_NAME) : join(near, JOURNAL_NAME);
 }

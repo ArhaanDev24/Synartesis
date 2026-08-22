@@ -12,8 +12,8 @@ if (NODE_MAJOR < 22) {
   process.exit(2);
 }
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 import { ManifestError, SynartesisError, describe } from "./errors.js";
 import { draftManifest } from "./init/draft.js";
@@ -27,7 +27,7 @@ import { banner, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
 import { watch } from "./watch.js";
 import { console as openConsole } from "./console.js";
-import { cliCommand } from "./invocation.js";
+import { cliCommand, proxyCommand } from "./invocation.js";
 
 const COMMANDS = `
   synartesis                                      the screen; everything below,
@@ -157,7 +157,9 @@ async function runInit(argv: readonly string[]): Promise<number> {
     throw new UsageError(`server name ${name} may not contain "." or "__"; both qualify tool names`);
   }
 
-  const path = flag(argv, "--manifest") ?? "synartesis.yaml";
+  // The home unless a project already has one above where you are standing.
+  // Setting a server up should not mean choosing a directory to keep it in.
+  const path = findManifest(flag(argv, "--manifest"));
   const force = argv.includes("--force");
   const present = existsSync(path);
   if (present && force) {
@@ -176,6 +178,7 @@ async function runInit(argv: readonly string[]): Promise<number> {
   // Never write a manifest that would not start: a drafted policy that fails
   // to load is worse than no policy, because it looks finished.
   parseManifest(yaml, path);
+  mkdirSync(dirname(resolve(path)), { recursive: true });
   writeFileSync(path, yaml);
 
   out("");
@@ -185,7 +188,7 @@ async function runInit(argv: readonly string[]): Promise<number> {
   out(`  ${style.quiet("Every tool is guarded until you say how to undo it.")}`);
   out(`  ${style.quiet("Work through the TODOs, then point your MCP client at:")}`);
   out("");
-  out(`  ${style.accent(`${cliCommand().replace(/cli\.js$/, "proxy.js")} --manifest ${path}`)}`);
+  out(`  ${style.accent(`${proxyCommand()} --manifest ${resolve(path)}`)}`);
   out("");
   return 0;
 }

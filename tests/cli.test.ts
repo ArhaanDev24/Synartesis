@@ -64,9 +64,23 @@ interface Ran {
   readonly stderr: string;
 }
 
-function run(command: string, args: readonly string[], stdin?: string): Promise<Ran> {
+interface Where {
+  readonly cwd?: string;
+  readonly env?: NodeJS.ProcessEnv;
+}
+
+function run(
+  command: string,
+  args: readonly string[],
+  stdin?: string,
+  where: Where = {},
+): Promise<Ran> {
   return new Promise<Ran>((resolveRun, rejectRun) => {
-    const child = spawn(command, [...args], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(command, [...args], {
+      stdio: ["pipe", "pipe", "pipe"],
+      ...(where.cwd === undefined ? {} : { cwd: where.cwd }),
+      ...(where.env === undefined ? {} : { env: where.env }),
+    });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));
@@ -467,5 +481,37 @@ describe("the gate, driven from a second process", () => {
     const late = await run("node", [CLI, "deny", actionId, "--journal", space.journal]);
     expect(late.code).toBe(1);
     expect(late.stderr).toContain("no longer awaiting approval");
+  });
+});
+
+describe("setting up without a project to set it up in", () => {
+  it("writes the policy into one home, and adds the next server to the same file", async () => {
+    const home = mkdtempSync(join(tmpdir(), "synartesis-home-"));
+    dirs.push(home);
+    const elsewhere = mkdtempSync(join(tmpdir(), "synartesis-elsewhere-"));
+    dirs.push(elsewhere);
+    const env = { ...process.env, SYNARTESIS_HOME: home };
+
+    const first = await run("node", [CLI, "init", "crm", "--", "node", FIXTURE], undefined, {
+      cwd: elsewhere,
+      env,
+    });
+    expect(first.stderr).toBe("");
+    expect(first.code).toBe(0);
+
+    const manifest = join(home, "synartesis.yaml");
+    expect(existsSync(manifest)).toBe(true);
+    // Nothing was left in the directory the command happened to be run from.
+    expect(existsSync(join(elsewhere, "synartesis.yaml"))).toBe(false);
+
+    const second = await run("node", [CLI, "init", "other", "--", "node", FIXTURE], undefined, {
+      cwd: elsewhere,
+      env,
+    });
+    expect(second.code).toBe(0);
+    const text = readFileSync(manifest, "utf8");
+    // One file with both servers in it, rather than a directory each.
+    expect(text).toContain("crm:");
+    expect(text).toContain("other:");
   });
 });

@@ -28,69 +28,78 @@ synartesis --help
 If that prints the banner, the rest of this document works verbatim. If it says
 command not found, add `~/.local/bin` to your PATH and open a new terminal.
 
-## 2. Choose a real directory
+## 2. Set up the servers you want guarded
 
-Somewhere with real files you would mind losing, but that is also backed up or
-in git. A project you are working on is ideal. In these commands it is `$WORK`:
-
-```bash
-export WORK=~/some/real/project
-ls "$WORK"
-```
-
-Everything the agent does is confined to this directory. The filesystem server
-refuses paths outside it, and Synartesis records what happens inside it.
-
-## 3. Write the policy for it
-
-The shipped policy for the filesystem server points at the current directory.
-Copy it and aim it at yours:
+Synartesis keeps its own things in one place, `~/.synartesis`, and everything
+you guard goes in the same policy there. There is no directory to make and
+nothing to `cd` into: run this from wherever you happen to be.
 
 ```bash
-mkdir -p ~/synartesis-live && cd ~/synartesis-live
-FS=~/Synartesis/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js
-sed 's#"node_modules/@modelcontextprotocol/server-filesystem/dist/index.js", "."#"'"$(cd ~/Synartesis && pwd)"'/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js", "'"$WORK"'"#' \
-  ~/Synartesis/manifests/filesystem.yaml > synartesis.yaml
+synartesis init memory -- npx -y @modelcontextprotocol/server-memory
 ```
 
-Read the file you just made. The `servers:` block should name your directory.
-The `tools:` block is the whole product: it is what says `write_file` can be
-taken back and `create_directory` cannot.
+That introspects the server, writes `~/.synartesis/synartesis.yaml`, and gates
+every tool it found until you say how to undo it. Run it again for the next
+server and it adds to the same file:
 
-## 4. Check the policy before anything uses it
+```bash
+synartesis init fs -- npx -y @modelcontextprotocol/server-filesystem ~/Documents
+```
+
+Then open the file and work through the TODOs. That is the whole job: saying,
+for each tool, what call puts it back. The policies in `~/Synartesis/manifests`
+are worked examples for the servers people run most, and can be pasted in.
+
+If a policy belongs to one project rather than to you, put a `synartesis.yaml`
+in the project instead; anything found by looking upward from where you are
+wins over the home.
+
+## 3. Check it before anything uses it
 
 ```bash
 synartesis check
 ```
 
-This starts the real server and verifies that every tool the policy mentions
-actually exists on it. It should report ten readonly, three reversible and one
-irreversible. If it reports a problem, the policy is wrong and no agent should
-be pointed at it yet.
+This starts the real servers and verifies that every tool the policy mentions
+exists on them. If it reports a problem, the policy is wrong and no agent
+should be pointed at it yet.
 
-## 5. Point your agent at it instead of at the server
+## 4. Point your agent at it
 
-In the project you will run Claude Code from, create `.mcp.json`:
+One entry, however many servers the policy has:
 
 ```json
 {
   "mcpServers": {
-    "files": {
+    "synartesis": {
       "command": "synartesis-proxy",
       "args": [
-        "--manifest", "/Users/you/synartesis-live/synartesis.yaml",
-        "--journal", "/Users/you/synartesis-live/journal.db"
+        "--manifest", "/Users/you/.synartesis/synartesis.yaml",
+        "--journal", "/Users/you/.synartesis/journal.db"
       ]
     }
   }
 }
 ```
 
-Use absolute paths. The agent sees the same fourteen tools it would have seen
-talking to the server directly, plus an instruction explaining what happens
-when a call is held.
+A copy is written for you at `~/.synartesis/mcp.json`. Put it in `.mcp.json` in
+whatever project you start Claude Code from.
 
-## 6. Watch it, in a second terminal
+With more than one server behind it, tools are named for the server they came
+from, so through Claude Code they are `mcp__synartesis__memory__create_entities`
+and `mcp__synartesis__fs__write_file`.
+
+## 5. Open the screen
+
+```bash
+synartesis
+```
+
+From anywhere. Every run newest first, arrow keys to move, enter to open one
+and read its calls in order, **g** for anything held, **a** and **d** to
+decide, **p** to preview an undo, **u** to perform one.
+
+## 6. Watch it happen, in a second terminal
 
 ```bash
 cd ~/synartesis-live

@@ -54,3 +54,21 @@ export function cliCommandFrom(moduleUrl: string): string {
   }
   return `node ${fileURLToPath(new URL("cli.js", moduleUrl))}`;
 }
+
+/**
+ * How to start the proxy, as the reader would have to type it.
+ *
+ * Not the cli command with a flag on the end. `synartesis --manifest x` opens
+ * the screen; it is not a server, and printing it as the thing to point a
+ * client at is advice that fails the moment somebody follows it.
+ */
+export function proxyCommand(): string {
+  if (onPath("synartesis-proxy")) {
+    return "synartesis-proxy";
+  }
+  const invokedAs = process.argv[1];
+  if (invokedAs !== undefined && invokedAs.endsWith("cli.js")) {
+    return `node ${invokedAs.replace(/cli\.js$/, "proxy.js")}`;
+  }
+  return `node ${fileURLToPath(new URL("proxy.js", import.meta.url))}`;
+}
