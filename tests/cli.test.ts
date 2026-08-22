@@ -242,11 +242,24 @@ describe("the cli", () => {
   it("exits 2 on bad usage and on an unknown run", async () => {
     const space = workspace();
     await damage(space);
-    expect((await run("node", [CLI])).code).toBe(2);
     expect((await run("node", [CLI, "wat", "--journal", space.journal])).code).toBe(2);
     const missing = await run("node", [CLI, "undo", "nope", "--journal", space.journal]);
     expect(missing.code).toBe(2);
     expect(missing.stderr).toContain("no run matches");
+  });
+
+  it("opens the screen when it is given nothing to do", async () => {
+    const space = workspace();
+    await damage(space);
+    // Being handed nothing used to be treated as a mistake and answered with a
+    // page of commands and a failure code. Wanting to see what happened is not
+    // a mistake, and it is the commonest reason to run this at all.
+    const opened = await run("node", [CLI, "--journal", space.journal]);
+    expect(opened.code).toBe(0);
+    // Piped, so it prints one still frame of what is there rather than taking
+    // over the terminal.
+    expect(opened.stdout).toContain("agent");
+    expect(opened.stdout).toContain("3 actions");
   });
 });
 
