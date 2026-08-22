@@ -969,6 +969,166 @@
 
   <section>
     <div class="section-head">
+      <h2 class="display">Where the<br>config goes</h2>
+      <p class="lede">
+        The block above is the same in every client. What differs is which file it goes in,
+        and every one of these is a real path checked against that client&rsquo;s own
+        documentation. Add the entry, restart the client, and the tools appear under
+        Synartesis instead of under the server.
+      </p>
+    </div>
+
+    <ol class="setup">
+      <li>
+        <h3>Claude Code</h3>
+        <p>
+          One command, no file to find. Or write <code class="inline">.mcp.json</code> at the
+          root of a project to share it with everyone working on that repo.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>terminal</span><span>anywhere</span></div>
+<pre><span class="prompt">$</span> <span class="hit">claude mcp add</span> synartesis -- npx -y synartesis proxy \
+    --manifest ~/.synartesis/synartesis.yaml</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Claude Desktop</h3>
+        <p>
+          Settings &rarr; Developer &rarr; Edit Config opens this file, creating it if it is
+          not there. Quit and reopen the app afterwards &mdash; it only reads the file at
+          startup.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>claude_desktop_config.json</span><span>macOS &middot; Windows</span></div>
+<pre><span class="dim">~/Library/Application Support/Claude/claude_desktop_config.json</span>
+<span class="dim">%APPDATA%\Claude\claude_desktop_config.json</span>
+
+{
+  <span class="dim">"mcpServers"</span>: {
+    <span class="dim">"synartesis"</span>: {
+      <span class="dim">"command"</span>: <span class="hit">"npx"</span>,
+      <span class="dim">"args"</span>: [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>,
+               <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
+    }
+  }
+}</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Cursor</h3>
+        <p>
+          <code class="inline">~/.cursor/mcp.json</code> for everywhere,
+          <code class="inline">.cursor/mcp.json</code> in a project for just that one. Cursor
+          wants the transport named explicitly.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>~/.cursor/mcp.json</span><span>note the type field</span></div>
+<pre>{
+  <span class="dim">"mcpServers"</span>: {
+    <span class="dim">"synartesis"</span>: {
+      <span class="hit">"type"</span>: <span class="hit">"stdio"</span>,
+      <span class="dim">"command"</span>: <span class="hit">"npx"</span>,
+      <span class="dim">"args"</span>: [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>,
+               <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
+    }
+  }
+}</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Codex CLI</h3>
+        <p>
+          OpenAI&rsquo;s local agent, which does run stdio servers. TOML rather than JSON, and
+          the same two fields.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>~/.codex/config.toml</span><span>openai codex</span></div>
+<pre>[<span class="hit">mcp_servers.synartesis</span>]
+command = <span class="hit">"npx"</span>
+args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>, <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Anything else, and one that will not work</h3>
+        <p>
+          Any client that runs a local MCP server takes the same two fields, whatever it calls
+          its config file. <b>ChatGPT is the exception</b>: its connectors accept remote HTTPS
+          endpoints only and it will not start a process on your machine, so a
+          <code class="inline">command</code> entry has nowhere to go. Codex CLI is the way in
+          from that side.
+        </p>
+      </li>
+    </ol>
+  </section>
+
+  <div class="fret" role="presentation"></div>
+
+  <section>
+    <div class="section-head">
+      <h2 class="display">Telling whether<br>it worked</h2>
+      <p class="lede">
+        The failure worth knowing about is the quiet one: your agent connects, ignores the
+        tools, and uses its own instead. Nothing errors. Nothing is recorded.
+      </p>
+    </div>
+
+    <ol class="setup">
+      <li>
+        <h3>Ask the agent to do something, then look</h3>
+        <p>
+          Leave <code class="inline">synartesis watch</code> running in a second terminal. Rows
+          appear as calls happen. <b>A live run beside zero actions is the diagnostic</b> &mdash;
+          it means your agent connected and then did the work with its own file tools. Name the
+          tools you want it to use, or take the built-in ones away.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>synartesis watch</span><span>second terminal</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis watch</span>
+
+  <span class="hit">&#10711;</span> <span class="dim">watching  1 runs, 1 live  &middot;  0 recent actions</span>
+        <span class="dim">&#8593; connected, and not being used</span></pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>When the server will not start</h3>
+        <p>
+          Run the same command by hand: whatever it prints is what your client saw and hid.
+          <code class="inline">check</code> starts every server in the policy and reports which
+          named tools do not exist. Claude Desktop keeps per-server logs, and they are the
+          fastest answer when a connector simply never appears.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>three places to look</span><span>in this order</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis check</span>
+<span class="prompt">$</span> npx -y synartesis proxy --manifest ~/.synartesis/synartesis.yaml
+<span class="prompt">$</span> tail -n 20 -f <span class="dim">~/Library/Logs/Claude/mcp*.log</span></pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Paths, which are most of it</h3>
+        <p>
+          Use absolute paths in the config &mdash; a client does not start in the directory you
+          think it does, and <code class="inline">~</code> is not expanded inside a JSON string.
+          Give <code class="inline">--manifest</code> the real path. If
+          <code class="inline">npx</code> cannot be found, the client is running with a smaller
+          PATH than your shell: give the full path to <code class="inline">npx</code>, or install
+          with <code class="inline">npm install -g synartesis</code> and use
+          <code class="inline">synartesis</code> directly.
+        </p>
+      </li>
+    </ol>
+  </section>
+
+  <div class="fret" role="presentation"></div>
+
+  <section>
+    <div class="section-head">
       <h2 class="display">Your first<br>undo</h2>
       <p class="lede">
         One folder, one rule, one mistake put back. About ten minutes. Every
