@@ -120,7 +120,7 @@ async function runCheck(argv: readonly string[]): Promise<number> {
           name,
           command: spec.command,
           args: spec.args,
-          stderr: "ignore",
+          stderr: "capture",
           ...(spec.env === undefined ? {} : { env: spec.env }),
         }),
       );
@@ -561,7 +561,7 @@ async function performUndo(
           name,
           command: spec.command,
           args: spec.args,
-          stderr: "ignore",
+          stderr: "capture",
           ...(spec.env === undefined ? {} : { env: spec.env }),
         }),
       );

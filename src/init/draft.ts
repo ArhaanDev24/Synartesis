@@ -81,7 +81,7 @@ export async function draftManifest(options: DraftOptions): Promise<string> {
     name: options.name,
     command: options.command,
     args: options.args,
-    stderr: "ignore",
+    stderr: "capture",
   });
 
   let tools: Tool[];

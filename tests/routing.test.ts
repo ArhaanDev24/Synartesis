@@ -1,26 +1,33 @@
 import { describe, expect, it } from "vitest";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+
+import { parseManifest } from "../src/manifest/load.js";
 import { createRouter } from "../src/proxy/routing.js";
 import type { Upstream } from "../src/proxy/upstream.js";
 import type { Manifest } from "../src/manifest/types.js";
 
+/** A real client, never connected: routing only ever reads the name. */
 function upstream(name: string): Upstream {
-  return { name, client: {} as Upstream["client"], close: () => Promise.resolve() };
+  return {
+    name,
+    client: new Client({ name: "test", version: "1" }),
+    close: () => Promise.resolve(),
+  };
 }
 
 function manifestFor(...names: readonly string[]): Manifest {
-  return {
-    version: 1,
-    servers: Object.fromEntries(names.map((name) => [name, { command: "true", args: [] }])),
-    tools: [],
-  } as unknown as Manifest;
+  const servers = names.map((name) => `  ${name}:\n    command: "true"\n`).join("");
+  return parseManifest(`version: 1\nservers:\n${servers}tools: []\n`, "manifest.yaml");
 }
 
 describe("naming a tool when only one server is guarded", () => {
   const router = createRouter([upstream("fs")], manifestFor("fs"));
 
   it("still takes the bare name, which is what it advertises", () => {
-    expect(router.route("write_file")).toEqual({ upstream: expect.anything(), tool: "write_file" });
+    const route = router.route("write_file");
+    expect(route?.tool).toBe("write_file");
+    expect(route?.upstream.name).toBe("fs");
   });
 
   it("takes the qualified name too, so adding a second server does not rename everything", () => {
