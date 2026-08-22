@@ -47,10 +47,21 @@ worth avoiding most.
 corepack enable pnpm
 ```
 
-The C toolchain is needed once, to compile SQLite's native bindings. On macOS
-run `xcode-select --install`; on Debian or Ubuntu, `apt install build-essential`.
+The C toolchain is only needed if you build from source: npm ships a prebuilt
+SQLite binding for common platforms and installs without one. To build from a
+clone on macOS run `xcode-select --install`; on Debian or Ubuntu,
+`apt install build-essential`.
 
 ## Install
+
+```bash
+npm install -g synartesis
+```
+
+That is for you: the screen, `undo`, `watch`, `approve`. **Your agent needs
+nothing installed** — the config block below fetches the proxy on demand.
+
+Or the script, which builds from source and links the same two commands:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash
@@ -125,6 +136,20 @@ want covered with the proxy. For Claude Desktop or Claude Code that is a
     "crm": {
       "command": "node",
       "args": ["SYNARTESIS/dist/proxy.js", "--manifest", "/tmp/synartesis-demo/synartesis.yaml"]
+    }
+  }
+}
+```
+
+That spells out the clone, because this walkthrough runs from one. Outside it,
+there is nothing to install first and nothing to point at:
+
+```json
+{
+  "mcpServers": {
+    "synartesis": {
+      "command": "npx",
+      "args": ["-y", "synartesis", "proxy", "--manifest", "/Users/you/.synartesis/synartesis.yaml"]
     }
   }
 }

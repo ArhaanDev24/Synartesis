@@ -858,14 +858,19 @@
     <ol class="setup">
       <li>
         <h3>Install it</h3>
-        <p>Builds, then links <code class="inline">synartesis</code> into a directory already on your PATH.</p>
+        <p>
+          Puts <code class="inline">synartesis</code> on your PATH, for the screen and for
+          <code class="inline">undo</code>. Your agent does not need this: the config below
+          fetches the proxy on demand.
+        </p>
         <div class="install-box">
           <div class="install-tabs">
-            <button type="button" data-os="unix" aria-pressed="true">macOS / Linux</button>
+            <button type="button" data-os="npm" aria-pressed="true">npm</button>
+            <button type="button" data-os="unix" aria-pressed="false">Script</button>
             <button type="button" data-os="clone" aria-pressed="false">From a clone</button>
           </div>
           <div class="install-line">
-            <code id="install-command">curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash</code>
+            <code id="install-command">npm install -g synartesis</code>
             <button type="button" id="install-copy">Copy</button>
           </div>
         </div>
@@ -907,8 +912,9 @@
 <pre>{
   <span class="dim">"mcpServers"</span>: {
     <span class="dim">"synartesis"</span>: {
-      <span class="dim">"command"</span>: <span class="hit">"synartesis"</span>,
-      <span class="dim">"args"</span>: [<span class="hit">"proxy"</span>, <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
+      <span class="dim">"command"</span>: <span class="hit">"npx"</span>,
+      <span class="dim">"args"</span>: [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>,
+               <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
     }
   }
 }</pre>
@@ -1050,8 +1056,9 @@
 <pre>{
   <span class="dim">"mcpServers"</span>: {
     <span class="dim">"synartesis"</span>: {
-      <span class="dim">"command"</span>: <span class="hit">"synartesis"</span>,
-      <span class="dim">"args"</span>: [<span class="hit">"proxy"</span>, <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
+      <span class="dim">"command"</span>: <span class="hit">"npx"</span>,
+      <span class="dim">"args"</span>: [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>,
+               <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
     }
   }
 }</pre>
@@ -1440,6 +1447,7 @@
   // falls back to selecting the text where the clipboard is not available.
   (function () {
     const COMMANDS = {
+      npm: "npm install -g synartesis",
       unix: "curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash",
       clone: "git clone https://github.com/ArhaanDev24/Synartesis.git && cd Synartesis && ./install.sh",
     };
@@ -1452,7 +1460,7 @@
     for (const tab of tabs) {
       tab.addEventListener("click", () => {
         const os = tab.dataset.os;
-        code.textContent = COMMANDS[os] ?? COMMANDS.unix;
+        code.textContent = COMMANDS[os] ?? COMMANDS.npm;
         for (const other of tabs) {
           other.setAttribute("aria-pressed", String(other === tab));
         }
