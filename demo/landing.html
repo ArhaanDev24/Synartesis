@@ -879,11 +879,14 @@
       <li>
         <h3>Describe the servers you want covered</h3>
         <p>
-          <code class="inline">init</code> asks a server what it can do and writes a starting policy
-          with every tool guarded. Working through the TODOs it leaves is the real job:
-          a tool with no inverse is one your agent cannot use unsupervised. Run it again
-          for the next server and it adds to the same file &mdash; there is nothing to make a
-          directory for, and one journal then knows the whole story.
+          <code class="inline">init</code> asks a server what it can do and writes a policy for it.
+          For the servers most people start with &mdash; files, memory, git, github &mdash; it
+          recognises the server and uses the finished policy that ships here, after checking
+          every rule against what that server actually advertises. For anything else it gates
+          every tool and leaves you a TODO per tool, because a tool with no inverse is one your
+          agent cannot use unsupervised. Run it again for the next server and it adds to the
+          same file &mdash; there is nothing to make a directory for, and one journal then
+          knows the whole story.
         </p>
         <div class="terminal">
           <div class="terminal-bar"><span>from anywhere</span><span>everything starts guarded</span></div>
@@ -978,10 +981,11 @@
       <li>
         <h3>Put a folder under guard</h3>
         <p>
-          Pick somewhere real but survivable. <code class="inline">init</code> asks the
-          server what it can do and writes a policy where <b>every tool is guarded</b>,
-          because a tool nobody has said how to undo is one your agent should not be
-          using alone.
+          Pick somewhere real but survivable. <code class="inline">init</code> asks the server
+          what it can do. This one it recognises, so it uses the policy that ships here and
+          checks every rule against what the server actually advertises. A server it does not
+          know gets <b>every tool guarded</b>, because a tool nobody has said how to undo is
+          one your agent should not be using alone.
         </p>
         <div class="terminal">
           <div class="terminal-bar"><span>from anywhere</span><span>one policy, in your home</span></div>
@@ -989,28 +993,29 @@
 
   <span class="plate"> WROTE </span> <span class="dim">~/.synartesis/synartesis.yaml</span>
 
-  <span class="dim">Every tool is guarded until you say how to undo it.</span></pre>
+  <span class="dim">Recognised 14 tools, so the policy that ships for filesystem was used.</span>
+  <span class="dim">Read it before you trust it.</span></pre>
         </div>
       </li>
 
       <li>
-        <h3>Teach it one undo</h3>
+        <h3>Read the one rule that matters</h3>
         <p>
-          This is the whole idea, and it takes eight lines. Open the file and find
-          <code class="inline">fs.write_file</code>. <code class="inline">init</code> left it
-          guarded, because it has no way of knowing what a write replaces. Tell it:
-          <b>snapshot</b> is what to read before the call, <b>inverse</b> is the call that
-          puts that back. <code class="inline">$.path</code> is an argument the agent
-          passed; <code class="inline">$snapshot.content</code> is what the pre-read found.
+          The filesystem server is one it knows, so this is already written. Open the file and
+          find <code class="inline">fs.write_file</code> &mdash; it is the whole idea in eight
+          lines, and the shape you will write yourself for a server it does not recognise.
+          <b>snapshot</b> is what to read before the call; <b>inverse</b> is the call that puts
+          that back. <code class="inline">$.path</code> is an argument the agent passed;
+          <code class="inline">$snapshot.content</code> is what the pre-read found.
         </p>
         <div class="terminal">
-          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>what init wrote</span></div>
+          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>an unrecognised server, before you fill it in</span></div>
 <pre>- match: <span class="dim">"fs.write_file"</span>
   class: <span class="hit">irreversible</span>
   gate: always</pre>
         </div>
         <div class="terminal">
-          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>what you replace it with</span></div>
+          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>what a finished rule looks like</span></div>
 <pre>- match: <span class="dim">"fs.write_file"</span>
   class: <span class="hit">reversible</span>
   snapshot:                        <span class="dim"># read this first</span>

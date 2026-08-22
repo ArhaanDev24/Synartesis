@@ -102,6 +102,16 @@ Replace `SYNARTESIS` with the path you cloned into.
 node SYNARTESIS/dist/cli.js init crm -- node SYNARTESIS/dist/toy-crm.js --state ./crm.json
 ```
 
+For the servers most people start with — files, memory, git, github — `init`
+recognises the server and uses the finished policy bundled here, after checking
+every rule against the tools that server actually advertises. If a rule names a
+snapshot or an inverse the server does not have, the whole policy is dropped
+and you get the TODOs instead: a policy whose inverses cannot be called is
+worse than none, because it looks done.
+
+The toy CRM below is deliberately not one it knows, so this walkthrough shows
+the manual path.
+
 `init` prints the path it wrote to. Unless a policy already sits above the
 directory you are standing in, that is `~/.synartesis/synartesis.yaml`. Open it:
 every tool that isn't a self-declared read starts as `irreversible` with a
