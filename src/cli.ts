@@ -39,6 +39,8 @@ const COMMANDS = `
   synartesis gates [--journal <path>]
   synartesis close [runId] [--journal <path>]
   synartesis proxy --manifest <path> [--journal <path>]   what your agent runs
+                  [--http <port> --token <secret>]      for a client that
+                                                        cannot start one
   synartesis watch [--by <name>] [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]

@@ -16,6 +16,8 @@ import { resolve } from "node:path";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
+import { serveHttp } from "./http.js";
+
 import { describe } from "../errors.js";
 import { DEFAULT_GATE_TIMEOUT_MS } from "../gate/gate.js";
 import { cliCommandFrom } from "../invocation.js";
@@ -41,6 +43,8 @@ interface Argv {
   readonly gateTimeoutMs: number;
   /** Whether --gate-timeout was actually typed, as against defaulted. */
   readonly gateTimeoutGiven: boolean;
+  /** Serve over http instead of stdio, for a client that will not start one. */
+  readonly http?: { readonly port: number; readonly host: string; readonly token: string };
   readonly logLevel: LogLevel;
 }
 
@@ -49,7 +53,7 @@ function parseArgv(argv: readonly string[]): Argv {
     const at = argv.indexOf(flag);
     return at === -1 ? undefined : argv[at + 1];
   };
-  const known = ["--manifest", "--journal", "--gate-timeout", "--log-level"];
+  const known = ["--manifest", "--journal", "--gate-timeout", "--log-level", "--http", "--http-host", "--token"];
   const unknown = argv.find((token) => token.startsWith("--") && !known.includes(token));
   if (unknown !== undefined) {
     throw new Error(`unknown flag ${unknown}; expected one of ${known.join(", ")}`);
@@ -66,12 +70,32 @@ function parseArgv(argv: readonly string[]): Argv {
     throw new Error(`--log-level must be one of ${LOG_LEVELS.join(", ")}`);
   }
 
+  const httpPort = read("--http");
+  let http: Argv["http"];
+  if (httpPort !== undefined) {
+    const port = Number(httpPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new Error("--http needs a port number");
+    }
+    // Refused rather than defaulted. What is served here can write through
+    // every server in the policy, and a default of "no auth" is the kind of
+    // convenience that ends up on someone's public tunnel.
+    const token = read("--token") ?? process.env["SYNARTESIS_TOKEN"];
+    if (token === undefined || token.length < 16) {
+      throw new Error(
+        "--http needs --token, or SYNARTESIS_TOKEN, of at least 16 characters: this serves write access over a socket",
+      );
+    }
+    http = { port, host: read("--http-host") ?? "127.0.0.1", token };
+  }
+
   const manifest = findManifest(read("--manifest"));
   return {
     manifest,
     journal: findJournal(read("--journal"), manifest),
     gateTimeoutMs: seconds === undefined ? DEFAULT_GATE_TIMEOUT_MS : seconds * 1000,
     gateTimeoutGiven: seconds !== undefined,
+    ...(http === undefined ? {} : { http }),
     logLevel: level,
   };
 }
@@ -124,16 +148,50 @@ async function main(): Promise<void> {
     "proxy ready",
   );
 
-  const proxy = createProxyServer({
-    upstreams,
-    manifest,
-    journal,
-    gateTimeoutMs: argv.gateTimeoutMs,
-    logger: log,
-    // Absolute, because whoever approves may be in any directory at all.
-    approveHint: (actionId: string): string =>
-      `${cliCommandFrom(import.meta.url)} approve ${actionId.slice(0, 8)} --journal ${resolve(argv.journal)}`,
-  });
+  const build = (): ReturnType<typeof createProxyServer> =>
+    createProxyServer({
+      upstreams,
+      manifest,
+      journal,
+      gateTimeoutMs: argv.gateTimeoutMs,
+      logger: log,
+      // Absolute, because whoever approves may be in any directory at all.
+      approveHint: (actionId: string): string =>
+        `${cliCommandFrom(import.meta.url)} approve ${actionId.slice(0, 8)} --journal ${resolve(argv.journal)}`,
+    });
+
+  if (argv.http !== undefined) {
+    // One server, many sessions. Each session is a connection and a connection
+    // is a run, so each gets a proxy of its own; the upstreams and the journal
+    // are shared, which is what makes them one story.
+    const served = await serveHttp({
+      ...argv.http,
+      create: build,
+      log: {
+        info: (data, message) => {
+          log.info(data, message);
+        },
+        warn: (message) => {
+          log.warn(message);
+        },
+      },
+    });
+    const stop = (): void => {
+      void (async (): Promise<void> => {
+        await served.close();
+        for (const upstream of upstreams) {
+          await upstream.close();
+        }
+        journal.close();
+        process.exit(0);
+      })();
+    };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+    return;
+  }
+
+  const proxy = build();
 
   let shuttingDown = false;
   const shutdown = (code: number): void => {

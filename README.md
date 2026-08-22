@@ -472,6 +472,26 @@ Other flags: `--dry-run`, `--to <seq>` and `--replan` on `undo`, `--all` on
 Exit codes: `0` succeeded, `1` halted or refused, `2` bad usage or
 configuration.
 
+### Serving over HTTP
+
+Most clients start the proxy themselves over stdio. ChatGPT's connectors do
+not: they take a remote HTTPS endpoint and will not run a process on your
+machine. For those, serve it:
+
+```bash
+synartesis proxy --manifest ~/.synartesis/synartesis.yaml --http 9123 --token "$SYNARTESIS_TOKEN"
+```
+
+The endpoint is `/mcp` and every request needs `Authorization: Bearer <token>`.
+A token of at least 16 characters is **required** — it refuses to start without
+one — and it binds to `127.0.0.1` unless `--http-host` says otherwise, which
+warns when it is not loopback.
+
+Reaching it from the internet means putting a tunnel in front of it. That is
+deliberately your decision and not a flag: what is on the other end can write
+through every server in your policy, so treat the token like a password and
+prefer a tunnel that does its own authentication.
+
 The proxy takes `--manifest`, `--journal` and `--log-level`. It also still
 accepts `--gate-timeout <seconds>`, which does nothing: a held call is refused
 immediately rather than holding the connection open, so there is no wait to cut
