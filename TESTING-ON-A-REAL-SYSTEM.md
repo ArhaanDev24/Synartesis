@@ -104,14 +104,25 @@ Leave it running. It redraws as the agent works.
 Start Claude Code in the project with `.mcp.json` and ask for something that
 writes. For example:
 
-> Using the `files` MCP tools only, rewrite the header of every markdown file
-> in this directory to include today's date.
+> Using the `mcp__files__*` tools, rewrite the header of every markdown file in
+> this directory to include today's date.
 
-**The one thing to be careful about.** Claude Code has its own built-in file
-tools, and if you do not say otherwise it will use those and never touch
-Synartesis at all. If `synartesis watch` stays empty while the agent reports
-success, that is what happened. Say "use the `files` MCP tools only" and ask
-again. The watch view is how you know: no rows means it went around you.
+**The one thing to be careful about.** Synartesis can only record what goes
+through it, and an agent with its own tools for the job will use those instead.
+Claude Code has built-in file editing and built-in memory, so a request phrased
+in ordinary words gets answered in ordinary ways and the proxy never sees it.
+
+Name the tools. Every server wired in through `.mcp.json` is exposed to Claude
+Code as `mcp__<server>__<tool>`, so for the config above that is `mcp__files__`
+and you ask for `mcp__files__write_file` by name.
+
+`synartesis watch` is how you tell. It shows the run count and the action count
+separately, and the pair is the diagnostic:
+
+    watching  1 runs, 1 live  ·  0 recent actions
+
+One live run means your agent did connect to the proxy. Zero actions next to it
+means everything it then did, it did somewhere else.
 
 ## 8. Read what it did
 
@@ -152,7 +163,7 @@ Ask the agent to create a directory. The filesystem server has no way to remove
 one, so the policy classes it irreversible and Synartesis refuses to pass the
 call on:
 
-> Using the `files` MCP tools, create a directory called `archive` here.
+> Using `mcp__files__create_directory`, create a directory called `archive` here.
 
 The agent will report that the call was held and give you a command. In your
 other terminal:
@@ -192,12 +203,13 @@ synartesis check --manifest ~/Synartesis/manifests/memory.yaml   # your agent's 
 synartesis check --manifest ~/Synartesis/manifests/git.yaml      # a real repository
 ```
 
-`memory.yaml` is worth running even if you never use it, because Claude Code
-has no built-in equivalent and therefore cannot go around it:
+`memory.yaml` is worth running even if you never use it.
 
-```bash
-cd ~/Synartesis && ./demo/memory-demo.sh
-```
+Do not expect it to be un-bypassable, though. Claude Code has its own
+file-based memory, so "remember that I am Arhaan" is a sentence it can answer
+without touching the MCP server at all, and it will. Name the tools:
+
+> Use the `mcp__memory__*` tools to create entities for me and my project.
 
 Each manifest states in its own comments exactly where it runs out, and those
 limits are properties of the servers rather than of Synartesis. The git server
