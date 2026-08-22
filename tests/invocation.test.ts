@@ -61,15 +61,14 @@ describe("telling someone how to start the proxy", () => {
     }
     process.env["PATH"] = dir;
 
-    // `synartesis --manifest x` is a usage error, not a proxy. Printing it as
-    // the thing to point a client at is advice that fails the moment somebody
-    // follows it.
-    expect(proxyCommand()).toBe("synartesis-proxy");
+    // One package and one word, which is what goes in a client config. The
+    // separate binary still works and still answers when the cli is not there.
+    expect(proxyCommand()).toBe("synartesis proxy");
   });
 
   it("spells out the path to the proxy when nothing is installed", () => {
     process.env["PATH"] = emptyPath();
-    expect(proxyCommand()).toMatch(/proxy\.js$/);
-    expect(proxyCommand()).not.toMatch(/cli\.js/);
+    expect(proxyCommand()).toMatch(/ proxy$/);
+    expect(proxyCommand()).toMatch(/cli\.js proxy$/);
   });
 });

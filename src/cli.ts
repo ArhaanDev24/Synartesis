@@ -38,6 +38,7 @@ const COMMANDS = `
   synartesis show <runId> [--journal <path>]
   synartesis gates [--journal <path>]
   synartesis close [runId] [--journal <path>]
+  synartesis proxy --manifest <path> [--journal <path>]   what your agent runs
   synartesis watch [--by <name>] [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
@@ -674,6 +675,15 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
 
 async function main(argv: readonly string[]): Promise<number> {
   const command = positional(argv)[0];
+  if (command === "proxy") {
+    // The proxy, run through this command rather than its own binary, so the
+    // line people paste into a client config is one package and one word:
+    // npx -y synartesis proxy --manifest ... . Loaded only here, and before
+    // anything else in this file runs, because from this point stdout carries
+    // protocol frames and a banner on it would corrupt the stream.
+    await import("./proxy/stdio.js");
+    return 0;
+  }
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write(`${banner()}\n${COMMANDS}`);
     return 0;

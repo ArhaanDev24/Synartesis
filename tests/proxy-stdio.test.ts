@@ -239,3 +239,23 @@ describe("proxy over real stdio", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("the proxy run as a subcommand", () => {
+  it("speaks protocol on stdout and nothing else", async () => {
+    // So the line pasted into a client config is one package and one word.
+    // The cli writes banners to stdout for every other command; one of those
+    // on this path would corrupt the stream before the first frame.
+    const space = workspace();
+    const client = await spawnClient("node", [
+      resolve("dist/cli.js"),
+      "proxy",
+      "--manifest",
+      space.manifest,
+      "--journal",
+      space.journal,
+    ]);
+    const { tools } = await client.listTools();
+    expect(tools.length).toBeGreaterThan(0);
+    expect(tools.map((tool) => tool.name)).toContain("get_customer");
+  });
+});

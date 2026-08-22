@@ -1,4 +1,7 @@
 <title>Synartesis</title>
+<!-- Without this a phone lays the page out at 980px and then shrinks the whole
+     thing to fit, so every measurement below is right and nothing is legible. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
@@ -744,8 +747,10 @@
       <p class="lede" style="margin-top:1.5rem">
         Anything can write an old value back. Declining to is the hard part. Before undoing
         a step, Synartesis re-reads the record and compares it against the state that step
-        left behind. If somebody has been there since, it stops, prints both versions, and
-        changes nothing.
+        left behind. If somebody has been there since, it stops on that step and prints both
+        versions. It is not all-or-nothing: undo walks newest first, so whatever it had
+        already put back stays put back. Resolve the conflict and
+        <code class="inline">undo --replan</code> carries on from there.
       </p>
     </div>
 
@@ -832,6 +837,10 @@
         <code>synartesis undo</code>
         <span>Walk a run backwards, newest first, stopping at anything it cannot honestly reverse.</span>
       </div>
+      <div class="command">
+        <code>synartesis close</code>
+        <span>End a run left open by a proxy that was killed. Nothing guesses at this: several proxies can share one journal.</span>
+      </div>
     </div>
   </section>
 
@@ -898,11 +907,8 @@
 <pre>{
   <span class="dim">"mcpServers"</span>: {
     <span class="dim">"synartesis"</span>: {
-      <span class="dim">"command"</span>: <span class="hit">"synartesis-proxy"</span>,
-      <span class="dim">"args"</span>: [
-        <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>,
-        <span class="hit">"--journal"</span>, <span class="dim">"/Users/you/.synartesis/journal.db"</span>
-      ]
+      <span class="dim">"command"</span>: <span class="hit">"synartesis"</span>,
+      <span class="dim">"args"</span>: [<span class="hit">"proxy"</span>, <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
     }
   }
 }</pre>
@@ -1044,8 +1050,8 @@
 <pre>{
   <span class="dim">"mcpServers"</span>: {
     <span class="dim">"synartesis"</span>: {
-      <span class="dim">"command"</span>: <span class="hit">"synartesis-proxy"</span>,
-      <span class="dim">"args"</span>: [<span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
+      <span class="dim">"command"</span>: <span class="hit">"synartesis"</span>,
+      <span class="dim">"args"</span>: [<span class="hit">"proxy"</span>, <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
     }
   }
 }</pre>
