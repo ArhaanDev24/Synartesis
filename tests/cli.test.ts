@@ -555,3 +555,34 @@ describe("defaulting to the most recent run", () => {
     expect(plain.stdout).toContain(newest);
   });
 });
+
+describe("a run left active by a proxy that was killed", () => {
+  it("can be closed, and is ended when it last did anything", async () => {
+    const space = workspace();
+    const journal = openJournal(space.journal);
+    const abandoned = journal.beginRun("killed");
+    const done = journal.beginRun("tidy");
+    journal.endRun(done, "complete");
+    journal.close();
+
+    const closed = await run("node", [CLI, "close", "--journal", space.journal]);
+    expect(closed.code).toBe(0);
+    expect(closed.stdout).toContain(abandoned);
+
+    const after = openJournal(space.journal);
+    expect(after.getRun(abandoned)?.status).toBe("complete");
+    expect(after.getRun(abandoned)?.endedAt).toBeTruthy();
+    after.close();
+  });
+
+  it("says so when there is nothing left active", async () => {
+    const space = workspace();
+    const journal = openJournal(space.journal);
+    journal.endRun(journal.beginRun("tidy"), "complete");
+    journal.close();
+
+    const closed = await run("node", [CLI, "close", "--journal", space.journal]);
+    expect(closed.code).toBe(2);
+    expect(closed.stderr).toMatch(/no run/i);
+  });
+});

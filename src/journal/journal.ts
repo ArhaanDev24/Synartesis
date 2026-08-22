@@ -182,6 +182,16 @@ function toAction(raw: unknown): ActionRow {
 export interface Journal {
   beginRun(label: string | undefined): string;
   endRun(runId: string, status: RunStatus): void;
+  /**
+   * Closes a run whose proxy went away without saying so. Only a person can
+   * ask for this: several proxies may share one journal, so a run left active
+   * is indistinguishable from a run still being worked on, and closing one
+   * that is live would make its remaining actions land in a finished run.
+   *
+   * Returns false when the run is already closed. Ends it at its last action
+   * rather than now, since that is when anything last actually happened.
+   */
+  closeAbandonedRun(runId: string): boolean;
   setRunLabel(runId: string, label: string): void;
   recordPending(input: RecordPendingInput): PendingAction;
   attachSnapshot(actionId: string, snapshot: unknown): void;
@@ -333,6 +343,22 @@ class SqliteJournal implements Journal {
       this.#db
         .prepare("UPDATE runs SET ended_at = ?, status = ? WHERE id = ?")
         .run(new Date().toISOString(), status, runId);
+    });
+  }
+
+  closeAbandonedRun(runId: string): boolean {
+    return this.#run("closeAbandonedRun", () => {
+      const last = z
+        .object({ ts: z.string().nullable() })
+        .parse(
+          this.#db
+            .prepare("SELECT MAX(ts) AS ts FROM actions WHERE run_id = ?")
+            .get(runId) ?? { ts: null },
+        ).ts;
+      const result = this.#db
+        .prepare("UPDATE runs SET ended_at = ?, status = 'complete' WHERE id = ? AND status = 'active'")
+        .run(last ?? new Date().toISOString(), runId);
+      return result.changes === 1;
     });
   }
 

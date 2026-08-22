@@ -37,11 +37,15 @@ const COMMANDS = `
   synartesis list [--journal <path>]
   synartesis show <runId> [--journal <path>]
   synartesis gates [--journal <path>]
+  synartesis close [runId] [--journal <path>]
   synartesis watch [--by <name>] [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
   synartesis undo [runId] [--to <seq>] [--dry-run] [--replan]
                           [--manifest <path>] [--journal <path>]
+
+close ends a run left active by a proxy that was killed; nothing guesses at
+that, since several proxies can share one journal.
 
 Ids may be shortened to any unambiguous prefix. show and undo default to the
 most recent run; approve and deny default to the only request waiting. init
@@ -443,6 +447,23 @@ function summarise(actions: readonly ActionRow[]): string {
  */
 let journalArg = "";
 
+function runClose(argv: readonly string[], journal: Journal): number {
+  // Left active by a proxy that was killed rather than disconnected. Nothing
+  // can tell that apart from a run still going, so this is asked for, never
+  // guessed: several proxies can share one journal.
+  const active = journal.listRuns().filter((candidate) => candidate.status === "active");
+  const run = pick([...active].reverse(), positional(argv)[1], RUN, true);
+  const closed = journal.closeAbandonedRun(run.id);
+  out("");
+  out(
+    closed
+      ? `  ${style.label("closed")}  ${style.strong(run.id)}`
+      : `  ${style.quiet(`${run.id} was not active.`)}`,
+  );
+  out("");
+  return closed ? 0 : 1;
+}
+
 function runGates(journal: Journal, asJson: boolean): number {
   const waiting = journal.listGated();
   if (asJson) {
@@ -706,6 +727,8 @@ async function main(argv: readonly string[]): Promise<number> {
         return runList(journal, asJson);
       case "show":
         return runShow(argv, journal, asJson);
+      case "close":
+        return runClose(argv, journal);
       case "gates":
         return runGates(journal, asJson);
       case "approve":
