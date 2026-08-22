@@ -577,7 +577,7 @@ async function main(argv: readonly string[]): Promise<number> {
     return askedForHelp ? 0 : 2;
   }
 
-  // Neither of these needs a journal, and neither should create one.
+  // None of these needs an existing journal, and none should create one.
   if (command === "init") {
     return await runInit(argv);
   }
@@ -588,6 +588,18 @@ async function main(argv: readonly string[]): Promise<number> {
   const asJson = argv.includes("--json");
   const given = flag(argv, "--journal");
   const journalPath = findJournal(given, findManifest(flag(argv, "--manifest")));
+
+  // Watching is the one thing you do before anything has happened, so it opens
+  // its own handle when there is one and waits when there is not.
+  if (command === "watch") {
+    return await watch({
+      journalPath,
+      approveWith: cliCommand(),
+      write: (text) => process.stdout.write(text),
+      live: process.stdout.isTTY && !argv.includes("--once"),
+    });
+  }
+
   // Repeated back only when it was not the obvious one, so a copied command
   // works from anywhere without being cluttered when it need not be.
   journalArg = given === undefined ? "" : ` --journal ${resolve(given)}`;
@@ -601,15 +613,6 @@ async function main(argv: readonly string[]): Promise<number> {
         return runShow(argv, journal, asJson);
       case "gates":
         return runGates(journal, asJson);
-      case "watch":
-        // Its own handle, held open for as long as it runs.
-        journal.close();
-        return await watch({
-          journalPath: journalPath,
-          approveWith: cliCommand(),
-          write: (text) => process.stdout.write(text),
-          live: process.stdout.isTTY && !argv.includes("--once"),
-        });
       case "approve":
         return runDecision(argv, journal, true);
       case "deny":

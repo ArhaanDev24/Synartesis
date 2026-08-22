@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+
 import { openJournal, type ActionRow, type Journal } from "./journal/journal.js";
 import { rule, style, WORDMARK } from "./style.js";
 
@@ -44,6 +46,32 @@ function line(action: ActionRow): string {
   return `  ${style.quiet(when)}  ${style.quiet(badge)} ${status} ${action.server}.${action.tool}`;
 }
 
+/**
+ * What there is to look at before the proxy has run once.
+ *
+ * Refusing to start was the wrong answer for this one command. Every other
+ * command answers a question, and inventing an empty journal to answer it with
+ * would look exactly like a real answer of "nothing happened". Watching is not
+ * a question: the ordinary way round is to start watching, then point an agent
+ * at the proxy, and the proxy is what creates the journal. A watch that will
+ * not begin until something has already happened is no use at the only moment
+ * anyone wants one.
+ */
+function waiting(options: WatchOptions, tick: number): string {
+  const spinner = options.live ? `${style.accent(FRAMES[tick % FRAMES.length] ?? "")} ` : "";
+  return [
+    "",
+    `  ${style.plate(WORDMARK)}  ${style.quiet(options.journalPath)}`,
+    `  ${rule(64)}`,
+    "",
+    `  ${spinner}${style.quiet("no journal here yet")}`,
+    "",
+    `  ${style.quiet("One appears the first time an agent calls a tool through the proxy.")}`,
+    `  ${style.quiet("Point your client at it, then work as usual; this will fill in.")}`,
+    "",
+  ].join("\n");
+}
+
 function render(journal: Journal, options: WatchOptions, tick: number): string {
   const runs = journal.listRuns();
   const recent = journal.recentActions(12);
@@ -88,7 +116,15 @@ function render(journal: Journal, options: WatchOptions, tick: number): string {
 }
 
 export async function watch(options: WatchOptions): Promise<number> {
-  const journal = openJournal(options.journalPath, { mustExist: true });
+  // Opened lazily, and only once there is something to open.
+  let journal: Journal | undefined;
+  const frame = (tick: number): string => {
+    if (journal === undefined && existsSync(options.journalPath)) {
+      journal = openJournal(options.journalPath, { mustExist: true });
+    }
+    return journal === undefined ? waiting(options, tick) : render(journal, options, tick);
+  };
+
   const interval = options.intervalMs ?? 120;
   const clear = "\u001b[H\u001b[2J\u001b[3J";
   // A holder, not a plain boolean: the only assignment happens in a signal
@@ -105,13 +141,13 @@ export async function watch(options: WatchOptions): Promise<number> {
     if (!options.live) {
       // Not a terminal: print the state once and leave, so this is still
       // usable from a script without spraying escape codes into a pipe.
-      options.write(`${render(journal, options, 0)}\n`);
+      options.write(`${frame(0)}\n`);
       return 0;
     }
 
     options.write("\u001b[?25l");
     for (let tick = 0; !state.stop; tick += 1) {
-      options.write(clear + render(journal, options, tick));
+      options.write(clear + frame(tick));
       if (options.maxTicks !== undefined && tick + 1 >= options.maxTicks) {
         break;
       }
@@ -124,6 +160,6 @@ export async function watch(options: WatchOptions): Promise<number> {
     }
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
-    journal.close();
+    journal?.close();
   }
 }
