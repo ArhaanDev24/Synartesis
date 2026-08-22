@@ -845,10 +845,11 @@
 
   <section>
     <div class="section-head">
-      <h2 class="display">Set it up</h2>
+      <h2 class="display">Your first<br>undo</h2>
       <p class="lede">
-        Five steps, about ten minutes. Node 22 or newer is the only
-        prerequisite. Nothing here edits a shell profile or needs sudo.
+        One folder, one rule, one mistake put back. About ten minutes. Every
+        line of output below is what these commands actually print &mdash;
+        nothing here is illustrative.
       </p>
     </div>
 
@@ -856,9 +857,9 @@
       <li>
         <h3>Install it</h3>
         <p>
-          Puts <code class="inline">synartesis</code> on your PATH, for the screen and for
-          <code class="inline">undo</code>. Your agent does not need this: the config below
-          fetches the proxy on demand.
+          This is for you &mdash; the screen, <code class="inline">undo</code>,
+          <code class="inline">watch</code>. Your agent needs nothing installed: the config
+          later on fetches the proxy on demand.
         </p>
         <div class="install-box">
           <div class="install-tabs">
@@ -870,45 +871,89 @@
             <code id="install-command">npm install -g synartesis</code>
             <button type="button" id="install-copy">Copy</button>
           </div>
+          </div>
+      </li>
+
+      <li>
+        <h3>Put a folder under guard</h3>
+        <p>
+          Pick somewhere real but survivable. <code class="inline">init</code> asks the server
+          what it can do. This one it recognises, so it uses the policy that ships here and
+          checks every rule against what the server actually advertises. A server it does not
+          know gets <b>every tool guarded</b>, because a tool nobody has said how to undo is
+          one your agent should not be using alone.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>from anywhere</span><span>one policy, in your home</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis init</span> fs -- npx -y @modelcontextprotocol/server-filesystem ~/notes
+
+  <span class="plate"> WROTE </span> <span class="dim">~/.synartesis/synartesis.yaml</span>
+
+  <span class="dim">Recognised 14 tools, so the policy that ships for filesystem was used.</span>
+  <span class="dim">Read it before you trust it.</span></pre>
         </div>
       </li>
 
       <li>
-        <h3>Describe the servers you want covered</h3>
+        <h3>Read the one rule that matters</h3>
         <p>
-          <code class="inline">init</code> asks a server what it can do and writes a policy for it.
-          For the servers most people start with &mdash; files, memory, git, github &mdash; it
-          recognises the server and uses the finished policy that ships here, after checking
-          every rule against what that server actually advertises. For anything else it gates
-          every tool and leaves you a TODO per tool, because a tool with no inverse is one your
-          agent cannot use unsupervised. Run it again for the next server and it adds to the
-          same file &mdash; there is nothing to make a directory for, and one journal then
-          knows the whole story.
+          The filesystem server is one it knows, so this is already written. Open the file and
+          find <code class="inline">fs.write_file</code> &mdash; it is the whole idea in eight
+          lines, and the shape you will write yourself for a server it does not recognise.
+          <b>snapshot</b> is what to read before the call; <b>inverse</b> is the call that puts
+          that back. <code class="inline">$.path</code> is an argument the agent passed;
+          <code class="inline">$snapshot.content</code> is what the pre-read found.
         </p>
         <div class="terminal">
-          <div class="terminal-bar"><span>from anywhere</span><span>everything starts guarded</span></div>
-<pre><span class="prompt">$</span> <span class="hit">synartesis init</span> memory -- npx -y @modelcontextprotocol/server-memory
-<span class="prompt">$</span> <span class="hit">synartesis init</span> fs -- npx -y @modelcontextprotocol/server-filesystem ~/Documents
-<span class="prompt">$</span> <span class="hit">synartesis check</span>
+          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>an unrecognised server, before you fill it in</span></div>
+<pre>- match: <span class="dim">"fs.write_file"</span>
+  class: <span class="hit">irreversible</span>
+  gate: always</pre>
+        </div>
+        <div class="terminal">
+          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>what a finished rule looks like</span></div>
+<pre>- match: <span class="dim">"fs.write_file"</span>
+  class: <span class="hit">reversible</span>
+  snapshot:                        <span class="dim"># read this first</span>
+    tool: <span class="dim">"fs.read_text_file"</span>
+    args:
+      path: <span class="hit">"$.path"</span>
+  inverse:                         <span class="dim"># and this puts it back</span>
+    tool: <span class="dim">"fs.write_file"</span>
+    args:
+      path: <span class="hit">"$.path"</span>
+      content: <span class="hit">"$snapshot.content"</span></pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Check it before you trust it</h3>
+        <p>
+          <code class="inline">check</code> starts every server and asks whether the tools
+          your policy names actually exist. One reversible tool is enough to begin; the
+          three still guarded will simply stop and ask.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>synartesis check</span><span>before anything is running</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis check</span>
 
   <span class="plate"> POLICY </span> <span class="dim">~/.synartesis/synartesis.yaml</span>
-  <span class="dim">servers  memory, fs</span>
-  <span class="dim">policies 8 readonly, 3 compensable, 3 reversible, 4 irreversible</span>
-  <span class="dim">guarded  4</span></pre>
+
+  <span class="dim">servers  fs</span>
+  <span class="dim">policies 10 readonly, </span><span class="hit">1 reversible</span><span class="dim">, 3 irreversible</span>
+  <span class="dim">guarded  3</span></pre>
         </div>
       </li>
 
       <li>
-        <h3>Point your agent at it instead of the server</h3>
+        <h3>Point your agent at the proxy, not the server</h3>
         <p>
-          One entry, however many servers the policy covers. A copy is written for you at
-          <code class="inline">~/.synartesis/mcp.json</code>. With more than one server behind
-          it, tools are named for the server they came from, so ask for them by name:
-          your agent has its own file tools and its own memory, and will use those instead
-          if you leave the choice open.
+          One entry, however many servers your policy covers. Then work normally: ask
+          your agent to tidy the folder, rewrite a file, whatever you would have asked
+          anyway.
         </p>
         <div class="terminal">
-          <div class="terminal-bar"><span>.mcp.json</span><span>claude code, claude desktop, cursor</span></div>
+          <div class="terminal-bar"><span>.mcp.json</span><span>the same block in any client</span></div>
 <pre>{
   <span class="dim">"mcpServers"</span>: {
     <span class="dim">"synartesis"</span>: {
@@ -922,44 +967,26 @@
       </li>
 
       <li>
-        <h3>Watch it work</h3>
+        <h3>Put it back</h3>
         <p>
-          Leave this open in a second terminal. Rows appear as the agent calls things,
-          and anything it is not allowed to do on its own shows here with its arguments,
-          where <b>a</b> lets it through and <b>d</b> refuses. The two numbers in the
-          header are the diagnostic worth knowing: a live run beside zero actions means
-          your agent connected and then did the work with its own tools.
+          Your agent overwrites <code class="inline">roadmap.md</code> with something you
+          did not want. Look first with <code class="inline">--dry-run</code>; both default
+          to the most recent run, so there is usually no id to type. The line that matters
+          is <code class="inline">state matches</code> &mdash; it read the file again and
+          confirmed nothing else had changed it since.
         </p>
         <div class="terminal">
-          <div class="terminal-bar"><span>synartesis watch</span><span>live</span></div>
-<pre><span class="prompt">$</span> <span class="hit">synartesis watch</span>
+          <div class="terminal-bar"><span>synartesis undo</span><span>the file comes back</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis undo</span>
 
-  <span class="plate"> S Y N A R T E S I S </span>
+    <span class="dim">1  revert           fs.write_file  state matches; applying inverse</span>
+       <span class="dim">called fs.write_file {"path":"~/notes/roadmap.md",</span>
+       <span class="dim">  "content":"# Roadmap\n\nQ3: ship the undo layer.\n"}</span>
 
-  <span class="hit">&#10711;</span> <span class="dim">watching  1 runs, 1 live  ·  4 recent actions  ·  1 awaiting approval</span>
-
-  <span class="dim">16:27:18  · readonly     applied</span>       crm.get_customer
-  <span class="dim">16:27:18  ← reversible   applied</span>       crm.update_customer
-  <span class="dim">16:27:18  ← reversible   applied</span>       crm.delete_customer
-  <span class="dim">16:27:18  ! irreversible</span> <span class="hit">gated</span>         crm.send_email</pre>
-        </div>
-      </li>
-
-      <li>
-        <h3>Put it back when it goes wrong</h3>
-        <p>
-          Look before you leap with <code class="inline">--dry-run</code>. Both default to the
-          most recent run, so there is usually no id to type.
-        </p>
-        <div class="terminal">
-          <div class="terminal-bar"><span>from the same directory</span><span>no paths needed</span></div>
-<pre><span class="prompt">$</span> <span class="hit">synartesis show</span>
-<span class="prompt">$</span> <span class="hit">synartesis undo</span> --dry-run
-<span class="prompt">$</span> <span class="hit">synartesis undo</span></pre>
+  <span class="plate"> RESULT </span> <span class="hit">rolled_back</span></pre>
         </div>
       </li>
     </ol>
-
   </section>
 
   <div class="fret" role="presentation"></div>
@@ -968,9 +995,10 @@
     <div class="section-head">
       <h2 class="display">Where the<br>config goes</h2>
       <p class="lede">
-        The block above is the same in every client. What differs is which file it goes in,
-        and every one of these is a real path checked against that client&rsquo;s own
-        documentation. Add the entry, restart the client, and the tools appear under
+        Synartesis speaks MCP in both directions and never learns who is on the other end
+        &mdash; a thirty-six line script with no SDK drives it the same as any editor does.
+        So the block is the same in every client; what differs is which file it goes in, and
+        every path here was checked against that client&rsquo;s own documentation. Add the entry, restart the client, and the tools appear under
         Synartesis instead of under the server.
       </p>
     </div>
@@ -1140,170 +1168,6 @@ args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <s
         </p>
       </li>
     </ol>
-  </section>
-
-  <div class="fret" role="presentation"></div>
-
-  <section>
-    <div class="section-head">
-      <h2 class="display">Your first<br>undo</h2>
-      <p class="lede">
-        One folder, one rule, one mistake put back. About ten minutes. Every
-        line of output below is what these commands actually print &mdash;
-        nothing here is illustrative.
-      </p>
-    </div>
-
-    <ol class="setup">
-      <li>
-        <h3>Put a folder under guard</h3>
-        <p>
-          Pick somewhere real but survivable. <code class="inline">init</code> asks the server
-          what it can do. This one it recognises, so it uses the policy that ships here and
-          checks every rule against what the server actually advertises. A server it does not
-          know gets <b>every tool guarded</b>, because a tool nobody has said how to undo is
-          one your agent should not be using alone.
-        </p>
-        <div class="terminal">
-          <div class="terminal-bar"><span>from anywhere</span><span>one policy, in your home</span></div>
-<pre><span class="prompt">$</span> <span class="hit">synartesis init</span> fs -- npx -y @modelcontextprotocol/server-filesystem ~/notes
-
-  <span class="plate"> WROTE </span> <span class="dim">~/.synartesis/synartesis.yaml</span>
-
-  <span class="dim">Recognised 14 tools, so the policy that ships for filesystem was used.</span>
-  <span class="dim">Read it before you trust it.</span></pre>
-        </div>
-      </li>
-
-      <li>
-        <h3>Read the one rule that matters</h3>
-        <p>
-          The filesystem server is one it knows, so this is already written. Open the file and
-          find <code class="inline">fs.write_file</code> &mdash; it is the whole idea in eight
-          lines, and the shape you will write yourself for a server it does not recognise.
-          <b>snapshot</b> is what to read before the call; <b>inverse</b> is the call that puts
-          that back. <code class="inline">$.path</code> is an argument the agent passed;
-          <code class="inline">$snapshot.content</code> is what the pre-read found.
-        </p>
-        <div class="terminal">
-          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>an unrecognised server, before you fill it in</span></div>
-<pre>- match: <span class="dim">"fs.write_file"</span>
-  class: <span class="hit">irreversible</span>
-  gate: always</pre>
-        </div>
-        <div class="terminal">
-          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>what a finished rule looks like</span></div>
-<pre>- match: <span class="dim">"fs.write_file"</span>
-  class: <span class="hit">reversible</span>
-  snapshot:                        <span class="dim"># read this first</span>
-    tool: <span class="dim">"fs.read_text_file"</span>
-    args:
-      path: <span class="hit">"$.path"</span>
-  inverse:                         <span class="dim"># and this puts it back</span>
-    tool: <span class="dim">"fs.write_file"</span>
-    args:
-      path: <span class="hit">"$.path"</span>
-      content: <span class="hit">"$snapshot.content"</span></pre>
-        </div>
-      </li>
-
-      <li>
-        <h3>Check it before you trust it</h3>
-        <p>
-          <code class="inline">check</code> starts every server and asks whether the tools
-          your policy names actually exist. One reversible tool is enough to begin; the
-          three still guarded will simply stop and ask.
-        </p>
-        <div class="terminal">
-          <div class="terminal-bar"><span>synartesis check</span><span>before anything is running</span></div>
-<pre><span class="prompt">$</span> <span class="hit">synartesis check</span>
-
-  <span class="plate"> POLICY </span> <span class="dim">~/.synartesis/synartesis.yaml</span>
-
-  <span class="dim">servers  fs</span>
-  <span class="dim">policies 10 readonly, </span><span class="hit">1 reversible</span><span class="dim">, 3 irreversible</span>
-  <span class="dim">guarded  3</span></pre>
-        </div>
-      </li>
-
-      <li>
-        <h3>Point your agent at the proxy, not the server</h3>
-        <p>
-          One entry, however many servers your policy covers. Then work normally: ask
-          your agent to tidy the folder, rewrite a file, whatever you would have asked
-          anyway.
-        </p>
-        <div class="terminal">
-          <div class="terminal-bar"><span>.mcp.json</span><span>the same block in any client</span></div>
-<pre>{
-  <span class="dim">"mcpServers"</span>: {
-    <span class="dim">"synartesis"</span>: {
-      <span class="dim">"command"</span>: <span class="hit">"npx"</span>,
-      <span class="dim">"args"</span>: [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>,
-               <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
-    }
-  }
-}</pre>
-        </div>
-      </li>
-
-      <li>
-        <h3>Put it back</h3>
-        <p>
-          Your agent overwrites <code class="inline">roadmap.md</code> with something you
-          did not want. Look first with <code class="inline">--dry-run</code>; both default
-          to the most recent run, so there is usually no id to type. The line that matters
-          is <code class="inline">state matches</code> &mdash; it read the file again and
-          confirmed nothing else had changed it since.
-        </p>
-        <div class="terminal">
-          <div class="terminal-bar"><span>synartesis undo</span><span>the file comes back</span></div>
-<pre><span class="prompt">$</span> <span class="hit">synartesis undo</span>
-
-    <span class="dim">1  revert           fs.write_file  state matches; applying inverse</span>
-       <span class="dim">called fs.write_file {"path":"~/notes/roadmap.md",</span>
-       <span class="dim">  "content":"# Roadmap\n\nQ3: ship the undo layer.\n"}</span>
-
-  <span class="plate"> RESULT </span> <span class="hit">rolled_back</span></pre>
-        </div>
-      </li>
-    </ol>
-  </section>
-
-  <div class="fret" role="presentation"></div>
-
-  <section>
-    <div class="section-head">
-      <h2 class="display">Any agent that<br>speaks MCP</h2>
-      <p class="lede">
-        Synartesis is a proxy for a protocol, not a plugin for one product. It speaks
-        MCP over stdio in both directions, so whatever is on the other end is a client
-        like any other &mdash; it never learns your agent's name.
-      </p>
-    </div>
-
-    <div class="terminal reveal">
-      <div class="terminal-bar"><span>no sdk, no client library</span><span>36 lines of python</span></div>
-<pre><span class="prompt">$</span> <span class="hit">python3 raw.py</span>
-
-  <span class="dim">server says: filesystem-server  |  protocol: 2024-11-05</span>
-  <span class="dim">tools offered: 14</span>
-  <span class="dim">write: ok</span>
-  <span class="dim">gated call: Synartesis is holding this call for approval</span>
-
-<span class="prompt">$</span> <span class="hit">synartesis undo</span>
-  <span class="dim">note.txt: back to what it said before</span></pre>
-    </div>
-
-    <p class="lede reveal">
-      That run identified itself as <code class="inline">some-other-agent</code> and got
-      the gate, the journal and the undo like anything else. Claude Code, Claude Desktop,
-      Cursor, Windsurf, Cline, Zed, Continue, your own script: the file the block goes in
-      differs, the block does not. The one thing to know is that with more than one server
-      behind the proxy, tools are named for the server they came from &mdash;
-      <code class="inline">fs__write_file</code> rather than <code class="inline">write_file</code>
-      &mdash; and that qualified name works whether you guard one server or ten.
-    </p>
   </section>
 
   <div class="fret" role="presentation"></div>
