@@ -180,7 +180,12 @@ export interface Journal {
   markApplied(actionId: string, outcome: AppliedOutcome): void;
   markFailed(actionId: string, error: string): void;
   markUnknown(actionId: string, error: string): void;
-  markRollingBack(actionId: string): void;
+  /**
+   * Claims an action for this rollback. Returns false when it was not this
+   * call that moved it out of `applied`, which is how two undos running at
+   * once are told apart from one resuming after a crash.
+   */
+  markRollingBack(actionId: string): boolean;
   markRolledBack(actionId: string): void;
   markUnrecoverable(actionId: string, error: string): void;
   markInverseRejected(actionId: string, error: string): void;
@@ -386,9 +391,16 @@ class SqliteJournal implements Journal {
     });
   }
 
-  markRollingBack(actionId: string): void {
-    this.#run("markRollingBack", () => {
-      this.#db.prepare("UPDATE actions SET status = 'rolling_back' WHERE id = ?").run(actionId);
+  markRollingBack(actionId: string): boolean {
+    return this.#run("markRollingBack", () => {
+      // Conditional, so the transition is a claim rather than an announcement.
+      // Two rollbacks of one run both read the action as applied and both sent
+      // its inverse; for a compensating call rather than a restore, that is a
+      // second real change to the world.
+      const result = this.#db
+        .prepare("UPDATE actions SET status = 'rolling_back' WHERE id = ? AND status = 'applied'")
+        .run(actionId);
+      return result.changes === 1;
     });
   }
 

@@ -26,7 +26,7 @@ import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { banner, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
 import { watch } from "./watch.js";
-import { console as openConsole } from "./console.js";
+import { openConsole } from "./console.js";
 import { cliCommand, proxyCommand } from "./invocation.js";
 
 const COMMANDS = `

@@ -268,7 +268,10 @@ async function* terminalKeys(): AsyncIterable<string> {
   }
 }
 
-export async function console(options: ConsoleOptions): Promise<number> {
+// Named openConsole, not console: an export called console shadows the global
+// inside its own module, so the first console.log anyone reaches for in here
+// would call this function instead.
+export async function openConsole(options: ConsoleOptions): Promise<number> {
   let journal: Journal | undefined;
   const open = (): Journal | undefined => {
     if (journal === undefined && existsSync(options.journalPath)) {
@@ -358,6 +361,14 @@ export async function console(options: ConsoleOptions): Promise<number> {
       say("no way to undo was configured");
       return;
     }
+    // One at a time. Undoing is slow -- it starts every server the manifest
+    // names -- and a key is easy to lean on, so without this a second rollback
+    // of the same run began while the first was mid-flight and both of them
+    // sent the same inverses.
+    if (screen.busy !== undefined) {
+      say("still working on the last one");
+      return;
+    }
     screen.busy = dryRun ? "reading the current state..." : "putting it back...";
     try {
       const report = await options.undo(runId, dryRun);
@@ -444,6 +455,10 @@ export async function console(options: ConsoleOptions): Promise<number> {
         return;
       }
       case "u": {
+        if (screen.busy !== undefined) {
+          say("still working on the last one");
+          return;
+        }
         const ready = open();
         const run = ready === undefined ? undefined : selectedRun(ready);
         if (run !== undefined) {

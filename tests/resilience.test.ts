@@ -22,11 +22,14 @@ afterEach(async () => {
 
 const MANIFEST = loadManifest("manifests/toy-crm.yaml");
 
-async function session(): Promise<{ client: Client; journal: Journal; router: Router; runId: string; store: ToyCrmStore }> {
+async function session(options: { beforeWrite?: () => void } = {}): Promise<{ client: Client; journal: Journal; router: Router; runId: string; store: ToyCrmStore }> {
   const dir = mkdtempSync(join(tmpdir(), "synartesis-probe-"));
   const journal = openJournal(join(dir, "journal.db"));
   cleanups.push(() => { journal.close(); rmSync(dir, { recursive: true, force: true }); });
-  const store = new ToyCrmStore({ now: () => "2026-01-01T00:00:00.000Z" });
+  const store = new ToyCrmStore({
+    now: () => "2026-01-01T00:00:00.000Z",
+    ...(options.beforeWrite === undefined ? {} : { beforeWrite: options.beforeWrite }),
+  });
   const upstream = await inMemoryUpstream(createToyCrmServer(store), "crm");
   const router = createRouter([upstream], MANIFEST);
   const proxy = createProxyServer({ upstreams: [upstream], manifest: MANIFEST, journal, gate: autoApproveGate });
@@ -91,5 +94,39 @@ describe("holding up under interruption", () => {
     const report = await rollback({ journal, router, runId });
     expect(report.status).toBe("partial");
     expect(report.halted?.reason).toMatch(/inverse failed/);
+  });
+});
+
+describe("two undos racing for the same run", () => {
+  it("sends each inverse once, however many are running", async () => {
+    let writes = 0;
+    const { client, journal, router, runId } = await session({
+      beforeWrite: () => {
+        writes += 1;
+      },
+    });
+    await client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free" },
+    });
+    const afterAgent = writes;
+
+    // Two terminals, or a key leaned on. Both read the action as applied and
+    // both send its inverse: the write lands twice, and for a compensating
+    // call rather than a restore that is a second real change.
+    const reports = await Promise.all([
+      rollback({ journal, router, runId }),
+      rollback({ journal, router, runId }),
+    ]);
+
+    expect(writes - afterAgent).toBe(1);
+    const reverted = reports.flatMap((report) =>
+      report.steps.filter((step) => step.kind === "revert"),
+    );
+    expect(reverted).toHaveLength(1);
+    const halted = reports.flatMap((report) =>
+      report.steps.filter((step) => step.kind === "halt"),
+    );
+    expect(halted.some((step) => step.reason.includes("another undo"))).toBe(true);
   });
 });

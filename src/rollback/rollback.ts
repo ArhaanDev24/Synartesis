@@ -314,8 +314,24 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     }
 
     // Written before the call so a resume can tell "possibly applied" from
-    // "definitely not applied".
-    journal.markRollingBack(action.id);
+    // "definitely not applied", and claimed rather than announced: if this was
+    // not the call that moved it out of `applied`, another rollback is already
+    // working on it and sending the inverse again would apply it twice. An
+    // action already in `rolling_back` is the other case -- a resume, which
+    // has been checked for drift above -- and goes ahead.
+    const claimed = journal.markRollingBack(action.id);
+    if (!claimed && action.status === "applied") {
+      const reason = "another undo is already working on this action";
+      halted = { seq: action.seq, reason, detail: "" };
+      steps[steps.length - 1] = {
+        ...describeStep(action),
+        kind: "halt",
+        reason,
+        verified,
+        plan,
+      };
+      break;
+    }
     const outcome = await executeInverse(router, plan, action.idempotencyKey, signal);
 
     if (outcome.ok) {

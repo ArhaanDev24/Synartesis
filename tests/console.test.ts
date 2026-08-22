@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openJournal, type Journal } from "../src/journal/journal.js";
-import { console as runConsole } from "../src/console.js";
+import { openConsole as runConsole } from "../src/console.js";
 import type { RollbackReport } from "../src/rollback/rollback.js";
 
 const dirs: string[] = [];
@@ -187,5 +187,71 @@ describe("the console", () => {
     expect(code).toBe(0);
     expect(text).toContain("second-agent");
     expect(text).not.toMatch(/\[u\] undo/);
+  });
+});
+
+describe("the console under a heavy hand", () => {
+  it("does not start a second undo while one is still running", async () => {
+    const { path } = fixture();
+    const board = keyboard();
+    const started: string[] = [];
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => (release = resolve));
+
+    const running = runConsole({
+      journalPath: path,
+      write: () => undefined,
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+      undo: async (runId): Promise<RollbackReport> => {
+        started.push(runId);
+        await held;
+        return { runId, status: "rolled_back", dryRun: false, steps: [] };
+      },
+    });
+
+    // Confirm one, then lean on the keys while it is still in flight. Two
+    // rollbacks of the same run at once would send every inverse twice.
+    for (const key of ["u", "y", "u", "y", "p"]) {
+      board.press(key);
+      await new Promise((resolve) => setTimeout(resolve, 12));
+    }
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    board.press("q");
+    board.done();
+    await running;
+
+    expect(started).toHaveLength(1);
+  });
+
+  it("keeps the cursor on something real when the list shrinks under it", async () => {
+    const { path, gates } = fixture();
+    const board = keyboard();
+    const running = runConsole({
+      journalPath: path,
+      write: () => undefined,
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+      undo: (runId): Promise<RollbackReport> =>
+        Promise.resolve({ runId, status: "rolled_back", dryRun: false, steps: [] }),
+    });
+    // Walk the cursor well past the end, then act.
+    for (const key of ["g", "j", "j", "j", "j", "a"]) {
+      board.press(key);
+      await new Promise((resolve) => setTimeout(resolve, 12));
+    }
+    board.press("q");
+    board.done();
+    await running;
+
+    const journal = openJournal(path);
+    const action = journal.getAction(gates[0] ?? "");
+    journal.close();
+    expect(action?.status).toBe("approved");
   });
 });
