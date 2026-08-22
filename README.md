@@ -91,17 +91,20 @@ Replace `SYNARTESIS` with the path you cloned into.
 node SYNARTESIS/dist/cli.js init crm -- node SYNARTESIS/dist/toy-crm.js --state ./crm.json
 ```
 
-Open `synartesis.yaml`. Every tool that isn't a self-declared read starts as
-`irreversible` with a `TODO`. **Working through those TODOs is the job.** A
-finished policy for this fixture ships in the repo, so copy it rather than
-typing it out:
+`init` prints the path it wrote to. Unless a policy already sits above the
+directory you are standing in, that is `~/.synartesis/synartesis.yaml`. Open it:
+every tool that isn't a self-declared read starts as `irreversible` with a
+`TODO`. **Working through those TODOs is the job.** A finished policy for this
+fixture ships in the repo, so copy it into this directory rather than typing it
+out — a policy here takes precedence over the one in your home:
 
 ```bash
 cp SYNARTESIS/manifests/toy-crm.yaml ./synartesis.yaml
 ```
 
-Then edit the one line that says where the server lives, so it points at your
-clone and keeps its data in this directory:
+Then edit the `args` line so it points at your clone and keeps its data in
+this directory. The copy ships with `args: ["dist/toy-crm.js"]`; it needs both
+the path to your clone and the `--state` file:
 
 ```yaml
 servers:
@@ -195,8 +198,13 @@ node -e 'const f="./crm.json",s=JSON.parse(require("fs").readFileSync(f));s.cust
 node SYNARTESIS/dist/cli.js undo RUN_ID --journal ./journal.db
 ```
 
-It halts, prints the expected and actual state, exits non-zero, and changes
-nothing.
+It halts at the record that moved, prints the expected and actual state, and
+exits non-zero. It is not all-or-nothing: undo works newest first, so anything
+it had already put back before reaching the drifted record stays put back —
+here `delete_customer` is reversed and `c_002` comes back, and then it stops.
+`show` afterwards tells you which actions are still outstanding. Once you have
+resolved the conflict yourself, `undo --replan` rebuilds the plan against the
+world as it now is and carries on.
 
 ## Approving what cannot be undone
 
@@ -417,9 +425,11 @@ Other things to know:
 `--manifest` and `--journal` are found rather than typed. Both are looked for
 from the current directory upwards, the way a version control tool finds its
 root, so inside a project that has a `synartesis.yaml` every command works with
-no flags at all. A journal that does not exist yet is placed beside the policy,
-so the proxy that creates it and the CLI that reads it agree without either
-being told.
+no flags at all. When there is nothing above you either, both come from
+`~/.synartesis` — most of what anyone guards is not part of a project, and
+should not need a directory of its own. `SYNARTESIS_HOME` moves that. A journal
+that does not exist yet is placed beside the policy, so the proxy that creates
+it and the CLI that reads it agree without either being told.
 
 Other flags: `--dry-run`, `--to <seq>` and `--replan` on `undo`, `--all` on
 `approve` and `deny`, `--json` on `list`, `show` and `gates`.
