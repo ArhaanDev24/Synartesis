@@ -35,6 +35,13 @@ tools:
   # undoing by argument would delete a Grace who was there long before the
   # agent ran. The result carries only what was actually created.
   #
+  # $result.entities, not $result: this server answers with both a text block
+  # holding a bare array and a structuredContent object wrapping it, and
+  # structured data wins over re-parsed text. Written against the text block,
+  # the first version of this policy resolved to nothing and undo halted. It is
+  # the same mistake the filesystem policy made, and the reason neither of them
+  # can be trusted until it has met a real server.
+  #
   # $result is the structured block, not the text one, and here the two
   # disagree: the text is a bare list of entities while structuredContent wraps
   # it as {"entities": [...]}. The structured block is the machine-readable
