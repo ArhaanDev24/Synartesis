@@ -27,6 +27,16 @@ export interface UpstreamSpec {
 export interface Upstream {
   readonly name: string;
   readonly client: Client;
+  /**
+   * Start the server again after its transport has died. A single oversized
+   * response is enough to close a stdio connection, and without this the
+   * proxy stayed connected to nothing for the rest of the session: every call
+   * after it failed with "Not connected", whatever it was.
+   *
+   * Absent on an upstream that was not spawned from a command, which has
+   * nothing to respawn.
+   */
+  reconnect?(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -63,6 +73,26 @@ function lastWords(text: string): string | undefined {
 }
 
 export async function connectStdioUpstream(spec: UpstreamSpec): Promise<Upstream> {
+  const started = await start(spec);
+  let current = started;
+  return {
+    name: spec.name,
+    get client(): Client {
+      return current.client;
+    },
+    async reconnect(): Promise<void> {
+      // Best effort: the old one is already broken, and failing to close a
+      // broken thing must not stop the new one being made.
+      await current.client.close().catch(() => undefined);
+      current = await start(spec);
+    },
+    close: async (): Promise<void> => {
+      await current.client.close();
+    },
+  };
+}
+
+async function start(spec: UpstreamSpec): Promise<{ client: Client }> {
   const wanted = spec.stderr ?? "inherit";
   const transport = new StdioClientTransport({
     command: spec.command,
@@ -88,11 +118,5 @@ export async function connectStdioUpstream(spec: UpstreamSpec): Promise<Upstream
     );
   }
 
-  return {
-    name: spec.name,
-    client,
-    close: async (): Promise<void> => {
-      await client.close();
-    },
-  };
+  return { client };
 }

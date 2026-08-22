@@ -128,6 +128,27 @@ export function planRead(call: CallTemplate, context: TemplateContext): Resolved
  * Runs a resolved pre-read. Deliberately not journalled: this is the proxy's
  * own traffic, and recording it would bury the actions an operator needs.
  */
+/**
+ * Whether an error says the connection is gone rather than that the call was
+ * refused. Matched on the message because the sdk reports both of these as
+ * plain errors with no code to tell them apart.
+ */
+export function isDisconnected(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("Not connected") || message.includes("Connection closed");
+}
+
+/**
+ * Whether the call may already have arrived. The sdk says "Not connected" when
+ * there was no transport to write to, which means it was never sent; it says
+ * "Connection closed" when the transport went while a reply was still owed,
+ * which says nothing at all about whether the far end acted on it.
+ */
+export function mayHaveArrived(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("Connection closed");
+}
+
 export async function runRead(
   router: Router,
   read: ResolvedRead,
@@ -140,15 +161,41 @@ export async function runRead(
   }
   const { tool, args } = read;
 
-  let raw: unknown;
-  try {
-    raw = await upstream.client.request(
+  const ask = (): Promise<unknown> =>
+    upstream.client.request(
       { method: "tools/call", params: { name: tool, arguments: args } },
       z.looseObject({}),
       { signal },
     );
+
+  let raw: unknown;
+  try {
+    raw = await ask();
   } catch (error: unknown) {
-    throw new SnapshotError(label, describe(error), { cause: error });
+    // A single oversized response closes a stdio connection, and every call
+    // after it -- reads, writes, anything -- then failed with "Not connected"
+    // for the rest of the session: one large file bricked the run. Reading is
+    // safe to do again, so the server is started back up and asked once more.
+    if (!isDisconnected(error) || upstream.reconnect === undefined) {
+      throw new SnapshotError(label, describe(error), { cause: error });
+    }
+    try {
+      await upstream.reconnect();
+      raw = await ask();
+    } catch (retry: unknown) {
+      // The second attempt can kill the connection the same way the first did
+      // -- the response is still too large -- so leave a live one behind. The
+      // call that caused it fails either way; the rest of the session should
+      // not have to.
+      if (isDisconnected(retry)) {
+        await upstream.reconnect().catch(() => undefined);
+      }
+      throw new SnapshotError(
+        label,
+        `${describe(error)} (the connection to ${read.server} was restarted and the read failed again: ${describe(retry)})`,
+        { cause: retry },
+      );
+    }
   }
 
   const parsed = ToolResult.safeParse(raw);

@@ -35,6 +35,8 @@ import { createRouter, type Router } from "./routing.js";
 import {
   observeState,
   planInverse,
+  isDisconnected,
+  mayHaveArrived,
   planRead,
   refusal,
   runRead,
@@ -705,10 +707,21 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           });
           return result;
         } catch (error: unknown) {
-          if (extra.signal.aborted) {
+          const disconnected = isDisconnected(error);
+          if (extra.signal.aborted || mayHaveArrived(error)) {
+            // A transport that closed while a reply was still owed says
+            // nothing about whether the call arrived. Recording that as failed
+            // asserts it did not, and undo would then step over an action that
+            // may well have applied. Having had no connection to write to at
+            // all is the other case, and that one really did not happen.
             journal.markUnknown(pending.actionId, describe(error));
           } else {
             journal.markFailed(pending.actionId, describe(error));
+          }
+          if (disconnected && route.upstream.reconnect !== undefined) {
+            // Not to retry this call -- a write must never be sent twice on a
+            // guess -- but so the rest of the session is not lost with it.
+            await route.upstream.reconnect().catch(() => undefined);
           }
           return rethrow(route.upstream.name, "tools/call", error);
         }
