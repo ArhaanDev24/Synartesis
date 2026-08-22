@@ -651,6 +651,17 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   if (toSeq !== undefined && (!Number.isInteger(toSeq) || toSeq < 1)) {
     throw new UsageError("--to needs a positive whole number");
   }
+  // Past the end, every action is below the floor, so nothing is planned and
+  // the empty plan reads exactly like a run with nothing left to undo. A typed
+  // digit too many looked like a result.
+  if (toSeq !== undefined) {
+    const highest = journal.getActions(runId).reduce((top, action) => Math.max(top, action.seq), 0);
+    if (toSeq > highest) {
+      throw new UsageError(
+        `--to ${String(toSeq)} is past the end of this run, which goes up to ${String(highest)}`,
+      );
+    }
+  }
 
   return report(
     await performUndo(findManifest(flag(argv, "--manifest")), journal, runId, {
@@ -755,7 +766,10 @@ try {
     process.stderr.write(`synartesis: ${error.message}\n`);
     process.exitCode = 2;
   } else if (error instanceof SynartesisError) {
-    process.stderr.write(`synartesis: ${error.code}: ${error.message}\n`);
+    // Without the code. It read as synartesis: JOURNAL_ERROR: journal open
+    // failed: ... -- three prefixes before the sentence that says what is
+    // wrong. The exit code is the part a script reads.
+    process.stderr.write(`synartesis: ${error.message}\n`);
     process.exitCode = 1;
   } else {
     process.stderr.write(`synartesis: ${describe(error)}\n`);
