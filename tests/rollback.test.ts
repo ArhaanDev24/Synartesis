@@ -549,3 +549,32 @@ describe("recovering from a policy that was wrong at the time", () => {
     expect(JSON.stringify(store.__snapshot())).toBe(JSON.stringify(before));
   });
 });
+
+describe("planning with --to", () => {
+  it("shows what it is leaving behind, not only what it will touch", async () => {
+    // A dry run listed the actions above the floor and said nothing at all
+    // about the ones below it, so the one thing --to is for -- deciding where
+    // to stop -- was the one thing you could not see.
+    const active = await session();
+    for (const notes of ["first", "second", "third"]) {
+      await active.client.callTool({
+        name: "update_customer",
+        arguments: { id: "c_001", notes },
+      });
+    }
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      toSeq: 3,
+      dryRun: true,
+    });
+
+    const kept = report.steps.filter((step) => step.kind === "kept");
+    expect(kept.map((step) => step.seq).sort()).toEqual([1, 2]);
+    expect(kept[0]?.reason).toMatch(/below --to/i);
+    // And the ones it would act on are still there.
+    expect(report.steps.filter((step) => step.kind === "revert").map((s) => s.seq)).toEqual([3]);
+  });
+});

@@ -565,7 +565,16 @@ function report(result: RollbackReport): number {
   out(`  ${style.label(result.dryRun ? "dry run" : "undo")}  ${style.strong(result.runId)}`);
   out(`  ${rule(72)}`);
   out("");
+  let separated = false;
   for (const step of result.steps) {
+    // Set apart by a rule rather than mixed in: these are the ones --to is
+    // leaving alone, and reading them as part of the plan would invert what
+    // they mean.
+    if (step.kind === "kept" && !separated) {
+      separated = true;
+      out("");
+      out(`  ${style.quiet("left alone")}`);
+    }
     const unverified =
       step.kind === "revert" && !step.verified ? `  ${style.accent("[unverified]")}` : "";
     const kind =

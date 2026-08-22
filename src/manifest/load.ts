@@ -21,6 +21,9 @@ const templateValue: z.ZodType<TemplateValue> = z.lazy(() =>
 const callTemplate = z.strictObject({
   tool: z.string().min(1),
   args: z.record(z.string(), templateValue).default({}),
+  absent_when: z
+    .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
+    .optional(),
 });
 
 const toolPolicy = z.strictObject({
@@ -230,13 +233,30 @@ function validate(source: Source, manifest: Manifest): void {
 
 function withGate(policy: z.infer<typeof toolPolicy>): ToolPolicy {
   // D4: irreversible is gated unless the manifest deliberately says otherwise.
+  // `absent_when` in the file, absentWhen in the type: the one place a name is
+  // translated, so a single string and a list read the same way afterwards.
+  const toCall = (call: {
+    tool: string;
+    args: Record<string, TemplateValue>;
+    absent_when?: string | string[] | undefined;
+  }): CallTemplate => ({
+    tool: call.tool,
+    args: call.args,
+    ...(call.absent_when === undefined
+      ? {}
+      : {
+          absentWhen:
+            typeof call.absent_when === "string" ? [call.absent_when] : [...call.absent_when],
+        }),
+  });
+
   const gate = policy.gate ?? (policy.class === "irreversible" ? "always" : "never");
   return {
     match: policy.match,
     class: policy.class,
     gate,
-    ...(policy.snapshot === undefined ? {} : { snapshot: policy.snapshot }),
-    ...(policy.inverse === undefined ? {} : { inverse: policy.inverse }),
+    ...(policy.snapshot === undefined ? {} : { snapshot: toCall(policy.snapshot) }),
+    ...(policy.inverse === undefined ? {} : { inverse: toCall(policy.inverse) }),
   };
 }
 

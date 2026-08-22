@@ -29,6 +29,8 @@ export type StepKind =
   | "already-reverted"
   /** Known to be permanent. Not an obstacle to stop at, a fact to report. */
   | "permanent"
+  /** Below the --to floor: deliberately left alone, and listed so you can see it. */
+  | "kept"
   | "halt";
 
 export interface RollbackStep {
@@ -180,11 +182,19 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
   };
 
   const all = journal.getActions(runId);
+  const floor = options.toSeq;
   const inScope = [...all]
-    .filter((action) => options.toSeq === undefined || action.seq >= options.toSeq)
+    .filter((action) => floor === undefined || action.seq >= floor)
     .sort((a, b) => b.seq - a.seq);
 
   const steps: RollbackStep[] = [];
+  // Everything --to excludes, reported rather than silently dropped: choosing
+  // where to stop is the whole reason for the flag, and a plan that lists only
+  // what it will touch shows you every part of that decision except the part
+  // you are making.
+  const kept = (floor === undefined ? [] : [...all].filter((action) => action.seq < floor)).sort(
+    (a, b) => b.seq - a.seq,
+  );
   let halted: RollbackHalt | undefined;
   /** Something permanent was stepped over, so the run is not fully reverted. */
   let leftInPlace = false;
@@ -368,6 +378,15 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       plan,
     };
     break;
+  }
+
+  for (const action of kept) {
+    steps.push({
+      ...describeStep(action),
+      kind: "kept",
+      reason: `below --to ${String(floor ?? 0)}, so it is left as it is`,
+      verified: true,
+    });
   }
 
   const completedWholeRun =

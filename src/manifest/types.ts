@@ -26,6 +26,17 @@ export interface CallTemplate {
   /** Qualified as `server.tool`. */
   readonly tool: string;
   readonly args: Readonly<Record<string, TemplateValue>>;
+  /**
+   * What this server says when the thing is not there, as substrings of its
+   * error text. Only meaningful on a snapshot.
+   *
+   * Without it every failed pre-read has to be read as absence, because the
+   * protocol gives no way to tell the two apart -- which means a resource that
+   * exists and could not be read is offered for approval as a creation. With
+   * it, anything that is not one of these is a failed snapshot and the write
+   * is refused outright.
+   */
+  readonly absentWhen?: readonly string[];
 }
 
 export interface ToolPolicy {

@@ -298,3 +298,54 @@ describe("a write with no prior state", () => {
     expect(action.error).toMatch(/no prior state existed/i);
   });
 });
+
+const ABSENCE_DECLARED = `version: 1
+servers:
+  crm: { command: node, args: [] }
+tools:
+  - match: "crm.update_customer"
+    class: reversible
+    snapshot:
+      tool: "crm.get_customer"
+      args: { id: "$.id" }
+      absent_when: "no customer with id"
+    inverse:
+      tool: "crm.update_customer"
+      args: { id: "$.id", plan: "$snapshot.plan" }
+`;
+
+const ABSENCE_MISDECLARED = ABSENCE_DECLARED.replace(
+  'absent_when: "no customer with id"',
+  'absent_when: "ENOENT"',
+);
+
+describe("telling absence apart from a read that simply failed", () => {
+  it("treats a declared absence as a creation, and asks", async () => {
+    harness = await createHarness({ manifest: ABSENCE_DECLARED, gate: "retry" });
+    const active = harness;
+    const thrown = await active.proxied
+      .callTool({ name: "update_customer", arguments: { id: "c_absent", plan: "free" } })
+      .catch((error: unknown) => error);
+    expect(String(thrown)).toMatch(/nothing was captured/i);
+  });
+
+  it("blocks a write whose pre-read failed for any other reason", async () => {
+    // Every tool-level error on a pre-read used to be read as "there is
+    // nothing here", so a record that exists and merely could not be read was
+    // offered for approval as a creation. Where a policy says what absence
+    // looks like on its server, anything else is a failed snapshot and the
+    // call does not go out at all.
+    harness = await createHarness({ manifest: ABSENCE_MISDECLARED, gate: "retry" });
+    const active = harness;
+    const before = active.store.__snapshot();
+
+    const thrown = await active.proxied
+      .callTool({ name: "update_customer", arguments: { id: "c_absent", plan: "free" } })
+      .catch((error: unknown) => error);
+
+    expect(String(thrown)).toMatch(/blocked/i);
+    expect(String(thrown)).not.toMatch(/nothing was captured/i);
+    expect(active.store.__snapshot()).toEqual(before);
+    expect(lastAction(active).status).toBe("failed");
+  });
+});

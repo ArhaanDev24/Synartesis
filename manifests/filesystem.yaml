@@ -56,6 +56,11 @@ tools:
       tool: "fs.read_text_file"
       args:
         path: "$.path"
+      # What this server says when the file is not there. Anything else the
+      # pre-read reports is a failure rather than absence -- a file that exists
+      # and cannot be read is not a file you are creating -- and the write is
+      # refused instead of being offered for approval.
+      absent_when: ["ENOENT", "no such file"]
     inverse:
       tool: "fs.write_file"
       args:
@@ -71,6 +76,11 @@ tools:
       tool: "fs.read_text_file"
       args:
         path: "$.path"
+      # What this server says when the file is not there. Anything else the
+      # pre-read reports is a failure rather than absence -- a file that exists
+      # and cannot be read is not a file you are creating -- and the write is
+      # refused instead of being offered for approval.
+      absent_when: ["ENOENT", "no such file"]
     inverse:
       tool: "fs.write_file"
       args:

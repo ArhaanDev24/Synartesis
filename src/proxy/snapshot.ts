@@ -105,6 +105,8 @@ export interface ResolvedRead {
   readonly server: string;
   readonly tool: string;
   readonly args: Record<string, unknown>;
+  /** What this server's error says when the thing is simply not there. */
+  readonly absentWhen?: readonly string[];
 }
 
 /**
@@ -118,7 +120,12 @@ export function planRead(call: CallTemplate, context: TemplateContext): Resolved
     throw new SnapshotError(call.tool, "the snapshot tool is not qualified as server.tool");
   }
   try {
-    return { server: target.server, tool: target.tool, args: resolveArgs(call, context) };
+    return {
+      server: target.server,
+      tool: target.tool,
+      args: resolveArgs(call, context),
+      ...(call.absentWhen === undefined ? {} : { absentWhen: call.absentWhen }),
+    };
   } catch (error: unknown) {
     throw new SnapshotError(call.tool, describe(error), { cause: error });
   }
@@ -200,11 +207,17 @@ export async function runRead(
 
   const parsed = ToolResult.safeParse(raw);
   if (parsed.success && parsed.data.isError) {
-    // A tool-level error is still a failed read: whatever the write is about
-    // to overwrite, we could not capture it.
-    throw new SnapshotError(label, `the read reported an error: ${JSON.stringify(raw)}`, {
-      absent: true,
-    });
+    // A tool-level error is a failed read either way: whatever the write is
+    // about to overwrite, we did not capture it. What it means is the
+    // question. Where the policy says what absence looks like on this server,
+    // anything else is a failure and the write is refused rather than offered
+    // for approval as a creation. Where it says nothing, every error has to be
+    // read as absence, because the protocol gives no way to tell.
+    const said = JSON.stringify(raw);
+    const absent =
+      read.absentWhen === undefined ||
+      read.absentWhen.some((phrase) => said.toLowerCase().includes(phrase.toLowerCase()));
+    throw new SnapshotError(label, `the read reported an error: ${said}`, { absent });
   }
   return toPayload(raw);
 }
