@@ -7,6 +7,8 @@ export interface GateRequest {
   readonly server: string;
   readonly tool: string;
   readonly args: unknown;
+  /** Why this is being asked about, in the words the agent is given. */
+  readonly why: string;
   readonly signal: AbortSignal;
 }
 
@@ -54,7 +56,7 @@ const DEFAULT_HINT: ApproveHint = (actionId) => `synartesis approve ${actionId.s
 export function createRetryGate(journal: Journal, approveHint: ApproveHint = DEFAULT_HINT): Gate {
   return {
     decide(request: GateRequest): Promise<GateDecision> {
-      journal.markGated(request.actionId);
+      journal.markGated(request.actionId, request.why);
       return Promise.resolve({
         approved: false,
         awaiting: true,
@@ -92,7 +94,7 @@ export function createJournalGate(journal: Journal, options: JournalGateOptions 
 
   return {
     async decide(request: GateRequest): Promise<GateDecision> {
-      journal.markGated(request.actionId);
+      journal.markGated(request.actionId, request.why);
       notify(request);
 
       const deadline = Date.now() + timeoutMs;

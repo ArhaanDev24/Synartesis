@@ -389,6 +389,30 @@ function statusOf(action: ActionRow): string {
   return style.quiet(text);
 }
 
+/**
+ * Broken over lines rather than cut off. The reason a call is being held ends
+ * with the server's own words, so truncating it removes the only part that
+ * says anything the tool name did not already.
+ */
+function wrapped(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(/\s+/).filter((part) => part !== "")) {
+    if (line === "") {
+      line = word;
+    } else if (line.length + 1 + word.length <= width) {
+      line = `${line} ${word}`;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line !== "") {
+    lines.push(line);
+  }
+  return lines;
+}
+
 function truncate(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit - 3)}...`;
 }
@@ -428,6 +452,11 @@ function runGates(journal: Journal, asJson: boolean): number {
   for (const action of waiting) {
     out(`  ${style.strong(action.id)}  ${style.quiet(action.ts)}`);
     out(`  ${style.accent(`${action.server}.${action.tool}`)}  ${style.quiet(truncate(JSON.stringify(action.args), 88))}`);
+    // The reason, because approving is the decision this screen exists for and
+    // it was being made on a tool name and a bag of arguments alone.
+    for (const [at, line] of wrapped(action.error ?? "held by policy", 76).entries()) {
+      out(`  ${at === 0 ? style.quiet(action.class) : " ".repeat(action.class.length)}  ${style.quiet(line)}`);
+    }
     out("");
   }
   const self = cliCommand();

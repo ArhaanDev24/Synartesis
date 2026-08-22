@@ -190,7 +190,12 @@ export interface Journal {
   markUnrecoverable(actionId: string, error: string): void;
   markInverseRejected(actionId: string, error: string): void;
   markUnknownInverse(actionId: string, error: string): void;
-  markGated(actionId: string): void;
+  /**
+   * `why` is kept on the row so the person deciding can see the reason
+   * without the proxy running. It goes in `error`, which is already where a
+   * row explains the state it is in.
+   */
+  markGated(actionId: string, why?: string): void;
   /** About to go out: from here on its outcome is genuinely unknown. */
   markInFlight(actionId: string): void;
   /** Returns false when the action is no longer awaiting a decision. */
@@ -465,9 +470,11 @@ class SqliteJournal implements Journal {
     });
   }
 
-  markGated(actionId: string): void {
+  markGated(actionId: string, why?: string): void {
     this.#run("markGated", () => {
-      this.#db.prepare("UPDATE actions SET status = 'gated' WHERE id = ?").run(actionId);
+      this.#db
+        .prepare("UPDATE actions SET status = 'gated', error = ? WHERE id = ?")
+        .run(why ?? null, actionId);
     });
   }
 

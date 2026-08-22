@@ -508,6 +508,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
               server: route.upstream.name,
               tool: route.tool,
               args,
+              why,
               signal: extra.signal,
             });
           } finally {
@@ -612,7 +613,15 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             notBefore: new Date(Date.now() - APPROVAL_WINDOW_MS).toISOString(),
           });
           if (standing === undefined) {
-            await decide("nothing exists here to restore, so this cannot be undone");
+            // Not "nothing exists here": every tool-level error on a pre-read
+            // arrives here, so a file that exists and merely could not be read
+            // came out as one that was not there. The person approving an
+            // unundoable write was shown absence and given no way to learn
+            // otherwise until after they had allowed it. Say what happened and
+            // hand over the server's own words.
+            await decide(
+              `nothing was captured to restore, so this cannot be undone — the read said: ${missingPriorState}`,
+            );
           } else {
             // Moved onto the row that actually runs, which also spends it: an
             // approval answers one call, not every call that looks like it.

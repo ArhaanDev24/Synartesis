@@ -271,7 +271,10 @@ describe("a write with no prior state", () => {
       .catch((error: unknown) => error);
 
     expect(thrown).toBeInstanceOf(McpError);
-    expect(String(thrown)).toMatch(/nothing exists here to restore/i);
+    // Not "nothing exists here": all this knows is that the pre-read came back
+    // with nothing usable, and it hands over the server's own words for why.
+    expect(String(thrown)).toMatch(/nothing was captured to restore/i);
+    expect(String(thrown)).toMatch(/the read said/i);
     expect(active.store.__snapshot()).toEqual(before);
     expect(lastAction(active).status).toBe("denied");
   });

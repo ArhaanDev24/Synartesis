@@ -270,3 +270,25 @@ describe("approving a call that had nothing to restore", () => {
     expect(active.journal.listGated()).toHaveLength(0);
   });
 });
+
+describe("what the person approving is told", () => {
+  it("repeats what the pre-read said instead of asserting the thing is absent", async () => {
+    // Every tool-level error on a pre-read is treated as absence, so a file
+    // that exists and merely could not be read was presented as one that was
+    // not there. The person approving an unundoable write saw "nothing exists
+    // here to restore" and had no way to learn otherwise until afterwards.
+    harness = await createHarness({ gate: "retry" });
+    const active = harness;
+
+    const thrown = await active.proxied
+      .callTool({ name: "update_customer", arguments: { id: "c_absent", plan: "free" } })
+      .catch((error: unknown) => error);
+
+    expect(String(thrown)).toMatch(/the read said/i);
+
+    const held = active.journal.listGated();
+    expect(held).toHaveLength(1);
+    // And it is on the row, so `gates` can show it without the proxy running.
+    expect(held[0]?.error ?? "").toMatch(/nothing was captured/i);
+  });
+});
