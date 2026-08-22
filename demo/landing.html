@@ -1041,11 +1041,19 @@
       <li>
         <h3>Codex CLI</h3>
         <p>
-          OpenAI&rsquo;s local agent, which does run stdio servers. TOML rather than JSON, and
-          the same two fields.
+          OpenAI&rsquo;s local agent, which does run stdio servers. One command, and it writes
+          the TOML below into <code class="inline">~/.codex/config.toml</code> for you.
+          <code class="inline">codex mcp list</code> shows it afterwards.
         </p>
         <div class="terminal">
-          <div class="terminal-bar"><span>~/.codex/config.toml</span><span>openai codex</span></div>
+          <div class="terminal-bar"><span>terminal</span><span>openai codex</span></div>
+<pre><span class="prompt">$</span> <span class="hit">codex mcp add</span> synartesis -- npx -y synartesis proxy \
+    --manifest ~/.synartesis/synartesis.yaml
+
+  <span class="dim">Added global MCP server &#39;synartesis&#39;.</span></pre>
+        </div>
+        <div class="terminal">
+          <div class="terminal-bar"><span>~/.codex/config.toml</span><span>what that writes</span></div>
 <pre>[<span class="hit">mcp_servers.synartesis</span>]
 command = <span class="hit">"npx"</span>
 args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>, <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]</pre>
@@ -1056,10 +1064,22 @@ args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <s
         <h3>Anything else, and one that will not work</h3>
         <p>
           Any client that runs a local MCP server takes the same two fields, whatever it calls
-          its config file. <b>ChatGPT is the exception</b>: its connectors accept remote HTTPS
-          endpoints only and it will not start a process on your machine, so a
-          <code class="inline">command</code> entry has nowhere to go. Codex CLI is the way in
-          from that side.
+          its config file. <b>ChatGPT is the one that will not</b>: its connectors accept a
+          remote HTTPS endpoint only and will not start a process on your machine, so a
+          <code class="inline">command</code> entry has nowhere to go. For that, serve the
+          proxy over HTTP instead &mdash; it refuses to start without a token, and binds to
+          loopback until you say otherwise.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>an endpoint instead of a process</span><span>/mcp, bearer token</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis proxy</span> --manifest ~/.synartesis/synartesis.yaml \
+    <span class="hit">--http</span> 9123 <span class="hit">--token</span> <span class="dim">"$SYNARTESIS_TOKEN"</span></pre>
+        </div>
+        <p>
+          Reaching that from the internet means a tunnel in front of it, and that stays your
+          decision rather than a flag. What is on the other end can write through every server
+          in your policy: treat the token like a password, and prefer a tunnel that does its
+          own authentication.
         </p>
       </li>
     </ol>
