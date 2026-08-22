@@ -45,7 +45,17 @@ interface View {
   /** Which waiting call the keys act on. */
   cursor: number;
   notice: string;
+  /** The tick the notice stops being shown at. */
+  noticeUntil: number;
 }
+
+/**
+ * How long a confirmation stays up, in ticks. Measured from when it was shown
+ * rather than to a fixed boundary: clearing on every twenty-fourth tick meant
+ * a decision made on the twenty-third was confirmed for a single frame, and
+ * how long you got to read it came down to when you happened to press.
+ */
+const NOTICE_TICKS = 26;
 
 function line(action: ActionRow): string {
   const mark = MARK[action.class] ?? "?";
@@ -159,8 +169,21 @@ function keyHint(key: string, what: string): string {
  * Deciding needs both a name to record it under and a keyboard to press. A
  * piped view is a report, and a report must not be able to approve anything.
  */
+/**
+ * Node declares isTTY as a boolean and then leaves it undefined whenever there
+ * is no terminal. Taking it as unknown is the only way to test the value that
+ * is actually there rather than the one the types promise.
+ */
+function isTerminal(value: unknown): boolean {
+  return value === true;
+}
+
 function canDecide(options: WatchOptions): boolean {
-  return options.live && options.decideAs !== undefined;
+  // stdout can be a terminal while stdin is not -- `synartesis watch
+  // < /dev/null` -- and offering [a] approve there promises a key that can
+  // never be pressed.
+  const keyboard = options.keys !== undefined || isTerminal(process.stdin.isTTY);
+  return options.live && options.decideAs !== undefined && keyboard;
 }
 
 /** Raw keystrokes from the terminal, as an iterable the loop below can read. */
@@ -202,7 +225,8 @@ export async function watch(options: WatchOptions): Promise<number> {
   const clear = "\u001b[H\u001b[2J\u001b[3J";
   // A holder, not plain locals: these are written from a signal handler and a
   // key loop, neither of which narrowing can see.
-  const view: View = { stop: false, cursor: 0, notice: "" };
+  const view: View = { stop: false, cursor: 0, notice: "", noticeUntil: 0 };
+  let tick = 0;
 
   const frame = (tick: number): string => {
     const ready = open();
@@ -233,9 +257,16 @@ export async function watch(options: WatchOptions): Promise<number> {
     const changed = approve
       ? ready.approve(action.id, options.decideAs)
       : ready.deny(action.id, options.decideAs, "denied from the watch view");
-    view.notice = changed
-      ? `${approve ? "approved" : "denied"} ${action.server}.${action.tool}`
-      : `${action.server}.${action.tool} was already settled`;
+    // Approving is not the call. The agent was refused and is not waiting on
+    // anything, so nothing happens until somebody asks it again -- and a view
+    // that says only "approved" leaves you watching a screen that has already
+    // done everything it is going to do.
+    view.notice = !changed
+      ? `${action.server}.${action.tool} was already settled`
+      : approve
+        ? `approved ${action.server}.${action.tool} \u00b7 now tell the agent to try again`
+        : `denied ${action.server}.${action.tool} \u00b7 it will not go through`;
+    view.noticeUntil = tick + NOTICE_TICKS;
     view.cursor = 0;
   };
 
@@ -267,6 +298,12 @@ export async function watch(options: WatchOptions): Promise<number> {
     }
   };
 
+  // Read through a call rather than touched directly: the compiler narrows a
+  // property once it has been tested and does not un-narrow it across a call
+  // that could have changed it, so the check that actually matters -- the one
+  // after a key has been pressed -- was being read as dead.
+  const stopped = (): boolean => view.stop;
+
   const onSignal = (): void => {
     view.stop = true;
   };
@@ -274,13 +311,24 @@ export async function watch(options: WatchOptions): Promise<number> {
   process.on("SIGTERM", onSignal);
 
   const source = canDecide(options) ? (options.keys ?? terminalKeys()) : undefined;
+  // Held rather than left inside a for-await. The loop only closes the
+  // iterator when the loop itself ends, so a view that stopped for any other
+  // reason -- a signal, a client going away -- left the reader sitting on a
+  // terminal that was still in raw mode, with stdin still flowing. The
+  // terminal never got its echo back and the process had a live handle it
+  // would not let go of.
+  const reader = source?.[Symbol.asyncIterator]();
   const reading =
-    source === undefined
+    reader === undefined
       ? Promise.resolve()
       : (async (): Promise<void> => {
-          for await (const key of source) {
-            press(key);
-            if (view.stop) {
+          for (;;) {
+            const next = await reader.next();
+            if (next.done === true || stopped()) {
+              return;
+            }
+            press(next.value);
+            if (stopped()) {
               return;
             }
           }
@@ -295,16 +343,15 @@ export async function watch(options: WatchOptions): Promise<number> {
     }
 
     options.write("\u001b[?25l");
-    for (let tick = 0; !view.stop; tick += 1) {
+    for (; !view.stop; tick += 1) {
+      if (view.notice !== "" && tick >= view.noticeUntil) {
+        view.notice = "";
+      }
       options.write(clear + frame(tick));
       if (options.maxTicks !== undefined && tick + 1 >= options.maxTicks) {
         break;
       }
       await new Promise<void>((resolve) => setTimeout(resolve, interval));
-      // Long enough to read, short enough not to sit there stale.
-      if (tick % 24 === 23) {
-        view.notice = "";
-      }
     }
     return 0;
   } finally {
@@ -314,7 +361,16 @@ export async function watch(options: WatchOptions): Promise<number> {
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
     view.stop = true;
-    await Promise.race([reading, Promise.resolve()]);
+    // Asked to close, but not waited on indefinitely: a source blocked on a
+    // read it will never get would otherwise hold the view open at exactly the
+    // moment it is trying to leave.
+    await Promise.race([
+      (async (): Promise<void> => {
+        await reader?.return?.(undefined);
+        await reading;
+      })(),
+      new Promise<void>((resolve) => setTimeout(resolve, 50).unref()),
+    ]);
     journal?.close();
   }
 }

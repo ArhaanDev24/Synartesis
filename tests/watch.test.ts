@@ -282,3 +282,111 @@ describe("deciding from the watch view", () => {
     expect(piped).not.toMatch(/\[a\] approve/i);
   });
 });
+
+describe("leaving the watch view", () => {
+  it("closes the key source however it stops, not only when q is pressed", async () => {
+    const { path } = gated(1);
+    let closed = false;
+    // A generator's finally is where a real terminal puts its own back: raw
+    // mode off, stdin paused. If nothing closes the iterator, that never runs.
+    async function* keys(): AsyncIterable<string> {
+      try {
+        for (;;) {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          yield " ";
+        }
+      } finally {
+        closed = true;
+      }
+    }
+
+    await watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: () => undefined,
+      live: true,
+      intervalMs: 1,
+      // Stops for a reason that is not a keypress, which is what a signal or a
+      // client going away looks like.
+      maxTicks: 3,
+      decideAs: "arhaan",
+      keys: keys(),
+    });
+
+    expect(closed).toBe(true);
+  });
+
+  it("says what has to happen next, because approving does not make the call", async () => {
+    const { path } = gated(1);
+    const board = keyboard();
+    let text = "";
+    const running = watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: (chunk) => (text += chunk),
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    board.press("a");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    board.press("q");
+    board.done();
+    await running;
+
+    // The agent was refused and is not waiting on anything. Somebody has to
+    // ask it again, and a view that says only "approved" does not say so.
+    expect(text).toMatch(/try again|retry/i);
+  });
+});
+
+describe("the confirmation line", () => {
+  it("stays up long enough to read wherever in the cycle you pressed", async () => {
+    const { path } = gated(1);
+    const board = keyboard();
+    const frames: string[] = [];
+    // Pressed at the exact tick the old code happened to clear on. The point
+    // is that a confirmation must last from when it was shown, not until the
+    // next fixed boundary, or how long you get to read it is luck.
+    const running = watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: (chunk) => {
+        if (!chunk.startsWith("\u001b[?25")) {
+          frames.push(chunk);
+          if (frames.length === 23) {
+            board.press("a");
+          }
+        }
+      },
+      live: true,
+      intervalMs: 1,
+      maxTicks: 60,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    await running;
+    board.done();
+
+    const showing = frames.filter((frame) => frame.includes("approved memory.")).length;
+    expect(showing).toBeGreaterThan(8);
+  });
+
+  it("does not offer keys when there is no keyboard attached", async () => {
+    const { path } = gated(1);
+    // stdout is a terminal, stdin is not: `synartesis watch < /dev/null`.
+    // Offering [a] approve there promises a key that can never be pressed.
+    const frames: string[] = [];
+    await watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: (chunk) => frames.push(chunk),
+      live: true,
+      intervalMs: 1,
+      maxTicks: 2,
+      decideAs: "arhaan",
+    });
+    expect(frames.join("")).not.toMatch(/\[a\] approve/);
+  });
+});
