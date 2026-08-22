@@ -211,6 +211,38 @@ describe("drift detection", () => {
     expect(detail).toContain("founding customer");
   });
 
+
+  it("does not quote what it saw before as though it were the state now", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    active.store.updateCustomer("c_001", { notes: "a human wrote this" });
+
+    const first = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+    expect(first.halted?.reason).toMatch(/drift/i);
+
+    // The person withdraws their edit. The world is back to what the run left,
+    // and the refusal that follows still reads out the conflicting value from
+    // the earlier attempt as "actual" -- a fact about a moment that has passed,
+    // printed as a fact about now.
+    active.store.updateCustomer("c_001", { notes: "agent edit" });
+
+    const second = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+    expect(second.halted?.detail ?? "").toMatch(/earlier attempt|when it halted/i);
+    // And it says how to carry on, which nothing did.
+    expect(second.halted?.detail ?? "").toMatch(/--replan/);
+  });
+
   it("treats an already-reverted action as done rather than as drift", async () => {
     const active = await session();
     await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });

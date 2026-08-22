@@ -137,7 +137,7 @@ function classify(action: ActionRow, replanning: boolean): Decision | undefined 
       // so real drift halts on it a second time.
       return replanning
         ? undefined
-        : { kind: "halt", reason: "previously marked unrecoverable", verified: false };
+        : { kind: "halt", reason: "halted here on an earlier attempt", verified: false };
     case "applied":
     case "rolling_back":
       return undefined;
@@ -199,7 +199,17 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       // and the next attempt, seeing an unrecoverable row with no inverse,
       // stepped straight over it. Running undo twice undid more than running
       // it once, which is the last thing this command may do.
-      halted = { seq: action.seq, reason: early.reason, detail: action.error ?? "" };
+      // What it saw then, said as that. Reading the stored conflict out as
+      // "actual" states a fact about a moment that has passed as a fact about
+      // now, and after the conflict is resolved that reading is simply false.
+      // The way on was --replan, which nothing said.
+      const seen = action.error ?? "";
+      const detail =
+        action.status === "unrecoverable" && seen !== ""
+          ? `what it saw when it halted, which may no longer hold:\n${seen}\n` +
+            `Resolve the conflict, then run undo --replan to check it against the world as it is now.`
+          : seen;
+      halted = { seq: action.seq, reason: early.reason, detail };
       steps.push({ ...describeStep(action), ...early });
       break;
     }
