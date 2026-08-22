@@ -178,7 +178,7 @@ async function runInit(argv: readonly string[]): Promise<number> {
     );
   }
 
-  const yaml = await draftManifest({
+  const draft = await draftManifest({
     name,
     command,
     args: argv.slice(separator + 2),
@@ -187,16 +187,24 @@ async function runInit(argv: readonly string[]): Promise<number> {
 
   // Never write a manifest that would not start: a drafted policy that fails
   // to load is worse than no policy, because it looks finished.
-  parseManifest(yaml, path);
+  parseManifest(draft.yaml, path);
   mkdirSync(dirname(resolve(path)), { recursive: true });
-  writeFileSync(path, yaml);
+  writeFileSync(path, draft.yaml);
 
   out("");
   out(`  ${style.label(present ? "extended" : "wrote")}  ${style.strong(path)}`);
   out(`  ${rule(54)}`);
   out("");
-  out(`  ${style.quiet("Every tool is guarded until you say how to undo it.")}`);
-  out(`  ${style.quiet("Work through the TODOs, then point your MCP client at:")}`);
+  if (draft.adopted === undefined) {
+    out(`  ${style.quiet("Every tool is guarded until you say how to undo it.")}`);
+    out(`  ${style.quiet("Work through the TODOs, then point your MCP client at:")}`);
+  } else {
+    out(
+      `  ${style.quiet(`Recognised ${String(draft.adopted.tools)} tools, so the policy that ships for`)} ` +
+        `${style.strong(draft.adopted.server)} ${style.quiet("was used.")}`,
+    );
+    out(`  ${style.quiet("Read it before you trust it, then point your MCP client at:")}`);
+  }
   out("");
   out(`  ${style.accent(`${proxyCommand()} --manifest ${resolve(path)}`)}`);
   out("");

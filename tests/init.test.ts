@@ -23,7 +23,7 @@ function tempDir(): string {
 
 describe("drafting a manifest", () => {
   it("produces a manifest that loads", async () => {
-    const yaml = await draftManifest({ name: "crm", command: "node", args: [FIXTURE] });
+    const yaml = (await draftManifest({ name: "crm", command: "node", args: [FIXTURE] })).yaml;
     const manifest = parseManifest(yaml, "drafted.yaml");
     expect(Object.keys(manifest.servers)).toEqual(["crm"]);
     expect(manifest.tools.map((t) => t.match).sort()).toEqual([
@@ -38,7 +38,7 @@ describe("drafting a manifest", () => {
 
   it("classifies everything it cannot vouch for as irreversible and gated", async () => {
     const manifest = parseManifest(
-      await draftManifest({ name: "crm", command: "node", args: [FIXTURE] }),
+      (await draftManifest({ name: "crm", command: "node", args: [FIXTURE] })).yaml,
       "drafted.yaml",
     );
     const byMatch = new Map(manifest.tools.map((t) => [t.match, t]));
@@ -49,7 +49,7 @@ describe("drafting a manifest", () => {
   });
 
   it("trusts a server's own readOnlyHint, and says that it did", async () => {
-    const yaml = await draftManifest({ name: "crm", command: "node", args: [FIXTURE] });
+    const yaml = (await draftManifest({ name: "crm", command: "node", args: [FIXTURE] })).yaml;
     const manifest = parseManifest(yaml, "drafted.yaml");
     const read = manifest.tools.find((t) => t.match === "crm.get_customer");
     expect(read?.class).toBe("readonly");
@@ -57,14 +57,14 @@ describe("drafting a manifest", () => {
   });
 
   it("records how to start the server so the manifest is self-contained", async () => {
-    const yaml = await draftManifest({ name: "crm", command: "node", args: [FIXTURE] });
+    const yaml = (await draftManifest({ name: "crm", command: "node", args: [FIXTURE] })).yaml;
     const manifest = parseManifest(yaml, "drafted.yaml");
     expect(manifest.servers["crm"]?.command).toBe("node");
     expect(manifest.servers["crm"]?.args).toEqual([FIXTURE]);
   });
 
   it("leaves each tool's description in the file so the author knows what it does", async () => {
-    const yaml = await draftManifest({ name: "crm", command: "node", args: [FIXTURE] });
+    const yaml = (await draftManifest({ name: "crm", command: "node", args: [FIXTURE] })).yaml;
     expect(yaml).toContain("Delete a customer");
     expect(yaml).toContain("TODO");
   });
@@ -88,15 +88,63 @@ tools:
     class: readonly
 `,
     );
-    const yaml = await draftManifest({
+    const yaml = (await draftManifest({
       name: "crm",
       command: "node",
       args: [FIXTURE],
       existing: readFileSync(existing, "utf8"),
-    });
+    })).yaml;
     const manifest = parseManifest(yaml, "merged.yaml");
     expect(Object.keys(manifest.servers).sort()).toEqual(["crm", "other"]);
     expect(manifest.tools.some((t) => t.match === "other.ping")).toBe(true);
     expect(manifest.tools.some((t) => t.match === "crm.get_customer")).toBe(true);
+  });
+});
+
+describe("a server we already have a finished policy for", () => {
+  const FS_SERVER = resolve("node_modules/@modelcontextprotocol/server-filesystem/dist/index.js");
+
+  it("uses it, instead of asking for fourteen TODOs to be filled in", async () => {
+    // The whole barrier to getting value out of this is writing snapshot and
+    // inverse for every write tool. For the servers most people start with,
+    // that work is already done and shipped in manifests/ -- and init was
+    // making them do it again from scratch.
+    const dir = tempDir();
+    const yaml = (await draftManifest({
+      name: "files",
+      command: "node",
+      args: [FS_SERVER, dir],
+    })).yaml;
+    const manifest = parseManifest(yaml, "drafted.yaml");
+    const byMatch = new Map(manifest.tools.map((t) => [t.match, t]));
+
+    const write = byMatch.get("files.write_file");
+    expect(write?.class).toBe("reversible");
+    expect(write?.snapshot).toBeDefined();
+    expect(write?.inverse).toBeDefined();
+    // Renamed to whatever the person called the server, not left as fs.
+    expect(yaml).not.toContain("fs.write_file");
+    expect(yaml).not.toContain("TODO");
+  });
+
+  it("still gates what the bundled policy says cannot be undone", async () => {
+    const dir = tempDir();
+    const manifest = parseManifest(
+      (await draftManifest({ name: "files", command: "node", args: [FS_SERVER, dir] })).yaml,
+      "drafted.yaml",
+    );
+    const byMatch = new Map(manifest.tools.map((t) => [t.match, t]));
+    // Adopting a known policy must not quietly turn a gate off.
+    expect(byMatch.get("files.move_file")?.gate).toBe("always");
+    expect(byMatch.get("files.create_directory")?.class).toBe("irreversible");
+  });
+
+  it("leaves an unknown server exactly as it was", async () => {
+    const manifest = parseManifest(
+      (await draftManifest({ name: "crm", command: "node", args: [FIXTURE] })).yaml,
+      "drafted.yaml",
+    );
+    const byMatch = new Map(manifest.tools.map((t) => [t.match, t]));
+    expect(byMatch.get("crm.update_customer")?.class).toBe("irreversible");
   });
 });
