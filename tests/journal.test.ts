@@ -8,9 +8,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { z } from "zod";
 
 import { openJournal } from "../src/journal/journal.js";
@@ -314,5 +315,57 @@ describe("the order runs come back in", () => {
     // decided by a random uuid whenever the clock has not moved, they default
     // to an arbitrary one.
     expect(listed).toEqual(created);
+  });
+});
+
+describe("opening something that is not a journal", () => {
+  const made: string[] = [];
+  afterEach(() => {
+    for (const dir of made) rmSync(dir, { recursive: true, force: true });
+    made.length = 0;
+  });
+  function scratch(): string {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-open-"));
+    made.push(dir);
+    return dir;
+  }
+
+  it("says which file, when the file is not a database at all", () => {
+    // The likeliest mistake anyone makes is pointing --journal at the wrong
+    // file. A bare "file is not a database" from SQLite names neither the file
+    // nor the tool that rejected it.
+    const path = join(scratch(), "notes.txt");
+    writeFileSync(path, "these are my notes, not a journal");
+    expect(() => openJournal(path)).toThrow(/not a Synartesis journal/);
+    expect(() => openJournal(path)).toThrow(new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  });
+
+  it("says which path, when the path is a directory", () => {
+    const path = join(scratch(), "adir.db");
+    mkdirSync(path);
+    expect(() => openJournal(path)).toThrow(/could not be opened/);
+    expect(() => openJournal(path)).toThrow(new RegExp(path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  });
+
+  it("offers keeping an older journal before deleting it", () => {
+    const path = join(scratch(), "old.db");
+    const journal = openJournal(path);
+    journal.beginRun("agent");
+    journal.close();
+    const db = new Database(path);
+    db.pragma("user_version = 2");
+    db.close();
+    // Their entire undo history is in this file; "delete it" should not be the
+    // first thing offered.
+    expect(() => openJournal(path)).toThrow(/[Pp]oint --journal at a new file/);
+    const message = (() => {
+      try {
+        openJournal(path);
+        return "";
+      } catch (error) {
+        return error instanceof Error ? error.message : "";
+      }
+    })();
+    expect(message.indexOf("new file")).toBeLessThan(message.indexOf("Delete"));
   });
 });

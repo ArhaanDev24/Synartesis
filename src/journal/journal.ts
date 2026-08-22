@@ -243,6 +243,31 @@ export interface Journal {
   close(): void;
 }
 
+/**
+ * Opening, with the failures named. better-sqlite3 reports "file is not a
+ * database" and "unable to open database file" and leaves out which file it
+ * meant, which is unhelpful precisely when the path was the mistake.
+ */
+function openDatabase(path: string): Database.Database {
+  try {
+    const db = new Database(path);
+    // The pragmas, not the constructor: better-sqlite3 opens lazily, so a file
+    // that is not a database is only found out on the first read.
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+    return db;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    if (detail.includes("not a database")) {
+      throw new JournalError(
+        "open",
+        `${path} is not a Synartesis journal. Point --journal at a journal, or at a new file to start one.`,
+      );
+    }
+    throw new JournalError("open", `the journal at ${path} could not be opened: ${detail}`);
+  }
+}
+
 class SqliteJournal implements Journal {
   readonly #db: Database.Database;
 
@@ -250,10 +275,12 @@ class SqliteJournal implements Journal {
     if (path !== ":memory:") {
       mkdirSync(dirname(path), { recursive: true });
     }
-    this.#db = new Database(path);
+    // Opening is the one step a user is most likely to get wrong -- a typo in
+    // --journal, a path that is a directory, a file that is something else
+    // entirely -- and it was the one step whose errors went out raw, as a bare
+    // "file is not a database" naming neither the file nor the tool.
     // WAL so a reader (the CLI) never blocks the proxy mid-run.
-    this.#db.pragma("journal_mode = WAL");
-    this.#db.pragma("foreign_keys = ON");
+    this.#db = openDatabase(path);
 
     const existing = z.number().parse(this.#db.pragma("user_version", { simple: true }));
     const populated =
@@ -269,7 +296,8 @@ class SqliteJournal implements Journal {
       // reading a rollback state that was never written.
       throw new JournalError(
         "open",
-        `journal at ${path} was written by schema version ${String(existing)}, but this build expects ${String(SCHEMA_VERSION)}. Delete it or point --journal at a new file.`,
+        `journal at ${path} was written by schema version ${String(existing)}, but this build expects ${String(SCHEMA_VERSION)}. ` +
+          `Point --journal at a new file to carry on, and keep this one: everything an agent did is in it. Delete it only once you are sure you do not want that history.`,
       );
     }
 
