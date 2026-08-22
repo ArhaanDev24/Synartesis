@@ -772,11 +772,32 @@
     <div class="section-head">
       <h2 class="display">The whole<br>interface</h2>
       <p class="lede">
-        Eight commands. Ids shorten to any unambiguous prefix, and the ones you use most
-        need no id at all. Paths are found from the current directory upwards, so inside
-        a project that has a policy nothing needs a flag.
+        One screen, and the commands underneath it for anything that is really a script.
+        Synartesis keeps one policy and one journal in <code class="inline">~/.synartesis</code>,
+        so none of this needs a flag, a path, or a directory to be standing in.
       </p>
     </div>
+
+    <div class="terminal reveal">
+      <div class="terminal-bar"><span>synartesis</span><span>no arguments, from anywhere</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis</span>
+
+  <span class="plate"> S Y N A R T E S I S </span> <span class="dim">~/.synartesis/journal.db</span>
+
+  <span class="dim">everything an agent has done through this journal</span>
+
+  <span class="hit">&#10095;</span> <span class="hit">claude-code</span>          <span class="dim">2026-08-22 05:00:31  complete    3 actions</span>  <span class="hit">1 awaiting approval</span>
+    <span class="dim">claude-code           2026-08-22 04:41:09  rolled_back 2 actions</span>
+
+  <span class="hit">[enter]</span> <span class="dim">open</span>   <span class="hit">[p]</span> <span class="dim">preview undo</span>   <span class="hit">[u]</span> <span class="dim">undo</span>   <span class="hit">[j/k]</span> <span class="dim">move</span>   <span class="hit">[g]</span> <span class="dim">held</span>   <span class="hit">[q]</span> <span class="dim">quit</span></pre>
+    </div>
+
+    <p class="lede reveal">
+      Everything acts on whatever the cursor is on, so no id is ever carried from one
+      command to the next by hand. <b>g</b> shows what is held, where <b>a</b> and <b>d</b>
+      answer it. <b>u</b> asks once more before it goes, because undo is the one direction
+      that cannot itself be undone.
+    </p>
 
     <div class="commands">
       <div class="command">
@@ -801,7 +822,7 @@
       </div>
       <div class="command">
         <code>synartesis watch</code>
-        <span>A live view that redraws as the agent works, and shows anything blocked.</span>
+        <span>The live view on its own, for a second terminal you leave open.</span>
       </div>
       <div class="command">
         <code>synartesis approve --all</code>
@@ -842,37 +863,46 @@
       </li>
 
       <li>
-        <h3>Describe the server you want covered</h3>
+        <h3>Describe the servers you want covered</h3>
         <p>
-          <code class="inline">init</code> asks the server what it can do and writes a starting policy
+          <code class="inline">init</code> asks a server what it can do and writes a starting policy
           with every tool guarded. Working through the TODOs it leaves is the real job:
-          a tool with no inverse is one your agent cannot use unsupervised.
+          a tool with no inverse is one your agent cannot use unsupervised. Run it again
+          for the next server and it adds to the same file &mdash; there is nothing to make a
+          directory for, and one journal then knows the whole story.
         </p>
         <div class="terminal">
-          <div class="terminal-bar"><span>in a new directory</span><span>everything starts guarded</span></div>
-<pre><span class="prompt">$</span> mkdir my-agent &amp;&amp; cd my-agent
-<span class="prompt">$</span> <span class="hit">synartesis init</span> crm -- npx -y some-mcp-server
+          <div class="terminal-bar"><span>from anywhere</span><span>everything starts guarded</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis init</span> memory -- npx -y @modelcontextprotocol/server-memory
+<span class="prompt">$</span> <span class="hit">synartesis init</span> fs -- npx -y @modelcontextprotocol/server-filesystem ~/Documents
 <span class="prompt">$</span> <span class="hit">synartesis check</span>
 
-  <span class="plate"> POLICY </span> synartesis.yaml
-  <span class="dim">servers  crm</span>
-  <span class="dim">policies 4 readonly, 2 reversible, 1 irreversible</span></pre>
+  <span class="plate"> POLICY </span> <span class="dim">~/.synartesis/synartesis.yaml</span>
+  <span class="dim">servers  memory, fs</span>
+  <span class="dim">policies 8 readonly, 3 compensable, 3 reversible, 4 irreversible</span>
+  <span class="dim">guarded  4</span></pre>
         </div>
       </li>
 
       <li>
         <h3>Point your agent at it instead of the server</h3>
         <p>
-          In whatever file your client lists MCP servers in. The agent sees the same
-          tools with the same names and needs no changes at all.
+          One entry, however many servers the policy covers. A copy is written for you at
+          <code class="inline">~/.synartesis/mcp.json</code>. With more than one server behind
+          it, tools are named for the server they came from, so ask for them by name:
+          your agent has its own file tools and its own memory, and will use those instead
+          if you leave the choice open.
         </p>
         <div class="terminal">
           <div class="terminal-bar"><span>.mcp.json</span><span>claude code, claude desktop, cursor</span></div>
 <pre>{
   <span class="dim">"mcpServers"</span>: {
-    <span class="dim">"crm"</span>: {
+    <span class="dim">"synartesis"</span>: {
       <span class="dim">"command"</span>: <span class="hit">"synartesis-proxy"</span>,
-      <span class="dim">"args"</span>: [<span class="hit">"--manifest"</span>, <span class="dim">"/full/path/to/synartesis.yaml"</span>]
+      <span class="dim">"args"</span>: [
+        <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>,
+        <span class="hit">"--journal"</span>, <span class="dim">"/Users/you/.synartesis/journal.db"</span>
+      ]
     }
   }
 }</pre>
@@ -883,8 +913,10 @@
         <h3>Watch it work</h3>
         <p>
           Leave this open in a second terminal. Rows appear as the agent calls things,
-          and anything it is not allowed to do on its own shows here with the command
-          that releases it.
+          and anything it is not allowed to do on its own shows here with its arguments,
+          where <b>a</b> lets it through and <b>d</b> refuses. The two numbers in the
+          header are the diagnostic worth knowing: a live run beside zero actions means
+          your agent connected and then did the work with its own tools.
         </p>
         <div class="terminal">
           <div class="terminal-bar"><span>synartesis watch</span><span>live</span></div>
@@ -1304,6 +1336,13 @@
       element.classList.add("reveal");
     }
 
+    // Everything wearing the class, not only what the selector above found.
+    // The class is what the stylesheet hides on, so an element marked up by
+    // hand was hidden by the css and then never shown by the script, and even
+    // the safety net below could not reach it: it is a way of writing markup
+    // that silently deletes it from the page.
+    const all = [...document.querySelectorAll(".reveal")];
+
     const show = (element, index) => {
       if (element.dataset.shown === "true") return;
       // A short stagger within a row, capped, so a wide grid ripples rather
@@ -1329,7 +1368,7 @@
     );
 
     requestAnimationFrame(() => {
-      for (const element of groups) {
+      for (const element of all) {
         const box = element.getBoundingClientRect();
         if (box.top < window.innerHeight && box.bottom > 0) {
           show(element, positionIn(element));
@@ -1339,10 +1378,17 @@
       }
     });
 
-    // The safety net. Whatever happened, nothing stays hidden.
+    // The safety net. Whatever happened, nothing stays hidden -- and it does
+    // not ask a transition to do it. A transition is itself a thing that can
+    // fail to happen: these were seen sitting at playState "running" with a
+    // currentTime of zero, so the element had been told to become visible and
+    // simply never advanced. Cutting the transition first means the last word
+    // on whether content appears is a style change, not an animation.
     setTimeout(() => {
-      for (const element of groups) {
-        show(element, 0);
+      for (const element of all) {
+        element.style.transition = "none";
+        element.style.transitionDelay = "0ms";
+        element.dataset.shown = "true";
       }
       observer.disconnect();
     }, 2500);
