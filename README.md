@@ -472,8 +472,10 @@ Other flags: `--dry-run`, `--to <seq>` and `--replan` on `undo`, `--all` on
 Exit codes: `0` succeeded, `1` halted or refused, `2` bad usage or
 configuration.
 
-The proxy takes `--manifest`, `--journal`, `--gate-timeout <seconds>` and
-`--log-level`. It logs structured JSON to stderr; stdout is reserved for
+The proxy takes `--manifest`, `--journal` and `--log-level`. It also still
+accepts `--gate-timeout <seconds>`, which does nothing: a held call is refused
+immediately rather than holding the connection open, so there is no wait to cut
+short. Passing it logs a warning saying as much. It logs structured JSON to stderr; stdout is reserved for
 protocol traffic.
 
 ## What it does not do

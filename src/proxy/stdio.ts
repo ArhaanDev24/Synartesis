@@ -39,6 +39,8 @@ interface Argv {
   readonly manifest: string;
   readonly journal: string;
   readonly gateTimeoutMs: number;
+  /** Whether --gate-timeout was actually typed, as against defaulted. */
+  readonly gateTimeoutGiven: boolean;
   readonly logLevel: LogLevel;
 }
 
@@ -69,6 +71,7 @@ function parseArgv(argv: readonly string[]): Argv {
     manifest,
     journal: findJournal(read("--journal"), manifest),
     gateTimeoutMs: seconds === undefined ? DEFAULT_GATE_TIMEOUT_MS : seconds * 1000,
+    gateTimeoutGiven: seconds !== undefined,
     logLevel: level,
   };
 }
@@ -76,6 +79,16 @@ function parseArgv(argv: readonly string[]): Argv {
 async function main(): Promise<void> {
   const argv = parseArgv(process.argv.slice(2));
   const log = createLogger(argv.logLevel);
+  if (argv.gateTimeoutGiven) {
+    // Accepted, validated, threaded through, and read by nothing: this proxy
+    // refuses a held call straight away rather than holding the connection
+    // open, so there is no wait for a timeout to cut short. Saying so is
+    // better than a flag that quietly does nothing, and better than rejecting
+    // one that earlier versions took.
+    log.warn(
+      "--gate-timeout has no effect: a held call is refused immediately and the agent makes it again once you approve",
+    );
+  }
   // Only on a real terminal. A client collecting our stderr into a log file
   // wants the structured records and nothing else.
   if (process.stderr.isTTY) {
