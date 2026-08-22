@@ -2,7 +2,7 @@
 
 What changed, and why it mattered. Dates are release dates.
 
-## Unreleased
+## 0.2.0 — 2026-08-22
 
 ### Added
 
