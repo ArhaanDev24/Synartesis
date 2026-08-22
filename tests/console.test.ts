@@ -255,3 +255,62 @@ describe("the console under a heavy hand", () => {
     expect(action?.status).toBe("approved");
   });
 });
+
+describe("a journal with more in it than fits", () => {
+  function manyRuns(count: number): string {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-many-"));
+    dirs.push(dir);
+    const path = join(dir, "journal.db");
+    const journal = openJournal(path);
+    for (let i = 0; i < count; i += 1) {
+      const run = journal.beginRun(`agent-${String(i)}`);
+      journal.endRun(run, "complete");
+    }
+    journal.close();
+    return path;
+  }
+
+  async function frameFor(path: string, script: readonly string[], rows: number): Promise<string> {
+    const board = keyboard();
+    let text = "";
+    const running = runConsole({
+      journalPath: path,
+      write: (chunk) => (text += chunk),
+      live: true,
+      intervalMs: 1,
+      rows,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    for (const key of script) {
+      board.press(key);
+      await new Promise((resolve) => setTimeout(resolve, 12));
+    }
+    board.press("q");
+    board.done();
+    await running;
+    const frames = text.split("[H");
+    return frames[frames.length - 1] ?? "";
+  }
+
+  it("fits what it draws into the terminal it was given", async () => {
+    const path = manyRuns(40);
+    const frame = await frameFor(path, [], 24);
+    // A frame taller than the terminal scrolls its own header off, and with it
+    // the top of the list, which is where the cursor starts.
+    expect(frame.split("\n").length).toBeLessThanOrEqual(24);
+  });
+
+  it("keeps the cursor on screen when it is moved past the fold", async () => {
+    const path = manyRuns(40);
+    const frame = await frameFor(path, Array.from({ length: 25 }, () => "j"), 24);
+    expect(frame).toContain("agent-14");
+    expect(frame.split("\n").length).toBeLessThanOrEqual(24);
+  });
+
+  it("says how many are not being shown", async () => {
+    const path = manyRuns(40);
+    const frame = await frameFor(path, [], 24);
+    expect(frame).toMatch(/more/);
+  });
+});

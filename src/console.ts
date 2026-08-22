@@ -52,6 +52,8 @@ export interface ConsoleOptions {
   /** Who a decision made here is recorded as. */
   readonly decideAs: string;
   readonly intervalMs?: number;
+  /** Terminal height. Defaults to the real one, or a conservative 24. */
+  readonly rows?: number;
   /** Stop after this many ticks. Only tests pass it. */
   readonly maxTicks?: number;
   /** Key presses. Defaults to the terminal; tests drive it directly. */
@@ -78,6 +80,36 @@ interface Screen {
   noticeUntil: number;
 }
 
+/**
+ * The rows a list may use, once the header, the footer and a little air are
+ * taken out. A frame taller than the terminal scrolls its own top away, and
+ * the top of a list is where the cursor starts, so the thing you are about to
+ * act on is the first thing to disappear.
+ */
+function roomFor(options: ConsoleOptions): number {
+  const rows = options.rows ?? rowsOf(process.stdout.rows) ?? 24;
+  return Math.max(3, rows - 11);
+}
+
+/**
+ * A window of a long list, moved so the cursor is always inside it, with a
+ * count of what is out of sight in either direction.
+ */
+function windowed(lines: readonly string[], at: number, room: number): string[] {
+  if (lines.length <= room) {
+    return [...lines];
+  }
+  const start = Math.max(0, Math.min(at - Math.floor(room / 2), lines.length - room));
+  const shown = lines.slice(start, start + room);
+  const above = start;
+  const below = lines.length - (start + room);
+  return [
+    ...(above === 0 ? [] : [`  ${style.quiet(`${String(above)} more above`)}`]),
+    ...shown.slice(above === 0 ? 0 : 1, below === 0 ? undefined : -1),
+    ...(below === 0 ? [] : [`  ${style.quiet(`${String(below)} more below`)}`]),
+  ];
+}
+
 function truncate(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit - 3)}...`;
 }
@@ -93,6 +125,11 @@ function keyHint(key: string, what: string): string {
  */
 function isTerminal(value: unknown): boolean {
   return value === true;
+}
+
+/** The same for rows, which Node declares a number and leaves undefined. */
+function rowsOf(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
 function canPress(options: ConsoleOptions): boolean {
@@ -309,12 +346,13 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     if (ready === undefined) {
       return waitingForJournal(options, tick);
     }
+    const room = roomFor(options);
     const body =
       screen.mode === "runs"
-        ? runsView(ready, screen, options)
+        ? windowed(runsView(ready, screen, options), screen.cursor, room)
         : screen.mode === "run"
-          ? runView(ready, screen)
-          : gatesView(ready, screen, options);
+          ? windowed(runView(ready, screen), 0, room)
+          : windowed(gatesView(ready, screen, options), screen.cursor, room);
     const notice = screen.notice === "" ? [] : ["", `  ${style.accent(screen.notice)}`];
     return [
       ...header(options, screen, tick),
