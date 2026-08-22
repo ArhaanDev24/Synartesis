@@ -97,7 +97,11 @@ cd ~/synartesis-live
 synartesis watch
 ```
 
-Leave it running. It redraws as the agent works.
+Leave it running. It redraws as the agent works, and anything held for approval
+appears there with its arguments, where **a** approves and **d** denies. That
+is the whole reason to keep it open: the alternative is noticing that the agent
+has stopped, switching window, listing what is waiting, copying an id, and
+running a command, which is six moves to say yes once.
 
 ## 7. Give the agent something real to do
 
@@ -165,8 +169,13 @@ call on:
 
 > Using `mcp__files__create_directory`, create a directory called `archive` here.
 
-The agent will report that the call was held and give you a command. In your
-other terminal:
+The agent will report that the call was held. You do not need a command for
+this: it appears in the `synartesis watch` you already have running, with the
+arguments beside it, and **a** approves it, **d** denies it, **j** and **k**
+move between them when there is more than one. The decision is recorded under
+your username.
+
+If you would rather do it by hand, or you are not watching:
 
 ```bash
 synartesis gates

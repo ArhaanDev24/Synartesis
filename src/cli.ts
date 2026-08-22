@@ -34,7 +34,7 @@ const COMMANDS = `
   synartesis list [--journal <path>]
   synartesis show <runId> [--journal <path>]
   synartesis gates [--journal <path>]
-  synartesis watch [--journal <path>]
+  synartesis watch [--by <name>] [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
   synartesis undo [runId] [--to <seq>] [--dry-run] [--replan]
@@ -43,6 +43,9 @@ const COMMANDS = `
 Ids may be shortened to any unambiguous prefix. show and undo default to the
 most recent run; approve and deny default to the only request waiting. init
 adds to an existing manifest rather than replacing it.
+
+watch is the one to leave running. Anything held for approval appears there,
+and a and d answer it without a second terminal or an id to copy.
 
   --manifest  default synartesis.yaml
   --journal   default .synartesis/journal.db
@@ -592,11 +595,15 @@ async function main(argv: readonly string[]): Promise<number> {
   // Watching is the one thing you do before anything has happened, so it opens
   // its own handle when there is one and waits when there is not.
   if (command === "watch") {
+    const live = process.stdout.isTTY && !argv.includes("--once");
     return await watch({
       journalPath,
       approveWith: cliCommand(),
       write: (text) => process.stdout.write(text),
-      live: process.stdout.isTTY && !argv.includes("--once"),
+      live,
+      // A decision has to be attributable, so the view can only make one when
+      // it knows whose it is.
+      decideAs: flag(argv, "--by") ?? process.env["USER"] ?? process.env["LOGNAME"] ?? "unknown",
     });
   }
 

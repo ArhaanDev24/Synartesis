@@ -31,6 +31,20 @@ export interface WatchOptions {
   readonly maxTicks?: number;
   readonly write: (text: string) => void;
   readonly live: boolean;
+  /**
+   * Who a decision made from here is recorded as. Absent means the view is
+   * read-only, which is what a pipe gets.
+   */
+  readonly decideAs?: string;
+  /** Key presses. Defaults to the terminal; tests drive it directly. */
+  readonly keys?: AsyncIterable<string>;
+}
+
+interface View {
+  stop: boolean;
+  /** Which waiting call the keys act on. */
+  cursor: number;
+  notice: string;
 }
 
 function line(action: ActionRow): string {
@@ -57,7 +71,7 @@ function line(action: ActionRow): string {
  * not begin until something has already happened is no use at the only moment
  * anyone wants one.
  */
-function waiting(options: WatchOptions, tick: number): string {
+function waitingForJournal(options: WatchOptions, tick: number): string {
   const spinner = options.live ? `${style.accent(FRAMES[tick % FRAMES.length] ?? "")} ` : "";
   return [
     "",
@@ -72,7 +86,7 @@ function waiting(options: WatchOptions, tick: number): string {
   ].join("\n");
 }
 
-function render(journal: Journal, options: WatchOptions, tick: number): string {
+function render(journal: Journal, options: WatchOptions, tick: number, view: View): string {
   const runs = journal.listRuns();
   const recent = journal.recentActions(12);
   const waiting = journal.listGated();
@@ -102,40 +116,175 @@ function render(journal: Journal, options: WatchOptions, tick: number): string {
   }
 
   if (waiting.length > 0) {
+    const at = Math.min(view.cursor, waiting.length - 1);
     out.push("");
     out.push(`  ${style.label("awaiting approval")}`);
-    for (const action of waiting) {
-      out.push(`  ${style.accent(`${action.server}.${action.tool}`)}  ${style.quiet(action.id.slice(0, 8))}`);
-    }
+    waiting.forEach((action, index) => {
+      // A cursor rather than a key that acts on all of them. One keystroke
+      // that approves everything waiting is one keystroke away from
+      // approving something nobody read.
+      const here = index === at && canDecide(options);
+      const mark = here ? style.accent("\u276f") : " ";
+      const name = here
+        ? style.accent(`${action.server}.${action.tool}`)
+        : style.quiet(`${action.server}.${action.tool}`);
+      out.push(`  ${mark} ${name}  ${style.quiet(truncate(JSON.stringify(action.args), 56))}`);
+    });
     out.push("");
-    out.push(`  ${style.quiet(`${options.approveWith} approve --all`)}`);
+    out.push(
+      canDecide(options)
+        ? `  ${keyHint("a", "approve")}   ${keyHint("d", "deny")}   ${keyHint("j/k", "move")}   ${keyHint("q", "quit")}`
+        : `  ${style.quiet(`${options.approveWith} approve --all`)}`,
+    );
+  }
+
+  if (view.notice !== "") {
+    out.push("");
+    out.push(`  ${style.accent(view.notice)}`);
   }
 
   out.push("");
   return out.join("\n");
 }
 
+function truncate(text: string, limit: number): string {
+  return text.length <= limit ? text : `${text.slice(0, limit - 3)}...`;
+}
+
+function keyHint(key: string, what: string): string {
+  return `${style.strong(`[${key}]`)} ${style.quiet(what)}`;
+}
+
+/**
+ * Deciding needs both a name to record it under and a keyboard to press. A
+ * piped view is a report, and a report must not be able to approve anything.
+ */
+function canDecide(options: WatchOptions): boolean {
+  return options.live && options.decideAs !== undefined;
+}
+
+/** Raw keystrokes from the terminal, as an iterable the loop below can read. */
+async function* terminalKeys(): AsyncIterable<string> {
+  const input = process.stdin;
+  if (!input.isTTY) {
+    return;
+  }
+  input.setRawMode(true);
+  input.resume();
+  try {
+    for await (const chunk of input) {
+      // The stream's iterator is untyped, so the shape is checked rather than
+      // asserted: a wrong guess here would be a key nobody can press.
+      const raw: unknown = chunk;
+      if (typeof raw === "string") {
+        yield raw;
+      } else if (Buffer.isBuffer(raw)) {
+        yield raw.toString("utf8");
+      }
+    }
+  } finally {
+    input.setRawMode(false);
+    input.pause();
+  }
+}
+
 export async function watch(options: WatchOptions): Promise<number> {
   // Opened lazily, and only once there is something to open.
   let journal: Journal | undefined;
-  const frame = (tick: number): string => {
+  const open = (): Journal | undefined => {
     if (journal === undefined && existsSync(options.journalPath)) {
       journal = openJournal(options.journalPath, { mustExist: true });
     }
-    return journal === undefined ? waiting(options, tick) : render(journal, options, tick);
+    return journal;
   };
 
   const interval = options.intervalMs ?? 120;
   const clear = "\u001b[H\u001b[2J\u001b[3J";
-  // A holder, not a plain boolean: the only assignment happens in a signal
-  // handler, which narrowing cannot see, so a bare flag reads as always false.
-  const state = { stop: false };
+  // A holder, not plain locals: these are written from a signal handler and a
+  // key loop, neither of which narrowing can see.
+  const view: View = { stop: false, cursor: 0, notice: "" };
+
+  const frame = (tick: number): string => {
+    const ready = open();
+    return ready === undefined
+      ? waitingForJournal(options, tick)
+      : render(ready, options, tick, view);
+  };
+
+  /**
+   * Answering from here rather than from a second terminal.
+   *
+   * The loop it removes is the one that actually hurts: an agent stops, you
+   * notice, you switch window, you list what is waiting, you copy an id, you
+   * run approve, you switch back. Six moves to say yes once, and every one of
+   * them a chance to approve the wrong thing because you are working from an
+   * id rather than from the call itself.
+   */
+  const decide = (approve: boolean): void => {
+    const ready = open();
+    if (ready === undefined || options.decideAs === undefined) {
+      return;
+    }
+    const waiting = ready.listGated();
+    const action = waiting[Math.min(view.cursor, waiting.length - 1)];
+    if (action === undefined) {
+      return;
+    }
+    const changed = approve
+      ? ready.approve(action.id, options.decideAs)
+      : ready.deny(action.id, options.decideAs, "denied from the watch view");
+    view.notice = changed
+      ? `${approve ? "approved" : "denied"} ${action.server}.${action.tool}`
+      : `${action.server}.${action.tool} was already settled`;
+    view.cursor = 0;
+  };
+
+  const press = (key: string): void => {
+    switch (key) {
+      case "q":
+      case "\u0003":
+        // Ctrl-C does not raise a signal while the terminal is raw, so the
+        // key that everyone reaches for has to be handled here or the view
+        // cannot be left at all.
+        view.stop = true;
+        return;
+      case "a":
+        decide(true);
+        return;
+      case "d":
+        decide(false);
+        return;
+      case "j":
+      case "\u001b[B":
+        view.cursor += 1;
+        return;
+      case "k":
+      case "\u001b[A":
+        view.cursor = Math.max(0, view.cursor - 1);
+        return;
+      default:
+        return;
+    }
+  };
 
   const onSignal = (): void => {
-    state.stop = true;
+    view.stop = true;
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
+
+  const source = canDecide(options) ? (options.keys ?? terminalKeys()) : undefined;
+  const reading =
+    source === undefined
+      ? Promise.resolve()
+      : (async (): Promise<void> => {
+          for await (const key of source) {
+            press(key);
+            if (view.stop) {
+              return;
+            }
+          }
+        })();
 
   try {
     if (!options.live) {
@@ -146,12 +295,16 @@ export async function watch(options: WatchOptions): Promise<number> {
     }
 
     options.write("\u001b[?25l");
-    for (let tick = 0; !state.stop; tick += 1) {
+    for (let tick = 0; !view.stop; tick += 1) {
       options.write(clear + frame(tick));
       if (options.maxTicks !== undefined && tick + 1 >= options.maxTicks) {
         break;
       }
       await new Promise<void>((resolve) => setTimeout(resolve, interval));
+      // Long enough to read, short enough not to sit there stale.
+      if (tick % 24 === 23) {
+        view.notice = "";
+      }
     }
     return 0;
   } finally {
@@ -160,6 +313,8 @@ export async function watch(options: WatchOptions): Promise<number> {
     }
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
+    view.stop = true;
+    await Promise.race([reading, Promise.resolve()]);
     journal?.close();
   }
 }

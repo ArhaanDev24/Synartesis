@@ -146,3 +146,139 @@ describe("watching before anything has happened", () => {
     expect(text).toContain("crm.update_customer");
   });
 });
+
+/** A key source a test can drive, in place of a raw terminal. */
+function keyboard(): { press: (key: string) => void; done: () => void; keys: AsyncIterable<string> } {
+  const queued: string[] = [];
+  let wake: (() => void) | undefined;
+  let finished = false;
+  return {
+    press(key: string): void {
+      queued.push(key);
+      wake?.();
+    },
+    done(): void {
+      finished = true;
+      wake?.();
+    },
+    keys: {
+      async *[Symbol.asyncIterator](): AsyncIterator<string> {
+        for (;;) {
+          const next = queued.shift();
+          if (next !== undefined) {
+            yield next;
+            continue;
+          }
+          if (finished) {
+            return;
+          }
+          await new Promise<void>((resolve) => (wake = resolve));
+        }
+      },
+    },
+  };
+}
+
+function gated(count: number): { path: string; ids: string[] } {
+  const ids: string[] = [];
+  const path = journalWith((journal) => {
+    const run = journal.beginRun("agent");
+    for (let i = 0; i < count; i += 1) {
+      const action = journal.recordPending({
+        runId: run,
+        server: "memory",
+        tool: `delete_thing_${String(i)}`,
+        args: { which: i },
+        class: "irreversible",
+      });
+      journal.markGated(action.actionId);
+      ids.push(action.actionId);
+    }
+  });
+  return { path, ids };
+}
+
+describe("deciding from the watch view", () => {
+  it("approves the waiting call when a is pressed", async () => {
+    const { path, ids } = gated(1);
+    const board = keyboard();
+    const running = watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: () => undefined,
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    board.press("a");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    board.press("q");
+    board.done();
+    await running;
+
+    const journal = openJournal(path);
+    const action = journal.getAction(ids[0] ?? "");
+    journal.close();
+    expect(action?.status).toBe("approved");
+    expect(action?.approvedBy).toBe("arhaan");
+  });
+
+  it("denies it when d is pressed", async () => {
+    const { path, ids } = gated(1);
+    const board = keyboard();
+    const running = watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: () => undefined,
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    board.press("d");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    board.press("q");
+    board.done();
+    await running;
+
+    const journal = openJournal(path);
+    const action = journal.getAction(ids[0] ?? "");
+    journal.close();
+    expect(action?.status).toBe("denied");
+    expect(action?.approvedBy).toBe("arhaan");
+  });
+
+  it("acts on the one the cursor is on, not on all of them", async () => {
+    const { path, ids } = gated(3);
+    const board = keyboard();
+    const running = watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: () => undefined,
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    board.press("j");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    board.press("a");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    board.press("q");
+    board.done();
+    await running;
+
+    const journal = openJournal(path);
+    const statuses = ids.map((id) => journal.getAction(id)?.status);
+    journal.close();
+    // One decision, and the one under the cursor.
+    expect(statuses).toEqual(["gated", "approved", "gated"]);
+  });
+
+  it("offers the keys only where there is a keyboard to press them on", async () => {
+    const { path } = gated(1);
+    const piped = await capture(path);
+    expect(piped).not.toMatch(/\[a\] approve/i);
+  });
+});
