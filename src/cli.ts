@@ -50,8 +50,8 @@ adds to an existing manifest rather than replacing it.
 watch is the one to leave running. Anything held for approval appears there,
 and a and d answer it without a second terminal or an id to copy.
 
-  --manifest  default synartesis.yaml
-  --journal   default .synartesis/journal.db
+  --manifest  synartesis.yaml, looked for here and upwards, then in the home
+  --journal   beside the manifest, or the one in the home
   --to        lowest sequence to undo; earlier actions are left alone
   --by        who is deciding; defaults to the logged-in user
   --all       approve or deny everything currently waiting
@@ -60,6 +60,11 @@ and a and d answer it without a second terminal or an id to copy.
   --dry-run   read current state and print the plan without changing anything
   --replan    rebuild each undo from the current manifest, for a run recorded
               under a policy that turned out to be wrong
+
+Neither path usually needs giving. A policy that belongs to a project sits in
+it and is found from any directory inside it, the way a version control tool
+finds its root; anything else lives in ~/.synartesis, which is where the
+journal is too. Set SYNARTESIS_HOME to put that somewhere else.
 
 Exit codes: 0 complete, 1 halted or partial, 2 bad usage or configuration.
 `;

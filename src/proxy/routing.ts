@@ -66,7 +66,24 @@ export function createRouter(upstreams: readonly Upstream[], manifest: Manifest)
     route(exposed: string): Route | undefined {
       if (!prefixed) {
         const only = upstreams[0];
-        return only === undefined ? undefined : { upstream: only, tool: exposed };
+        if (only === undefined) {
+          return undefined;
+        }
+        // The qualified name works here too. Guarding one server advertises
+        // `write_file` and guarding two advertises `fs__write_file`, so a name
+        // written down against one setup was rejected by the other -- and in
+        // this direction it was not even rejected: any unknown name routed to
+        // the only server, missed the policy written for `fs.write_file`, and
+        // was held for a human to approve as something that could not be
+        // undone. A read, held for approval, because it was spelled the way
+        // the other setup spells it.
+        //
+        // Only this server's own name is unwrapped; a tool whose real name
+        // begins with it would be written `fs.fs__write_file` in the manifest.
+        const prefix = `${only.name}${SEPARATOR}`;
+        return exposed.startsWith(prefix)
+          ? { upstream: only, tool: exposed.slice(prefix.length) }
+          : { upstream: only, tool: exposed };
       }
       for (const key of keys) {
         const prefix = `${key}${SEPARATOR}`;

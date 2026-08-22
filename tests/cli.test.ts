@@ -515,3 +515,15 @@ describe("setting up without a project to set it up in", () => {
     expect(text).toContain("other:");
   });
 });
+
+describe("the help on where things are", () => {
+  it("says the journal is in the home, since that is where it is", async () => {
+    // "default .synartesis/journal.db" read as a path relative to here, and
+    // someone following it would go looking in the wrong directory for the
+    // record of everything their agent had done.
+    const help = await run("node", [CLI, "--help"]);
+    expect(help.stdout).toContain("~/.synartesis");
+    expect(help.stdout).toContain("SYNARTESIS_HOME");
+    expect(help.stdout).not.toContain("default .synartesis/journal.db");
+  });
+});
