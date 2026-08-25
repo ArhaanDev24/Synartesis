@@ -443,6 +443,40 @@ Other things to know:
 - A malformed manifest stops the proxy from starting, with the file and line to
   fix. It will never run with a policy it could not understand.
 
+### Saying what absence looks like
+
+A pre-read that fails tells you nothing about *why*. MCP has no code for "not
+found", so a snapshot that comes back with an error could mean the resource was
+never there — an agent creating a file — or that it exists and could not be
+read. Those need opposite answers: the first is a call to ask a person about,
+the second is a call to refuse outright.
+
+Tell the policy what its server says when a thing is not there:
+
+```yaml
+- match: "fs.write_file"
+  class: reversible
+  snapshot:
+    tool: "fs.read_text_file"
+    args:
+      path: "$.path"
+    absent_when: ["ENOENT", "no such file"]
+```
+
+Anything else the pre-read reports is then a failed snapshot, and the write is
+refused rather than offered for approval as a creation. Without `absent_when`,
+every error has to be read as absence, which is the safe reading but a blunt
+one. Every policy bundled here declares it.
+
+### The size of what you can snapshot
+
+A resource of more than roughly three megabytes cannot be read back through a
+stdio MCP connection — the reply is too large to carry, and the connection
+closes. Synartesis reconnects and says so, and refuses the write rather than
+applying a change it could not capture. That is the right answer, but it does
+mean **writes to very large files are refused, not undone**. Nothing is lost;
+the call simply does not go through.
+
 ## Commands
 
 | Command | Does |
@@ -456,6 +490,7 @@ Other things to know:
 | `undo <runId>` | Reverse a run, newest action first |
 | `undo <runId> --replan` | Same, but rebuild each undo from the current manifest |
 | `check` | Load a manifest and verify it against the servers it names |
+| `close [runId]` | End a run a killed proxy left open. Nothing guesses at this: several proxies can share one journal, so a run left active is indistinguishable from one still being worked on |
 
 `--manifest` and `--journal` are found rather than typed. Both are looked for
 from the current directory upwards, the way a version control tool finds its
@@ -485,7 +520,8 @@ synartesis proxy --manifest ~/.synartesis/synartesis.yaml --http 9123 --token "$
 The endpoint is `/mcp` and every request needs `Authorization: Bearer <token>`.
 A token of at least 16 characters is **required** — it refuses to start without
 one — and it binds to `127.0.0.1` unless `--http-host` says otherwise, which
-warns when it is not loopback.
+warns when it is not loopback. A session that goes quiet for half an hour is
+closed; `--http-idle <seconds>` changes that.
 
 Reaching it from the internet means putting a tunnel in front of it. That is
 deliberately your decision and not a flag: what is on the other end can write

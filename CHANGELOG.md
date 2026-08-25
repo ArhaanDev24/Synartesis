@@ -2,6 +2,32 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.2.3 — 2026-08-22
+
+### Fixed
+
+- **A first run reads as empty rather than as an error.** The screen and `watch`
+  have always said "one appears the first time an agent calls a tool through the
+  proxy"; `list`, `show` and `gates` aborted with "there is no journal at
+  <path>", which is true and leads nowhere. They exit 0 and say the same
+  sentence now, without creating a journal for having looked. `undo` still fails
+  — there is nothing to undo — but names `synartesis proxy`, and a missing
+  policy names `synartesis init`.
+- **`absent_when` on every bundled policy.** It was declared for files and
+  nowhere else, so GitHub's three snapshots still read a permissions change or a
+  rate limit as "there is nothing here" and offered the write for approval as a
+  creation. A test now requires it of every snapshot that ships.
+- **Idle HTTP sessions are swept.** A session was removed only on a clean close,
+  so a client that dropped left its proxy and upstream handles held for the life
+  of the process. Half an hour by default, `--http-idle` to change.
+
+### Added
+
+- `--http-idle <seconds>` on the proxy.
+- README: `absent_when`, `synartesis close`, and the snapshot size limit — a
+  resource over roughly three megabytes cannot be read back through stdio, so
+  writes to it are refused rather than risked.
+
 ## 0.2.2 — 2026-08-22
 
 ### Fixed
