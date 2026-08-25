@@ -111,3 +111,27 @@ describe("serving over http, for clients that will not start a process", () => {
     expect(await listed.text()).toContain("get_customer");
   });
 });
+
+describe("a session whose client vanished", () => {
+  it("is swept, rather than held for the life of the process", { timeout: 20000 }, async () => {
+    // Sessions were removed only on a clean close. A client that drops -- a
+    // network blip, a connector that gives up -- left its entry, and its proxy
+    // and upstream handles, in the map forever. stdio cannot leak this way;
+    // a long-running http server can.
+    const { port } = await serve(["--token", TOKEN, "--http-idle", "1"]);
+    const opened = await post(port, INIT, TOKEN);
+    const session = opened.headers.get("mcp-session-id") ?? "";
+    expect(session).toBeTruthy();
+
+    // Alive while it is being used.
+    await post(port, { jsonrpc: "2.0", method: "notifications/initialized" }, TOKEN, session);
+    const early = await post(port, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, TOKEN, session);
+    expect(early.status).toBe(200);
+
+    // Then abandoned, with no DELETE and no close.
+    await new Promise((resolve) => setTimeout(resolve, 2600));
+    const late = await post(port, { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} }, TOKEN, session);
+    expect(late.status).toBe(400);
+    expect(await late.text()).toMatch(/no such session/i);
+  });
+});

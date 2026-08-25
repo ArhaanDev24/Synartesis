@@ -21,6 +21,8 @@ export interface HttpOptions {
   readonly port: number;
   readonly host: string;
   readonly token: string;
+  /** Seconds a session may sit untouched before it is closed. */
+  readonly idleSeconds: number;
   /** A fresh proxy per session, since a run belongs to one client's connection. */
   readonly create: () => ProxyServer;
   readonly log: {
@@ -132,7 +134,28 @@ function isInitialize(body: unknown): boolean {
 }
 
 export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
-  const sessions = new Map<string, { transport: WebStandardStreamableHTTPServerTransport; proxy: ProxyServer }>();
+  interface Live {
+    readonly transport: WebStandardStreamableHTTPServerTransport;
+    readonly proxy: ProxyServer;
+    lastSeen: number;
+  }
+  const sessions = new Map<string, Live>();
+
+  // A client that drops without closing -- a network blip, a connector that
+  // gives up -- used to leave its session, and the proxy and upstream handles
+  // behind it, in this map for the life of the process. unref'd so an idle
+  // server still exits when nothing else is holding it open.
+  const sweep = setInterval(() => {
+    const deadline = Date.now() - options.idleSeconds * 1000;
+    for (const [id, live] of sessions) {
+      if (live.lastSeen < deadline) {
+        sessions.delete(id);
+        options.log.info({ session: id }, "http session swept after going quiet");
+        void live.transport.close().catch(() => undefined);
+      }
+    }
+  }, Math.max(1000, (options.idleSeconds * 1000) / 4));
+  sweep.unref();
 
   const server = createServer((req, res) => {
     void (async (): Promise<void> => {
@@ -154,6 +177,7 @@ export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
         const sessionId = req.headers["mcp-session-id"];
         const existing = typeof sessionId === "string" ? sessions.get(sessionId) : undefined;
         if (existing !== undefined) {
+          existing.lastSeen = Date.now();
           await writeResponse(res, await existing.transport.handleRequest(toRequest(req, raw, origin)));
           return;
         }
@@ -171,7 +195,7 @@ export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
         const transport = new WebStandardStreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
           onsessioninitialized: (id: string) => {
-            sessions.set(id, { transport, proxy });
+            sessions.set(id, { transport, proxy, lastSeen: Date.now() });
             options.log.info({ session: id }, "http session opened");
           },
         });
@@ -210,6 +234,7 @@ export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
   return {
     port,
     close: async (): Promise<void> => {
+      clearInterval(sweep);
       for (const { transport } of sessions.values()) {
         await transport.close().catch(() => undefined);
       }

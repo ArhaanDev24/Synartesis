@@ -18,6 +18,26 @@ describe("the manifests that ship with this", () => {
     expect(move?.gate).toBe("always");
   });
 
+  it("says what absence looks like wherever it takes a snapshot", () => {
+    // A snapshot with no absent_when has to read every failed pre-read as
+    // "there is nothing here", so a resource that exists and cannot be read is
+    // offered for approval as a creation. That was fixed for files and left
+    // undone for github, which has three snapshots of its own.
+    process.env["GITHUB_PERSONAL_ACCESS_TOKEN"] = "test-token";
+    process.env["MEMORY_FILE_PATH"] = "/tmp/memory.json";
+    for (const name of ["filesystem", "git", "github", "memory", "toy-crm"]) {
+      const path = `manifests/${name}.yaml`;
+      const manifest = parseManifest(readFileSync(path, "utf8"), path);
+      for (const rule of manifest.tools) {
+        if (rule.snapshot === undefined) {
+          continue;
+        }
+        expect(rule.snapshot.absentWhen, `${name}: ${rule.match}`).toBeDefined();
+        expect(rule.snapshot.absentWhen?.length, `${name}: ${rule.match}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it("loads every manifest it ships", () => {
     // The two that read the environment say so plainly when it is not set,
     // which is the behaviour, not a fault; supplied here so the rest of each

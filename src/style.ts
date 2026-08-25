@@ -92,3 +92,16 @@ export function banner(): string {
     "",
   ].join("\n");
 }
+
+/**
+ * What to say when there is no journal yet.
+ *
+ * The screen and `watch` have always said this; the scriptable commands aborted
+ * with "there is no journal at <path>" instead, which is true and leads
+ * nowhere. Someone who types `synartesis list` before pointing an agent at
+ * anything has not made a mistake -- they are early.
+ */
+export const NOTHING_RECORDED_YET = [
+  "One appears the first time an agent calls a tool through the proxy.",
+  "Point your client at it, then work as usual; this will fill in.",
+];

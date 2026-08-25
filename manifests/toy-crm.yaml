@@ -28,6 +28,7 @@ tools:
       tool: "crm.get_customer"
       args:
         id: "$.id"
+      absent_when: ["no customer with id"]
     inverse:
       tool: "crm.update_customer"
       args:
@@ -45,6 +46,7 @@ tools:
       tool: "crm.get_customer"
       args:
         id: "$.id"
+      absent_when: ["no customer with id"]
     inverse:
       tool: "crm.restore_customer"
       args:

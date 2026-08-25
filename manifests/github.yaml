@@ -54,6 +54,11 @@ tools:
         owner: "$.owner"
         repo: "$.repo"
         issue_number: "$.issue_number"
+      # What GitHub says when the thing is not there. Anything else the
+      # pre-read reports -- a permissions change, a rate limit -- is a failed
+      # snapshot rather than absence, and the write is refused instead of being
+      # offered for approval as a creation.
+      absent_when: ["Not Found", "404"]
     inverse:
       tool: "github.update_issue"
       args:
@@ -83,6 +88,11 @@ tools:
         owner: "$.owner"
         repo: "$.repo"
         pull_number: "$.pull_number"
+      # What GitHub says when the thing is not there. Anything else the
+      # pre-read reports -- a permissions change, a rate limit -- is a failed
+      # snapshot rather than absence, and the write is refused instead of being
+      # offered for approval as a creation.
+      absent_when: ["Not Found", "404"]
     inverse:
       tool: "github.update_pull_request"
       args:
@@ -143,6 +153,11 @@ tools:
         repo: "$.repo"
         path: "$.path"
         ref: "$.branch"
+      # What GitHub says when the thing is not there. Anything else the
+      # pre-read reports -- a permissions change, a rate limit -- is a failed
+      # snapshot rather than absence, and the write is refused instead of being
+      # offered for approval as a creation.
+      absent_when: ["Not Found", "404"]
     inverse:
       tool: "github.create_or_update_file"
       args:

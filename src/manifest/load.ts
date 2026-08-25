@@ -308,11 +308,29 @@ export function parseManifest(text: string, file: string): Manifest {
   return manifest;
 }
 
+/** Node reports a missing file with code ENOENT and no type to narrow on. */
+function isMissing(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ENOENT"
+  );
+}
+
 export function loadManifest(path: string): Manifest {
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch (error: unknown) {
+    // A policy that is simply not there yet is the commonest way this fails,
+    // and it has an answer. Saying only "ENOENT" leaves someone who has not
+    // run init with no idea that init is the thing that writes this file.
+    if (isMissing(error)) {
+      throw new ManifestError(
+        `there is no policy at ${path}. Write one with: synartesis init <name> -- <the server's command>`,
+      );
+    }
     throw new ManifestError(`cannot read manifest at ${path}: ${describeCause(error)}`);
   }
   return parseManifest(text, path);

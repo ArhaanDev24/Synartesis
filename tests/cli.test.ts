@@ -440,15 +440,18 @@ describe("the gate, driven from a second process", () => {
     journal.close();
   });
 
-  it("says a journal is missing rather than inventing an empty one", async () => {
+  it("says nothing has started rather than inventing an empty journal", async () => {
     const space = workspace();
     const absent = join(space.dir, "nowhere", "journal.db");
     const listed = await run("node", [CLI, "gates", "--journal", absent]);
 
-    expect(listed.code).toBe(1);
-    expect(listed.stderr).toContain("no journal at");
-    // An empty journal here would report "nothing waiting", which reads
-    // exactly like a real answer.
+    // Being early is not an error, so this reads as empty. What it must not do
+    // is answer "nothing waiting" -- that reads exactly like a real answer
+    // from a journal that has been recording all along.
+    expect(listed.code).toBe(0);
+    expect(listed.stdout).toMatch(/nothing has been recorded yet/i);
+    expect(listed.stdout).not.toMatch(/nothing is waiting/i);
+    // And looking must not leave a journal behind.
     expect(existsSync(absent)).toBe(false);
   });
 
@@ -608,5 +611,46 @@ describe("a flag that was typed wrong", () => {
     ]);
     expect(started.code).toBe(0);
     expect(existsSync(join(space.dir, "new.yaml"))).toBe(true);
+  });
+});
+
+describe("before an agent has done anything", () => {
+  function emptyHome(): { dir: string; journal: string } {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-cold-"));
+    dirs.push(dir);
+    return { dir, journal: join(dir, "journal.db") };
+  }
+
+  it("reads as empty rather than as an error", async () => {
+    // The screen and watch have always said "one appears the first time an
+    // agent calls a tool through the proxy". These aborted with "there is no
+    // journal at <path>", which is true and leads nowhere: someone who types
+    // this before pointing an agent at anything is early, not wrong.
+    const space = emptyHome();
+    for (const command of ["list", "show", "gates"]) {
+      const result = await run("node", [CLI, command, "--journal", space.journal]);
+      expect(result.code, `${command} should exit 0`).toBe(0);
+      expect(result.stdout, `${command} should say what to do`).toMatch(/first time an agent calls/i);
+    }
+  });
+
+  it("leaves no journal behind for having looked", async () => {
+    const space = emptyHome();
+    await run("node", [CLI, "list", "--journal", space.journal]);
+    expect(existsSync(space.journal)).toBe(false);
+  });
+
+  it("still fails undo, but names the next step", async () => {
+    const space = emptyHome();
+    const result = await run("node", [CLI, "undo", "--journal", space.journal]);
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toMatch(/synartesis proxy/);
+  });
+
+  it("points check at init when there is no manifest", async () => {
+    const space = emptyHome();
+    const result = await run("node", [CLI, "check", "--manifest", join(space.dir, "none.yaml")]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/synartesis init/);
   });
 });

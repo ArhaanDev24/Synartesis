@@ -23,7 +23,7 @@ import { verifyAgainstServers } from "./manifest/verify.js";
 import { createRouter } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
-import { banner, rule, style } from "./style.js";
+import { banner, NOTHING_RECORDED_YET, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
 import { watch } from "./watch.js";
 import { openConsole } from "./console.js";
@@ -727,6 +727,20 @@ function rejectUnknownFlags(argv: readonly string[]): void {
   }
 }
 
+/**
+ * The same open, with the one thing the error was missing: where a journal
+ * comes from. "There is no journal at <path>" is true and leads nowhere.
+ */
+function openJournalOrExplain(journalPath: string): Journal {
+  if (!existsSync(journalPath)) {
+    throw new UsageError(
+      `nothing has been recorded yet: there is no journal at ${journalPath}. ` +
+        `One appears the first time an agent calls a tool through synartesis proxy.`,
+    );
+  }
+  return openJournal(journalPath, { mustExist: true });
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const command = positional(argv)[0];
   if (command === "proxy") {
@@ -795,8 +809,27 @@ async function main(argv: readonly string[]): Promise<number> {
   // Repeated back only when it was not the obvious one, so a copied command
   // works from anywhere without being cluttered when it need not be.
   journalArg = given === undefined ? "" : ` --journal ${resolve(given)}`;
+  // Reading commands, before anything has been recorded. Being early is not an
+  // error, and the screen has always said so; these aborted with "there is no
+  // journal at <path>" instead. Answered without opening anything, so looking
+  // does not leave a journal behind either.
+  if (!existsSync(journalPath) && (command === "list" || command === "show" || command === "gates")) {
+    if (asJson) {
+      out(JSON.stringify(command === "show" ? { run: null, actions: [] } : []));
+      return 0;
+    }
+    out("");
+    out(`  ${style.quiet("nothing has been recorded yet")}`);
+    out("");
+    for (const line of NOTHING_RECORDED_YET) {
+      out(`  ${style.quiet(line)}`);
+    }
+    out("");
+    return 0;
+  }
+
   // Every remaining command reads an existing journal. Only the proxy makes one.
-  const journal = openJournal(journalPath, { mustExist: true });
+  const journal = openJournalOrExplain(journalPath);
   try {
     switch (command) {
       case "list":

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { labelFor, openJournal, wasRefused, type ActionRow, type Journal, type RunRow } from "./journal/journal.js";
 import type { RollbackReport } from "./rollback/rollback.js";
 import { keysIn } from "./keys.js";
-import { rule, style, WORDMARK } from "./style.js";
+import { NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
 
 /**
  * One screen you drive, rather than eight commands you have to remember.
@@ -275,8 +275,7 @@ function waitingForJournal(options: ConsoleOptions, tick: number): string {
     "",
     `  ${spinner}${style.quiet("no journal here yet")}`,
     "",
-    `  ${style.quiet("One appears the first time an agent calls a tool through the proxy.")}`,
-    `  ${style.quiet("Point your client at it, then work as usual; this will fill in.")}`,
+    ...NOTHING_RECORDED_YET.map((line) => `  ${style.quiet(line)}`),
     "",
   ].join("\n");
 }

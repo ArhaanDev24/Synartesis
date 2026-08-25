@@ -44,7 +44,12 @@ interface Argv {
   /** Whether --gate-timeout was actually typed, as against defaulted. */
   readonly gateTimeoutGiven: boolean;
   /** Serve over http instead of stdio, for a client that will not start one. */
-  readonly http?: { readonly port: number; readonly host: string; readonly token: string };
+  readonly http?: {
+    readonly port: number;
+    readonly host: string;
+    readonly token: string;
+    readonly idleSeconds: number;
+  };
   readonly logLevel: LogLevel;
 }
 
@@ -53,7 +58,7 @@ function parseArgv(argv: readonly string[]): Argv {
     const at = argv.indexOf(flag);
     return at === -1 ? undefined : argv[at + 1];
   };
-  const known = ["--manifest", "--journal", "--gate-timeout", "--log-level", "--http", "--http-host", "--token"];
+  const known = ["--manifest", "--journal", "--gate-timeout", "--log-level", "--http", "--http-host", "--http-idle", "--token"];
   const unknown = argv.find((token) => token.startsWith("--") && !known.includes(token));
   if (unknown !== undefined) {
     throw new Error(`unknown flag ${unknown}; expected one of ${known.join(", ")}`);
@@ -86,7 +91,12 @@ function parseArgv(argv: readonly string[]): Argv {
         "--http needs --token, or SYNARTESIS_TOKEN, of at least 16 characters: this serves write access over a socket",
       );
     }
-    http = { port, host: read("--http-host") ?? "127.0.0.1", token };
+    const rawIdle = read("--http-idle");
+    const idleSeconds = rawIdle === undefined ? 1800 : Number(rawIdle);
+    if (!Number.isFinite(idleSeconds) || idleSeconds <= 0) {
+      throw new Error("--http-idle needs a positive number of seconds");
+    }
+    http = { port, host: read("--http-host") ?? "127.0.0.1", token, idleSeconds };
   }
 
   const manifest = findManifest(read("--manifest"));
