@@ -219,7 +219,7 @@
     min-width: 0;
   }
 
-  .hero-figure { position: relative; aspect-ratio: 1; width: 100%; max-width: 17rem; justify-self: center; }
+  .hero-figure { position: relative; aspect-ratio: 1; width: 100%; max-width: 21rem; justify-self: center; }
   .hero-figure canvas { display: block; width: 100%; height: 100%; }
 
   /* --- the journal, playing itself ----------------------------------- */
@@ -862,6 +862,11 @@
     </div>
 
     <div class="hero-side">
+      <figure class="hero-figure" aria-label="An engraved loop returning on itself">
+        <canvas id="engraving" width="720" height="720" role="img"
+                aria-label="A ring of fine engraved lines closing back on itself"></canvas>
+      </figure>
+
       <!-- The markup below is the run as it stands when it has finished: four
            calls recorded, one of them held. That is what a reader sees with no
            javascript, with motion turned off, or if the script never runs at
@@ -925,11 +930,6 @@
           <button type="button" class="ledger-act" id="ledger-act" data-role="undo">Undo this run</button>
         </div>
       </div>
-
-      <figure class="hero-figure" aria-label="An engraved loop returning on itself">
-        <canvas id="engraving" width="720" height="720" role="img"
-                aria-label="A ring of fine engraved lines closing back on itself"></canvas>
-      </figure>
     </div>
   </section>
 
