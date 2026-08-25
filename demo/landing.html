@@ -925,7 +925,10 @@
           lines, and the shape you will write yourself for a server it does not recognise.
           <b>snapshot</b> is what to read before the call; <b>inverse</b> is the call that puts
           that back. <code class="inline">$.path</code> is an argument the agent passed;
-          <code class="inline">$snapshot.content</code> is what the pre-read found.
+          <code class="inline">$snapshot.content</code> is what the pre-read found. And
+          <b>absent_when</b> is what this server says when the thing is not there &mdash;
+          without it, a file that exists but cannot be read looks identical to one being
+          created, and gets offered for approval as though it were.
         </p>
         <div class="terminal">
           <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>an unrecognised server, before you fill it in</span></div>
@@ -941,6 +944,7 @@
     tool: <span class="dim">"fs.read_text_file"</span>
     args:
       path: <span class="hit">"$.path"</span>
+    <span class="hit">absent_when</span>: [<span class="dim">"ENOENT"</span>, <span class="dim">"no such file"</span>]   <span class="dim"># what "not there" sounds like</span>
   inverse:                         <span class="dim"># and this puts it back</span>
     tool: <span class="dim">"fs.write_file"</span>
     args:
@@ -1121,7 +1125,10 @@ args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <s
         <div class="terminal">
           <div class="terminal-bar"><span>an endpoint instead of a process</span><span>/mcp, bearer token</span></div>
 <pre><span class="prompt">$</span> <span class="hit">synartesis proxy</span> --manifest ~/.synartesis/synartesis.yaml \
-    <span class="hit">--http</span> 9123 <span class="hit">--token</span> <span class="dim">"$SYNARTESIS_TOKEN"</span></pre>
+    <span class="hit">--http</span> 9123 <span class="hit">--token</span> <span class="dim">"$SYNARTESIS_TOKEN"</span>
+
+  <span class="dim">a session that goes quiet for half an hour is closed;</span>
+  <span class="dim">--http-idle changes that</span></pre>
         </div>
         <p>
           Reaching that from the internet means a tunnel in front of it, and that stays your
@@ -1216,6 +1223,12 @@ args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <s
         it stopped.
       </p>
       <p>
+        <strong>It cannot snapshot something very large.</strong> A resource of more than
+        roughly three megabytes cannot be read back through a stdio connection &mdash; the
+        reply is too large to carry. Synartesis says so, and refuses the write rather than
+        applying a change it could not capture. Nothing is lost; the call does not go through.
+      </p>
+      <p>
         <strong>It can only undo what the system underneath allows.</strong> GitHub has no
         delete for issues, so creating one is guarded, not reversible. That is the shape of
         the world, and the job is to be honest about it.
@@ -1225,7 +1238,7 @@ args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <s
 </main>
 
 <footer class="colophon">
-  <span class="label">Synartesis 0.1.0 &middot; MIT licence &middot; open source</span>
+  <span class="label">Synartesis &middot; MIT licence &middot; open source &middot; <a href="https://www.npmjs.com/package/synartesis">npm</a></span>
   <span class="label">Built on the Model Context Protocol</span>
 </footer>
 
