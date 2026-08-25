@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>Synartesis</title>
 <!-- Without this a phone lays the page out at 980px and then shrinks the whole
      thing to fit, so every measurement below is right and nothing is legible. -->
@@ -73,6 +74,20 @@
     }
 
     .install-line button:active { transform: translateY(1px); }
+
+    /* The journal rows rise as they land, and the added line fades with the
+       write that made it. Both are opacity and transform, like everything
+       else here. */
+    .ledger-row {
+      transition:
+        opacity 0.4s var(--ease),
+        transform 0.4s var(--ease),
+        border-color 0.35s var(--ease);
+    }
+
+    .ledger-row[data-state="pending"] { transform: translateY(6px); }
+    .ledger-added, .ledger-empty { transition: opacity 0.5s var(--ease); }
+    .ledger-act { transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease); }
   }
 
   /* One column, centred, rather than text running the full width of a big
@@ -198,8 +213,204 @@
     margin-bottom: 0.55rem;
   }
 
-  .hero-figure { position: relative; aspect-ratio: 1; width: 100%; max-width: 21rem; justify-self: end; }
+  .hero-side {
+    display: grid;
+    gap: clamp(1.1rem, 2.4vw, 1.7rem);
+    min-width: 0;
+  }
+
+  .hero-figure { position: relative; aspect-ratio: 1; width: 100%; max-width: 17rem; justify-self: center; }
   .hero-figure canvas { display: block; width: 100%; height: 100%; }
+
+  /* --- the journal, playing itself ----------------------------------- */
+  /* The other half of the hero was the one place a stranger had nothing to
+     look at while deciding whether to keep reading. What fills it is not a
+     picture of the product: it is the product's own output. Four calls of a
+     real run arrive, the fourth is held because it cannot be undone, and then
+     the whole run is taken back while the file underneath changes with it.
+     Every string in it was copied out of an actual session rather than
+     written for the page, which is the only version worth showing. */
+
+  .ledger {
+    background: var(--panel);
+    color: var(--panel-ink);
+    font-family: var(--mono);
+    font-size: clamp(0.66rem, 0.6rem + 0.22vw, 0.76rem);
+    line-height: 1.5;
+    min-width: 0;
+  }
+
+  .ledger-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.85rem;
+    border-bottom: 1px solid var(--panel-rule);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--panel-faint);
+  }
+
+  .ledger-title {
+    background: var(--ground);
+    color: var(--ink);
+    font-weight: 500;
+    padding: 0.1rem 0.5rem;
+    letter-spacing: 0.2em;
+  }
+
+  /* The mode line is the one piece of text here that changes length as the
+     run proceeds. Right-aligning it in the space left over means the panel
+     never rewraps around it. */
+  .ledger-mode {
+    flex: 1;
+    min-width: 0;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ledger-stage { position: relative; }
+
+  .ledger-rows {
+    list-style: none;
+    margin: 0;
+    padding: 0.7rem 0.85rem;
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  /* An empty journal is four rows of nothing, which is a hole in the page
+     rather than a state. It gets the sentence the program itself prints on a
+     journal no agent has reached yet, laid over the space the rows are
+     holding open. */
+  .ledger-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    align-content: center;
+    padding-inline: 1.2rem;
+    margin: 0;
+    text-align: center;
+    text-wrap: balance;
+    color: var(--panel-faint);
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .ledger[data-phase="empty"] .ledger-empty { opacity: 1; }
+
+  /* A fixed final column rather than monospace padding: the status word
+     changes from applied to revert to skip as the run is undone, and a column
+     sized to its content would shove the tool name sideways each time. */
+  .ledger-row {
+    display: grid;
+    grid-template-columns: 1.5rem 1rem minmax(0, 1fr) 9ch;
+    align-items: baseline;
+    column-gap: 0.5rem;
+    padding-left: 0.45rem;
+    border-left: 1px solid transparent;
+  }
+
+  .ledger-seq, .ledger-glyph { color: var(--panel-faint); }
+  .ledger-tool { color: var(--panel-ink); font-weight: 500; }
+  .ledger-status { color: var(--panel-faint); text-align: right; }
+
+  .ledger-tool, .ledger-status, .ledger-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ledger-line {
+    grid-column: 3 / -1;
+    min-width: 0;
+    color: var(--panel-faint);
+  }
+
+  /* Hidden but still holding its place, so nothing below it moves as the run
+     fills in. A row that collapsed would make the whole panel jump four
+     times on the way through. */
+  .ledger-row[data-state="pending"] { opacity: 0; visibility: hidden; }
+
+  .ledger-row[data-state="gated"],
+  .ledger-row[data-state="revert"] { border-left-color: var(--panel-hit); }
+
+  .ledger-row[data-state="gated"] .ledger-status,
+  .ledger-row[data-state="gated"] .ledger-glyph,
+  .ledger-row[data-state="gated"] .ledger-line,
+  .ledger-row[data-state="revert"] .ledger-status { color: var(--panel-hit); }
+
+  .ledger-row[data-state="skip"] { opacity: 0.5; }
+
+  /* Rewinding to an empty journal is bookkeeping, not something to watch:
+     the rows leave at once rather than fading out one by one, so the only
+     motion the eye is given is the run arriving. */
+  .ledger[data-snap="true"] .ledger-row,
+  .ledger[data-snap="true"] .ledger-added { transition: none; }
+
+  .ledger-disk {
+    border-top: 1px solid var(--panel-rule);
+    padding: 0.7rem 0.85rem;
+  }
+
+  .ledger-path {
+    margin: 0;
+    font-size: 0.64rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--panel-faint);
+  }
+
+  /* The label is set in capitals; the path it names is not, because a path
+     that has been shouted is a different path. */
+  .ledger-path span {
+    letter-spacing: 0;
+    text-transform: none;
+    margin-left: 0.5rem;
+  }
+
+  .ledger-body {
+    margin: 0.4rem 0 0;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--panel-ink);
+  }
+
+  /* Opacity rather than display, so the line the agent added leaves its space
+     behind when it goes and the panel keeps one height throughout. */
+  .ledger-added { color: var(--panel-hit); }
+  .ledger-added[data-on="false"] { opacity: 0; }
+
+  .ledger-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0.85rem;
+    border-top: 1px solid var(--panel-rule);
+  }
+
+  .ledger-verdict { margin: 0; min-width: 0; color: var(--panel-faint); }
+  .ledger-verdict b { color: var(--panel-hit); font-weight: 500; }
+
+  .ledger-act {
+    font: inherit;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--panel-ink);
+    border: 1px solid var(--panel-rule);
+    padding: 0.4rem 0.75rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .ledger-act:hover:enabled { background: var(--ground-lift); border-color: var(--ground-lift); color: var(--ink); }
+  .ledger-act:disabled { opacity: 0.4; cursor: default; }
 
   /* --- terminal ------------------------------------------------------ */
 
@@ -565,7 +776,14 @@
 
   @media (max-width: 860px) {
     .hero { grid-template-columns: 1fr; }
-    .hero-figure { order: -1; max-width: 20rem; margin-inline: auto; }
+    .hero-figure { max-width: 15rem; margin-inline: auto; }
+    /* The verdict and its button stop sharing a line once there is not
+       enough width for both to keep their own. */
+    .ledger-foot { flex-wrap: wrap; }
+
+    /* Capitals set this wide cost more than they are worth once the bar has
+       only a phone's width to hold both halves. */
+    .ledger-bar { font-size: 0.6rem; letter-spacing: 0.07em; }
     .refusal { grid-template-columns: 1fr; }
     .class-row { grid-template-columns: 2rem 1fr; row-gap: 0.5rem; }
     .class-what, .class-does { grid-column: 2; }
@@ -643,10 +861,76 @@
       </div>
     </div>
 
-    <figure class="hero-figure" aria-label="An engraved loop returning on itself">
-      <canvas id="engraving" width="720" height="720" role="img"
-              aria-label="A ring of fine engraved lines closing back on itself"></canvas>
-    </figure>
+    <div class="hero-side">
+      <!-- The markup below is the run as it stands when it has finished: four
+           calls recorded, one of them held. That is what a reader sees with no
+           javascript, with motion turned off, or if the script never runs at
+           all -- a true state rather than an empty box. The script starts from
+           here, rewinds to nothing and plays it. -->
+      <div class="ledger" id="ledger">
+        <div class="ledger-bar">
+          <span class="ledger-title">Synartesis</span>
+          <span class="ledger-mode" id="ledger-mode">one run, as it happened</span>
+        </div>
+
+        <div class="ledger-stage">
+          <p class="ledger-empty" aria-hidden="true">
+            One appears the first time an agent calls a tool through the proxy.
+          </p>
+          <ol class="ledger-rows">
+            <li class="ledger-row" data-state="applied">
+              <span class="ledger-seq">1</span>
+              <span class="ledger-glyph" aria-hidden="true">&middot;</span>
+              <span class="ledger-tool">fs.read_text_file</span>
+              <span class="ledger-status">applied</span>
+              <span class="ledger-line">{"path":"~/notes/roadmap.md"}</span>
+            </li>
+            <li class="ledger-row" data-state="applied">
+              <span class="ledger-seq">2</span>
+              <span class="ledger-glyph" aria-hidden="true">&larr;</span>
+              <span class="ledger-tool">fs.write_file</span>
+              <span class="ledger-status">applied</span>
+              <span class="ledger-line">undo: write_file &#123;"content":"# Roadmap\n\n- ship 0.3\n"&#125;</span>
+            </li>
+            <li class="ledger-row" data-state="applied">
+              <span class="ledger-seq">3</span>
+              <span class="ledger-glyph" aria-hidden="true">&larr;</span>
+              <span class="ledger-tool">fs.write_file</span>
+              <span class="ledger-status">applied</span>
+              <span class="ledger-line">undo: write_file &#123;"content":"draft\n"&#125;</span>
+            </li>
+            <li class="ledger-row" data-state="gated">
+              <span class="ledger-seq">4</span>
+              <span class="ledger-glyph" aria-hidden="true">!</span>
+              <span class="ledger-tool">fs.create_directory</span>
+              <span class="ledger-status">gated</span>
+              <span class="ledger-line">note: this action cannot be undone</span>
+            </li>
+          </ol>
+        </div>
+
+        <div class="ledger-disk">
+          <p class="ledger-path">on disk <span>~/notes/roadmap.md</span></p>
+<pre class="ledger-body"># Roadmap
+
+- ship 0.3<span class="ledger-added" id="ledger-added" data-on="true">
+- rewrite the parser</span></pre>
+        </div>
+
+        <div class="ledger-foot">
+          <p class="ledger-verdict">
+            <b id="ledger-key">1 call</b>
+            <span id="ledger-rest">is waiting on a person</span>
+          </p>
+          <button type="button" class="ledger-act" id="ledger-act" data-role="undo">Undo this run</button>
+        </div>
+      </div>
+
+      <figure class="hero-figure" aria-label="An engraved loop returning on itself">
+        <canvas id="engraving" width="720" height="720" role="img"
+                aria-label="A ring of fine engraved lines closing back on itself"></canvas>
+      </figure>
+    </div>
   </section>
 
   <div class="fret" role="presentation"></div>
@@ -2169,4 +2453,189 @@ args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <s
     settle = setTimeout(drawAll, 180);
   });
 })();
+</script>
+
+<script>
+  // The journal in the hero, playing a real run.
+  //
+  // Everything the panel says came out of an actual session against the
+  // bundled filesystem policy: the four calls, the class of each one, the
+  // reason the fourth is held, and the four verdicts the undo prints on the
+  // way back out. Writing plausible-looking output instead would have been
+  // easier and would have made the most prominent thing on the page the one
+  // thing that was not true.
+  //
+  // The markup already holds the finished run. This script only ever moves
+  // between states that are true of it, so the worst thing a failure here can
+  // do is leave the panel sitting on the state it was served with.
+  (function () {
+    const ledger = document.getElementById("ledger");
+    if (ledger === null) return;
+
+    const rows = [...ledger.querySelectorAll(".ledger-row")];
+    const mode = document.getElementById("ledger-mode");
+    const added = document.getElementById("ledger-added");
+    const key = document.getElementById("ledger-key");
+    const rest = document.getElementById("ledger-rest");
+    const act = document.getElementById("ledger-act");
+    if (rows.length !== 4 || [mode, added, key, rest, act].includes(null)) return;
+
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // What undo prints for each call, in the order the calls were made. It
+    // works backwards through them, which is why the panel does too.
+    const REVERSAL = [
+      { state: "skip", status: "skip", line: "readonly" },
+      { state: "revert", status: "revert", line: "state matches; applying inverse" },
+      { state: "revert", status: "revert", line: "state matches; applying inverse" },
+      { state: "skip", status: "skip", line: "never applied (awaiting approval)" },
+    ];
+
+    // The served markup, read once, so replaying is a matter of putting back
+    // what was there rather than a second copy of it kept in this file.
+    const AS_RUN = rows.map((row) => ({
+      state: row.dataset.state ?? "applied",
+      status: row.querySelector(".ledger-status").textContent,
+      line: row.querySelector(".ledger-line").textContent,
+    }));
+
+    let timers = [];
+    const after = (ms, fn) => { timers.push(setTimeout(fn, ms)); };
+    const stop = () => { for (const timer of timers) clearTimeout(timer); timers = []; };
+
+    const put = (row, step) => {
+      row.dataset.state = step.state;
+      row.querySelector(".ledger-status").textContent = step.status;
+      row.querySelector(".ledger-line").textContent = step.line;
+    };
+
+    const say = (which, word, tail) => {
+      mode.textContent = which;
+      key.textContent = word;
+      rest.textContent = tail;
+    };
+
+    // The three states worth landing on. Each is complete in itself: whenever
+    // the panel stops, for whatever reason, it stops on one of these.
+    const asRun = () => {
+      ledger.dataset.phase = "run";
+      rows.forEach((row, index) => { put(row, AS_RUN[index]); });
+      added.dataset.on = "true";
+      say("one run, as it happened", "1 call", "is waiting on a person");
+      act.textContent = "Undo this run";
+      act.dataset.role = "undo";
+      act.disabled = false;
+    };
+
+    const rolledBack = () => {
+      ledger.dataset.phase = "run";
+      rows.forEach((row, index) => { put(row, REVERSAL[index]); });
+      added.dataset.on = "false";
+      say("the run was taken back", "rolled_back", "\u2014 roadmap.md is back to what it was");
+      act.textContent = "Run it again";
+      act.dataset.role = "replay";
+      act.disabled = false;
+    };
+
+    const emptied = () => {
+      // Cut, rather than dissolve. Getting back to the start of the loop is
+      // not part of what the panel is showing.
+      ledger.dataset.snap = "true";
+      ledger.dataset.phase = "empty";
+      for (const row of rows) { row.dataset.state = "pending"; }
+      added.dataset.on = "false";
+      void ledger.offsetHeight;
+      // A frame is the right moment to put the transitions back, but a hidden
+      // tab is never given one, and the flag left behind would go on
+      // suppressing every animation in the panel after the tab came back. The
+      // timer is not there to be precise, only to be certain: it is untracked
+      // on purpose, so nothing that cancels the run can cancel it too.
+      requestAnimationFrame(() => { delete ledger.dataset.snap; });
+      setTimeout(() => { delete ledger.dataset.snap; }, 120);
+      say("waiting for an agent", "nothing", "has been recorded yet");
+      act.textContent = "Undo this run";
+      act.dataset.role = "undo";
+      act.disabled = true;
+    };
+
+    const reverse = () => {
+      stop();
+      say("undoing the run", "undo", "works backwards, newest call first");
+      act.disabled = true;
+      let at = 0;
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const step = REVERSAL[index];
+        after(at, () => {
+          put(rows[index], step);
+          // The write that added the line is call 2, so the line goes when
+          // its inverse does. The file and the journal agree at every frame.
+          if (index === 1) added.dataset.on = "false";
+        });
+        at += 560;
+      }
+      after(at + 350, rolledBack);
+      after(at + 5600, play);
+    };
+
+    function play() {
+      stop();
+      emptied();
+      let at = 450;
+      rows.forEach((row, index) => {
+        after(at, () => {
+          ledger.dataset.phase = "run";
+          put(row, AS_RUN[index]);
+          if (index === 1) added.dataset.on = "true";
+          if (index === rows.length - 1) asRun();
+        });
+        at += 780;
+      });
+      after(at + 2400, reverse);
+    }
+
+    act.addEventListener("click", () => {
+      const replaying = act.dataset.role === "replay";
+      if (still) {
+        // No motion means no timers: the button moves straight to the other
+        // end, which is the whole of what it promises anyway.
+        stop();
+        if (replaying) asRun(); else rolledBack();
+        return;
+      }
+      if (replaying) play(); else reverse();
+    });
+
+    if (still) return;
+
+    if (!("IntersectionObserver" in window)) { play(); return; }
+
+    // A loop nobody is looking at is a timer running for no one, and on a
+    // phone that is battery. It runs while it is on screen and stops when it
+    // is not -- and stopping means going back to a state that reads correctly
+    // if it is never started again.
+    let running = false;
+    const watcher = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !running) {
+            running = true;
+            play();
+          } else if (!entry.isIntersecting && running) {
+            running = false;
+            stop();
+            asRun();
+          }
+        }
+      },
+      { threshold: 0.3 },
+    );
+    watcher.observe(ledger);
+
+    // Coming back to a tab whose timers were throttled while it was hidden
+    // would otherwise mean finding the run half drawn.
+    document.addEventListener("visibilitychange", () => {
+      if (!running) return;
+      if (document.hidden) { stop(); asRun(); } else { play(); }
+    });
+  })();
 </script>
