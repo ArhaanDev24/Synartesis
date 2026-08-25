@@ -298,7 +298,7 @@ each manifest below says plainly where that runs out.
 | [`memory.yaml`](manifests/memory.yaml) | `@modelcontextprotocol/server-memory` | the knowledge graph an agent keeps about you |
 | [`git.yaml`](manifests/git.yaml) | `mcp-server-git` | a real repository's index and history |
 | [`github.yaml`](manifests/github.yaml) | `github/github-mcp-server` | issues, pull requests, file contents |
-| [`toy-crm.yaml`](manifests/toy-crm.yaml) | the fixture in this repo | the worked example of every class |
+| [`toy-crm.yaml`](manifests/toy-crm.yaml) | the fixture in this repo, not in the published package | the worked example of every class |
 
 Every one of those but `github.yaml` was checked against the server actually
 running. Two demos run the whole loop for real:

@@ -2,6 +2,18 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.2.4 — 2026-08-25
+
+### Changed
+
+- **The toy CRM and the demo agent no longer ship.** They exist to make this
+  repo's walkthrough work, and that walkthrough is run from a clone — so
+  installing put a fixture server, a demo harness and a policy pointing at a
+  binary that is not there onto everyone's disk. `manifests/toy-crm.yaml` goes
+  with them for the same reason. 21 files down to 16, 162 kB to 152 kB.
+  Nothing a user runs is affected: `synartesis`, `synartesis proxy`, the four
+  real policies and the HTTP mode are all untouched.
+
 ## 0.2.3 — 2026-08-22
 
 ### Fixed

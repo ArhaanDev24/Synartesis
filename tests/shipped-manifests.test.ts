@@ -50,3 +50,24 @@ describe("the manifests that ship with this", () => {
     }
   });
 });
+
+describe("what the published package carries", () => {
+  it("leaves the fixtures behind", () => {
+    // The toy CRM and the demo agent exist to make this repo's walkthrough
+    // work, and that walkthrough is explicitly run from a clone. Shipping them
+    // to everyone who installs puts a server and a harness on their disk that
+    // nothing in the package can use -- and a policy pointing at a binary that
+    // is not there.
+    const pkg: unknown = JSON.parse(readFileSync("package.json", "utf8"));
+    const files =
+      typeof pkg === "object" && pkg !== null && "files" in pkg && Array.isArray(pkg.files)
+        ? pkg.files.map(String)
+        : [];
+    expect(files).toContain("!dist/toy-crm.*");
+    expect(files).toContain("!dist/demo-agent.*");
+    expect(files).toContain("!manifests/toy-crm.yaml");
+    // And the things a user does need are still declared.
+    expect(files).toContain("dist");
+    expect(files).toContain("manifests");
+  });
+});
