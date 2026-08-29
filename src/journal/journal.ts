@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 import Database from "better-sqlite3";
@@ -262,8 +262,66 @@ export interface Journal {
   getActions(runId: string): readonly ActionRow[];
   /** The newest actions across every run, for watching work as it happens. */
   recentActions(limit: number): readonly ActionRow[];
+  /**
+   * Runs old enough to discard and finished enough that discarding one loses
+   * nothing anybody can still act on. Everything still in play is excluded
+   * whatever its age: an active run, and any run holding an action that is
+   * `pending` (a call went out and nobody knows what it did), `gated` (a
+   * person has not decided yet) or `rolling_back` (an inverse may be half
+   * applied). Age is not a reason to throw away an unanswered question.
+   */
+  prunableRuns(before: string): readonly PrunableRun[];
+  /** Removes runs and their actions. Returns what actually went. */
+  deleteRuns(runIds: readonly string[]): { runs: number; actions: number };
+  /**
+   * Reclaims the space the deletes freed. Deleting rows leaves a SQLite file
+   * exactly as large as it was, so without this a prune frees nothing a user
+   * can see. Cannot run inside a transaction.
+   */
+  vacuum(): void;
   pragma(name: string): unknown;
   close(): void;
+}
+
+export interface PrunableRun {
+  readonly id: string;
+  readonly label: string | undefined;
+  /** When it last did anything, which is what its age is measured from. */
+  readonly at: string;
+  readonly status: RunStatus;
+  readonly actions: number;
+}
+
+/**
+ * A journal is not a log. To put a file back, its previous contents have to be
+ * kept, so this database holds a verbatim copy of everything an agent
+ * overwrote -- and, in the arguments, everything it wrote. A key that was
+ * sitting in a file the agent touched is in here in plain text.
+ *
+ * SQLite creates its file with whatever the umask allows, which is 0644 on an
+ * ordinary machine: readable by every other account, and by anything walking
+ * $HOME. This is the ~/.ssh case, and it gets the ~/.ssh answer.
+ *
+ * On every open rather than only on create, because the journals that most
+ * need this are the ones already sitting on disk. Nothing legitimate wants a
+ * shared journal: several proxies sharing one are several processes of one
+ * person, which 0600 allows.
+ */
+function restrictToOwner(path: string): void {
+  // The sidecars carry the same content. WAL is enabled just after this, so
+  // they may not exist yet -- SQLite gives a new one the mode of the database
+  // file, and the next open catches any that were made before this ran.
+  for (const file of [path, `${path}-wal`, `${path}-shm`]) {
+    try {
+      if (existsSync(file)) {
+        chmodSync(file, 0o600);
+      }
+    } catch {
+      // Windows chmod only moves a read-only bit, and some network mounts
+      // refuse it outright. Neither is a reason to stop a working tool: the
+      // warning belongs in the docs, not in a crash here.
+    }
+  }
 }
 
 /**
@@ -274,6 +332,11 @@ export interface Journal {
 function openDatabase(path: string): Database.Database {
   try {
     const db = new Database(path);
+    // Before the first pragma, so the window in which the file exists at the
+    // umask's mode is as short as it can be made from here.
+    if (path !== ":memory:") {
+      restrictToOwner(path);
+    }
     // The pragmas, not the constructor: better-sqlite3 opens lazily, so a file
     // that is not a database is only found out on the first read.
     db.pragma("journal_mode = WAL");
@@ -285,6 +348,11 @@ function openDatabase(path: string): Database.Database {
     // tool recommends. Writes here are tiny, so the wait is milliseconds; the
     // five seconds is the ceiling before something is genuinely wedged.
     db.pragma("busy_timeout = 5000");
+    // Again, because turning WAL on is what creates the sidecars, and they
+    // hold the same content as the database they belong to.
+    if (path !== ":memory:") {
+      restrictToOwner(path);
+    }
     return db;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -303,7 +371,9 @@ class SqliteJournal implements Journal {
 
   constructor(path: string) {
     if (path !== ":memory:") {
-      mkdirSync(dirname(path), { recursive: true });
+      // 0700 for the same reason the journal is 0600. A umask can only clear
+      // bits, never set them, so this is the mode on any ordinary machine.
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     }
     // Opening is the one step a user is most likely to get wrong -- a typo in
     // --journal, a path that is a directory, a file that is something else
@@ -706,6 +776,77 @@ class SqliteJournal implements Journal {
    * A failed journal write means the record of what the agent did is
    * incomplete. It is never swallowed and never merely logged.
    */
+  prunableRuns(before: string): readonly PrunableRun[] {
+    return this.#run("prunableRuns", () =>
+      this.#db
+        .prepare(
+          // COALESCE, because a run that was closed is dated by when it
+          // finished and one that was not is dated by when it began.
+          `SELECT r.id, r.label, r.status, COALESCE(r.ended_at, r.started_at) AS at,
+                  (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS actions
+             FROM runs r
+            WHERE r.status != 'active'
+              AND COALESCE(r.ended_at, r.started_at) < ?
+              AND NOT EXISTS (
+                    SELECT 1 FROM actions a
+                     WHERE a.run_id = r.id
+                       AND a.status IN ('pending','gated','rolling_back'))
+            ORDER BY at, r.rowid`,
+        )
+        .all(before)
+        .map((row) =>
+          z
+            .object({
+              id: z.string(),
+              label: z.string().nullable(),
+              status: z.enum(["complete", "rolled_back", "partial"]),
+              at: z.string(),
+              actions: z.number(),
+            })
+            .parse(row),
+        )
+        .map((row) => ({
+          id: row.id,
+          label: row.label ?? undefined,
+          at: row.at,
+          status: row.status,
+          actions: row.actions,
+        })),
+    );
+  }
+
+  deleteRuns(runIds: readonly string[]): { runs: number; actions: number } {
+    return this.#run("deleteRuns", () => {
+      const remove = this.#db.transaction((ids: readonly string[]) => {
+        let runs = 0;
+        let actions = 0;
+        const dropActions = this.#db.prepare("DELETE FROM actions WHERE run_id = ?");
+        const dropRun = this.#db.prepare("DELETE FROM runs WHERE id = ?");
+        for (const id of ids) {
+          // Actions first: they carry the foreign key onto the run, so the
+          // other order is rejected rather than cascading.
+          actions += dropActions.run(id).changes;
+          runs += dropRun.run(id).changes;
+        }
+        return { runs, actions };
+      });
+      // immediate, for the same reason recordPending is: this reads before it
+      // writes, and a deferred transaction cannot take the write lock later.
+      return remove.immediate(runIds);
+    });
+  }
+
+  vacuum(): void {
+    this.#run("vacuum", () => {
+      this.#db.exec("VACUUM");
+      // And then fold the log back in. In WAL mode the rebuilt database is
+      // written to the write-ahead log, so until this runs the file on disk is
+      // exactly the size it was and the prune appears to have freed nothing --
+      // which, to anyone looking at df, is the same as not working.
+      this.#db.pragma("wal_checkpoint(TRUNCATE)");
+    });
+  }
+
   #run<T>(operation: string, body: () => T): T {
     try {
       return body();

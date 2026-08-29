@@ -1,6 +1,6 @@
 {
   "name": "synartesis",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "An undo layer for AI agents.",
   "type": "module",
   "private": false,
@@ -34,6 +34,7 @@
     "!manifests/toy-crm.yaml",
     "README.md",
     "CHANGELOG.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "engines": {

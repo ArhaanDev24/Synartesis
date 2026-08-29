@@ -12,8 +12,9 @@ if (NODE_MAJOR < 22) {
   process.exit(2);
 }
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { ManifestError, SynartesisError, describe } from "./errors.js";
 import { draftManifest } from "./init/draft.js";
@@ -38,6 +39,7 @@ const COMMANDS = `
   synartesis show <runId> [--journal <path>]
   synartesis gates [--journal <path>]
   synartesis close [runId] [--journal <path>]
+  synartesis prune [--older-than <days>] [--dry-run] [--journal <path>]
   synartesis proxy --manifest <path> [--journal <path>]   what your agent runs
                   [--http <port> --token <secret>]      for a client that
                                                         cannot start one
@@ -49,6 +51,10 @@ const COMMANDS = `
 
 close ends a run left active by a proxy that was killed; nothing guesses at
 that, since several proxies can share one journal.
+
+prune reclaims space. Putting a file back means keeping what was in it, so a
+journal grows at several times what an agent writes and never shrinks by
+itself. Nothing still active or still waiting on a person is ever pruned.
 
 Ids may be shortened to any unambiguous prefix. show and undo default to the
 most recent run; approve and deny default to the only request waiting. init
@@ -67,6 +73,8 @@ and a and d answer it without a second terminal or an id to copy.
   --dry-run   read current state and print the plan without changing anything
   --replan    rebuild each undo from the current manifest, for a run recorded
               under a policy that turned out to be wrong
+  --older-than  days of history prune keeps; defaults to 30
+  --version   print the version and exit
 
 Neither path usually needs giving. A policy that belongs to a project sits in
 it and is found from any directory inside it, the way a version control tool
@@ -91,7 +99,7 @@ function flag(argv: readonly string[], name: string): string | undefined {
 }
 
 function positional(argv: readonly string[]): string[] {
-  const skip = new Set(["--manifest", "--journal", "--to", "--by", "--reason", "--gate-timeout"]);
+  const skip = new Set(["--manifest", "--journal", "--to", "--by", "--reason", "--gate-timeout", "--older-than"]);
   const values: string[] = [];
   // Everything after `--` belongs to the wrapped command, not to us.
   const end = argv.indexOf("--");
@@ -190,7 +198,9 @@ async function runInit(argv: readonly string[]): Promise<number> {
   // Never write a manifest that would not start: a drafted policy that fails
   // to load is worse than no policy, because it looks finished.
   parseManifest(draft.yaml, path);
-  mkdirSync(dirname(resolve(path)), { recursive: true });
+  // 0700: the journal that lands in here holds the previous contents of every
+  // file an agent writes, and the directory is the first thing guarding it.
+  mkdirSync(dirname(resolve(path)), { recursive: true, mode: 0o700 });
   writeFileSync(path, draft.yaml);
 
   out("");
@@ -287,7 +297,7 @@ function out(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
-function runList(journal: Journal, asJson: boolean): number {
+function runList(journal: Journal, asJson: boolean, journalPath: string): number {
   // Most recent first: the run someone wants to undo is nearly always the last
   // thing that happened.
   const runs = [...journal.listRuns()].reverse();
@@ -324,6 +334,13 @@ function runList(journal: Journal, asJson: boolean): number {
     );
   }
   out("");
+  // Only once it is big enough to be worth a sentence. Keeping what was in
+  // every file an agent wrote adds up quietly, and finding out from df is
+  // finding out too late.
+  if (bytesOf(journalPath) > PRUNE_NAG_BYTES) {
+    out(`  ${style.quiet(`This journal is ${sizeOf(journalPath)}; synartesis prune reclaims what is old enough to lose.`)}`);
+    out("");
+  }
   return 0;
 }
 
@@ -457,6 +474,103 @@ function summarise(actions: readonly ActionRow[]): string {
  * well be in a different directory than the one it was printed from.
  */
 let journalArg = "";
+
+/** Past this, a journal is worth mentioning without being asked. */
+const PRUNE_NAG_BYTES = 100 * 1024 * 1024;
+
+function bytesOf(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
+}
+
+/** Bytes as something a person reads, since this is the point of the command. */
+function sizeOf(path: string): string {
+  try {
+    const bytes = bytesOf(path);
+    if (bytes < 1024 * 1024) {
+      return `${String(Math.max(1, Math.round(bytes / 1024)))} kB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  } catch {
+    return "unknown";
+  }
+}
+
+const PRUNE_DEFAULT_DAYS = 30;
+
+/**
+ * Every write keeps the file as it was, the file as it became, and the call
+ * that did it, so a journal grows at several times the bytes an agent writes
+ * and never shrinks on its own. This is the way to get that space back.
+ *
+ * It is asked for, never automatic. A tool whose whole purpose is that you can
+ * still undo what happened has no business deleting that history on a timer.
+ */
+function runPrune(argv: readonly string[], journal: Journal, journalPath: string): number {
+  const given = flag(argv, "--older-than");
+  const days = given === undefined ? PRUNE_DEFAULT_DAYS : Number(given);
+  if (!Number.isFinite(days) || days < 0) {
+    throw new UsageError(`--older-than takes a number of days, not ${given ?? ""}`);
+  }
+
+  const before = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const stale = journal.prunableRuns(before);
+  const planned = argv.includes("--dry-run");
+  const sizeBefore = sizeOf(journalPath);
+
+  out("");
+  out(`  ${style.label(planned ? "would prune" : "prune")}  ${style.quiet(`older than ${String(days)} days`)}`);
+  out(`  ${rule(54)}`);
+  out("");
+  // Named, because a journal is found by walking up from here and this is the
+  // one command that throws history away. Being told afterwards which file
+  // that was is too late.
+  out(`  ${style.quiet(journalPath)}`);
+  out("");
+
+  if (stale.length === 0) {
+    out(`  ${style.quiet(`Nothing is older than ${String(days)} days and finished with.`)}`);
+    out("");
+    out(`  ${style.quiet(`The journal is ${sizeBefore}. Runs still active, and any`)}`);
+    out(`  ${style.quiet("holding a call that is waiting or in flight, are never pruned.")}`);
+    out("");
+    return 0;
+  }
+
+  let actions = 0;
+  for (const run of stale) {
+    actions += run.actions;
+    out(
+      `  ${style.strong((run.label ?? "an agent").padEnd(24))} ` +
+        `${style.quiet(run.at.slice(0, 19).replace("T", " "))}  ` +
+        `${style.quiet(run.status.padEnd(11))} ${style.quiet(`${String(run.actions)} actions`)}`,
+    );
+  }
+  out("");
+
+  if (planned) {
+    out(
+      `  ${style.accent(`${String(stale.length)} runs`)} ${style.quiet(`and ${String(actions)} actions would go. Nothing was changed.`)}`,
+    );
+    out("");
+    return 0;
+  }
+
+  const removed = journal.deleteRuns(stale.map((run) => run.id));
+  // After the delete and outside its transaction, which is the only place
+  // VACUUM can run -- and without it the file stays exactly as big as it was.
+  journal.vacuum();
+
+  out(
+    `  ${style.accent(`${String(removed.runs)} runs`)} ${style.quiet(`and ${String(removed.actions)} actions removed.`)}`,
+  );
+  out(`  ${style.quiet(`Journal ${sizeBefore} \u2192 ${sizeOf(journalPath)}.`)}`);
+  out("");
+  return 0;
+}
 
 function runClose(argv: readonly string[], journal: Journal): number {
   // Left active by a proxy that was killed rather than disconnected. Nothing
@@ -710,9 +824,34 @@ const FLAGS = new Set([
   "--replan",
   "--reason",
   "--force",
+  "--older-than",
   "--help",
   "-h",
+  "--version",
+  "-V",
 ]);
+
+/**
+ * The version, which is the first thing anybody is asked for when they report
+ * something. Read from the package rather than baked in, so it cannot drift
+ * from what npm thinks was installed. From dist/cli.js that is one directory
+ * up, which holds in a clone and in an install alike.
+ */
+function version(): string {
+  try {
+    const root = dirname(fileURLToPath(import.meta.url));
+    const parsed: unknown = JSON.parse(readFileSync(join(root, "..", "package.json"), "utf8"));
+    const found =
+      typeof parsed === "object" && parsed !== null
+        ? (parsed as { version?: unknown }).version
+        : undefined;
+    return typeof found === "string" ? found : "unknown";
+  } catch {
+    // Reporting "unknown" is still an answer. Refusing to start because a
+    // version string could not be found would not be.
+    return "unknown";
+  }
+}
 
 function rejectUnknownFlags(argv: readonly string[]): void {
   for (const token of argv) {
@@ -754,6 +893,12 @@ async function main(argv: readonly string[]): Promise<number> {
   }
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write(`${banner()}\n${COMMANDS}`);
+    return 0;
+  }
+  if (argv.includes("--version") || argv.includes("-V")) {
+    // Bare, with no styling around it: this is read by people filing issues
+    // and by scripts, and both want the string and nothing else.
+    process.stdout.write(`${version()}\n`);
     return 0;
   }
   rejectUnknownFlags(argv);
@@ -833,11 +978,13 @@ async function main(argv: readonly string[]): Promise<number> {
   try {
     switch (command) {
       case "list":
-        return runList(journal, asJson);
+        return runList(journal, asJson, journalPath);
       case "show":
         return runShow(argv, journal, asJson);
       case "close":
         return runClose(argv, journal);
+      case "prune":
+        return runPrune(argv, journal, journalPath);
       case "gates":
         return runGates(journal, asJson);
       case "approve":

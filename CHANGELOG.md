@@ -2,6 +2,49 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.3.0 — 2026-08-29
+
+### Security
+
+- **The journal is no longer world-readable.** To put a file back, what was in
+  it has to be kept — so the journal holds the previous contents of everything
+  an agent wrote, the arguments of every call, and every reply. SQLite created
+  it at whatever the umask allowed, which is `0644` on an ordinary machine: a
+  key that happened to be in a file your agent touched was readable by every
+  other account. It is now created `0600`, in a directory Synartesis makes
+  `0700`, and `0600` is re-applied on every open so a journal written by an
+  older version is closed the first time a newer one touches it.
+
+  A directory that already exists is deliberately left alone: a journal can sit
+  beside a policy inside a project, and quietly making your project directory
+  `0700` would be the worse surprise. If your `~/.synartesis` predates this
+  release, `chmod 700 ~/.synartesis` is worth doing once.
+
+### Added
+
+- **`synartesis prune`.** Every write stores the resource as it was, as it
+  became, and the call between them, so a journal grows at about four times
+  what an agent writes and never shrinks — thirty edits of one 200 kB file came
+  to 24 MB, with nothing in the tool or the docs saying so. `prune` deletes
+  runs finished more than 30 days ago (`--older-than <days>`, `--dry-run`) and
+  then `VACUUM`s, because deleting rows alone leaves a SQLite file exactly as
+  large as it was. That 24 MB journal came back to 32 kB.
+
+  It never touches a run that is still active, or one holding a call that is
+  waiting on a person or whose outcome is unknown: age is not an answer to a
+  question nobody answered. It names the journal it is about to act on, since
+  a journal is found by walking up from where you are standing. Nothing prunes
+  on a timer.
+- **`synartesis --version`**, which until now answered `unknown flag
+  --version` and exited 2. Also `-V`.
+- **`SECURITY.md`**, with a private reporting route and a plain account of what
+  the journal contains.
+
+### Documentation
+
+- The README says what the journal holds, what it is chmodded to, how fast it
+  grows and how to keep it in hand. None of that was written down anywhere.
+
 ## 0.2.4 — 2026-08-25
 
 ### Changed

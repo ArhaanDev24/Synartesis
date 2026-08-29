@@ -490,6 +490,7 @@ the call simply does not go through.
 | `undo <runId>` | Reverse a run, newest action first |
 | `undo <runId> --replan` | Same, but rebuild each undo from the current manifest |
 | `check` | Load a manifest and verify it against the servers it names |
+| `prune` | Delete runs older than 30 days and reclaim the space |
 | `close [runId]` | End a run a killed proxy left open. Nothing guesses at this: several proxies can share one journal, so a run left active is indistinguishable from one still being worked on |
 
 `--manifest` and `--journal` are found rather than typed. Both are looked for
@@ -502,7 +503,9 @@ that does not exist yet is placed beside the policy, so the proxy that creates
 it and the CLI that reads it agree without either being told.
 
 Other flags: `--dry-run`, `--to <seq>` and `--replan` on `undo`, `--all` on
-`approve` and `deny`, `--json` on `list`, `show` and `gates`.
+`approve` and `deny`, `--json` on `list`, `show` and `gates`, `--older-than
+<days>` and `--dry-run` on `prune`. `synartesis --version` prints the version
+and nothing else.
 
 Exit codes: `0` succeeded, `1` halted or refused, `2` bad usage or
 configuration.
@@ -575,6 +578,46 @@ exits.
 A manifest names commands and Synartesis runs them. Treat one you did not write
 the way you would treat a shell script from the same source: read it first.
 There is no sandbox here, and there is not meant to be.
+
+### What the journal holds
+
+Putting a file back means having kept what was in it, so the journal is not a
+log of what happened. It is a copy of the data: the contents of every resource
+before it was written, the arguments of every call, and what each server sent
+back. A key that was sitting in a file your agent touched is in there in plain
+text. That is not a leak to be closed — it is the thing that makes undo work.
+
+So it is treated as private data. The journal is created `0600` and the
+directory Synartesis makes for it `0700`, and `0600` is re-applied every time a
+journal is opened, which closes one written by an older version the first time
+a newer one touches it. A directory that already existed is left alone, because
+a journal can sit beside a policy inside a project and silently making your
+project directory `0700` would be the worse surprise. If your `~/.synartesis`
+predates 0.3.0, `chmod 700 ~/.synartesis` is worth doing once by hand.
+
+Nothing is encrypted. Full-disk encryption answers a stolen laptop; file
+permissions answer another account on a machine you share.
+
+### How fast it grows
+
+Every write keeps the resource as it was, the resource as it became, and the
+call that did it, so the journal grows at roughly **four times the bytes your
+agent writes** and never shrinks on its own. Thirty edits of one 200 kB file
+came to 24 MB.
+
+```bash
+synartesis prune                      # runs finished more than 30 days ago
+synartesis prune --older-than 7 --dry-run
+```
+
+It deletes whole runs and then `VACUUM`s, since deleting rows leaves a SQLite
+file exactly the size it was. It will not touch a run that is still active, or
+one holding a call that is waiting on a person or whose outcome is unknown —
+age is not an answer to a question nobody answered. A pruned run cannot be
+undone afterwards, which is the whole of the trade.
+
+Nothing prunes on a timer. A tool for undoing things should not discard the
+record of what was done unless it is asked to.
 
 ## Development
 

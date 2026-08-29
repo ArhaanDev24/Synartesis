@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import Database from "better-sqlite3";
 import { z } from "zod";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -652,5 +653,85 @@ describe("before an agent has done anything", () => {
     const result = await run("node", [CLI, "check", "--manifest", join(space.dir, "none.yaml")]);
     expect(result.code).toBe(2);
     expect(result.stderr).toMatch(/synartesis init/);
+  });
+});
+
+describe("the version", () => {
+  it("prints it and exits 0", async () => {
+    // The first thing anybody is asked for when they report something, and it
+    // used to answer "unknown flag --version" with exit 2.
+    const expected = z
+      .object({ version: z.string() })
+      .parse(JSON.parse(readFileSync("package.json", "utf8"))).version;
+
+    for (const flag of ["--version", "-V"]) {
+      const result = await run("node", [CLI, flag]);
+      expect(result.code, flag).toBe(0);
+      expect(result.stdout.trim(), flag).toBe(expected);
+    }
+  });
+});
+
+describe("prune, from the command line", () => {
+  it("reports what would go without touching it, then takes it", async () => {
+    const space = workspace();
+    await run("node", [PROXY, "--manifest", space.manifest, "--journal", space.journal],
+      frames({ name: "update_customer", arguments: { id: "c_001", plan: "free", notes: "edit" } }));
+
+    // Backdate it, since a run is dated when it happens and nothing offers to
+    // pretend otherwise.
+    const journal = openJournal(space.journal, { mustExist: true });
+    const runId = journal.listRuns()[0]?.id ?? "";
+    journal.close();
+    const db = new Database(space.journal);
+    const old = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare("UPDATE runs SET started_at = ?, ended_at = ? WHERE id = ?").run(old, old, runId);
+    db.close();
+
+    const planned = await run("node", [CLI, "prune", "--dry-run", "--journal", space.journal]);
+    expect(planned.code).toBe(0);
+    // Labels are letterspaced, which is the house style rather than an
+    // accident, so the header reads "W O U L D   P R U N E".
+    expect(planned.stdout.replace(/\s+/g, " ")).toMatch(/W O U L D P R U N E/);
+    expect(planned.stdout).toMatch(/Nothing was changed/i);
+
+    const still = openJournal(space.journal, { mustExist: true });
+    expect(still.listRuns()).toHaveLength(1);
+    still.close();
+
+    const done = await run("node", [CLI, "prune", "--journal", space.journal]);
+    expect(done.code).toBe(0);
+    expect(done.stdout).toMatch(/1 runs/);
+
+    const after = openJournal(space.journal, { mustExist: true });
+    expect(after.listRuns()).toHaveLength(0);
+    after.close();
+  });
+
+  it("keeps what is recent, and says which journal it is looking at", async () => {
+    const space = workspace();
+    await run("node", [PROXY, "--manifest", space.manifest, "--journal", space.journal],
+      frames({ name: "update_customer", arguments: { id: "c_001", plan: "free", notes: "edit" } }));
+
+    const result = await run("node", [CLI, "prune", "--journal", space.journal]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toMatch(/Nothing is older than 30 days/i);
+    // A journal is found by walking up from here, so the one command that
+    // throws history away has to say which file it means.
+    expect(result.stdout).toContain(space.journal);
+
+    const journal = openJournal(space.journal, { mustExist: true });
+    expect(journal.listRuns()).toHaveLength(1);
+    journal.close();
+  });
+
+  it("refuses a nonsense age rather than guessing at one", async () => {
+    const space = workspace();
+    await run("node", [PROXY, "--manifest", space.manifest, "--journal", space.journal],
+      frames({ name: "get_customer", arguments: { id: "c_001" } }));
+
+    const result = await run("node", [CLI, "prune", "--older-than", "yesterday", "--journal", space.journal]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/--older-than takes a number of days/);
   });
 });
