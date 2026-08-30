@@ -56,6 +56,37 @@ describe("what a drift halt tells you", () => {
     expect(message).toContain('"present":false');
   });
 
+  it("survives a snapshot nested deeper than a stack can recurse", () => {
+    // A snapshot is whatever the upstream server sent back. Walking it by
+    // recursion overflowed at about five thousand deep, which turned a drift
+    // halt -- the moment a person most needs a clear message -- into a stack
+    // trace. It is walked with an explicit stack now.
+    const deep = (depth: number): unknown => {
+      let value: unknown = "the contents of the file";
+      for (let i = 0; i < depth; i += 1) {
+        value = { nested: value };
+      }
+      return value;
+    };
+
+    for (const depth of [5_000, 100_000]) {
+      expect(
+        () => new DriftConflict(1, deep(depth), { present: false }).message,
+        `depth ${String(depth)}`,
+      ).not.toThrow();
+    }
+  });
+
+  it("survives a snapshot that refers to itself", () => {
+    // JSON.stringify throws on a cycle. A journal value is parsed JSON so it
+    // cannot hold one, but the constructor is public and the error path is the
+    // wrong place to be fragile.
+    const loop: Record<string, unknown> = { present: true };
+    loop["self"] = loop;
+
+    expect(() => new DriftConflict(7, loop, { present: false }).message).not.toThrow();
+  });
+
   it("survives a value JSON.stringify cannot render", () => {
     // JSON.stringify returns undefined rather than a string for this, and
     // .length on that throws. A drift report is the wrong place to crash.

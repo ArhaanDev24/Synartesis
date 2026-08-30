@@ -82,26 +82,45 @@ export class SnapshotError extends SynartesisError {
  * differently. Short strings are ignored so a path or an id is never mistaken
  * for the body.
  */
-function longestString(value: unknown, best = ""): string {
-  if (typeof value === "string") {
-    return value.length > best.length ? value : best;
-  }
-  if (Array.isArray(value)) {
-    let found = best;
-    for (const item of value) {
-      found = longestString(item, found);
+function longestString(value: unknown): string {
+  // Walked with an explicit stack rather than by recursion. A snapshot is
+  // whatever an upstream server sent back, and a recursive walk overflowed on
+  // one nested about five thousand deep -- which would turn a drift halt, the
+  // moment a person most needs a clear message, into a stack trace. The visit
+  // cap is the same argument applied to breadth.
+  const pending: unknown[] = [value];
+  let best = "";
+  let visited = 0;
+
+  while (pending.length > 0 && visited < MAX_SNAPSHOT_NODES) {
+    const item = pending.pop();
+    visited += 1;
+
+    if (typeof item === "string") {
+      if (item.length > best.length) {
+        best = item;
+      }
+    } else if (Array.isArray(item)) {
+      // One at a time: push(...huge) exceeds the argument limit and throws.
+      for (const child of item) {
+        pending.push(child);
+      }
+    } else if (typeof item === "object" && item !== null) {
+      for (const child of Object.values(item)) {
+        pending.push(child);
+      }
     }
-    return found;
   }
-  if (typeof value === "object" && value !== null) {
-    let found = best;
-    for (const item of Object.values(value)) {
-      found = longestString(item, found);
-    }
-    return found;
-  }
+
   return best;
 }
+
+/**
+ * A ceiling on how much of a snapshot is worth walking to find its text. Any
+ * real payload is found long before this; anything past it is a server sending
+ * something pathological, and a drift report is the wrong place to hang.
+ */
+const MAX_SNAPSHOT_NODES = 50_000;
 
 /** How many changed lines are worth printing before it stops being readable. */
 const DIFF_BUDGET = 8;
@@ -152,8 +171,15 @@ function brief(value: unknown): string {
   if (value === undefined) {
     return "undefined";
   }
-  const text = JSON.stringify(value);
-  return text.length <= 160 ? text : `${text.slice(0, 157)}...`;
+  try {
+    const text = JSON.stringify(value);
+    return text.length <= 160 ? text : `${text.slice(0, 157)}...`;
+  } catch {
+    // JSON.stringify recurses, so it overflows on a deeply nested value and
+    // throws on a circular one. Saying less is better than a stack trace in
+    // place of the drift report.
+    return "(a value too deeply nested to print)";
+  }
 }
 
 /**
