@@ -733,7 +733,10 @@
 
   /* The head of the install page. Not the landing hero: no mark, no journal,
      no argument -- somebody who is here has already decided. */
-  .hero-install { padding-block: clamp(2.4rem, 6vw, 4.5rem); max-width: 46rem; }
+  /* No max-width on the section: it already carries the centring
+     padding-inline, and capping the box collapses the text. */
+  .hero-install { padding-block: clamp(2.4rem, 6vw, 4.5rem); }
+  .hero-install .lede, .hero-install h1 { max-width: 34rem; }
   .hero-install h1 { font-size: clamp(2rem, 5vw, 3.4rem); margin-bottom: 1.2rem; }
   .hero-install .label { margin-bottom: 1.1rem; }
 

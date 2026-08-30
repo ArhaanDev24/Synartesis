@@ -427,12 +427,36 @@
 
   /* The name, explained after you have seen what it does rather than before.
      It was competing with the headline in the hero; here it closes the page. */
-  .naming {
-    padding-block: clamp(2.6rem, 6vw, 4.4rem);
-    max-width: 40rem;
-  }
+  .naming { padding-block: clamp(2.6rem, 6vw, 4.4rem); }
   .naming .greek { margin-bottom: 0.8rem; }
-  .naming p { margin: 0; color: var(--ink-soft); }
+  /* The cap goes here, not on the section: every section already carries a
+     padding-inline that centres the column, and a max-width on the box fights
+     it -- at 2000px the padding wants more room than the cap allows and the
+     text collapses to one word per line. */
+  .naming p { margin: 0; max-width: 40rem; color: var(--ink-soft); }
+
+  /* --- the run, recorded ---------------------------------------------- */
+  /* The page argues that an agent's writes can be taken back. This is the one
+     place it simply shows it happening, so it gets the width. */
+
+  .showreel-frame { margin: 0; }
+
+  .showreel-frame video {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--panel);
+    border: 1px solid var(--panel-rule);
+  }
+
+  .showreel-frame figcaption {
+    margin-top: 0.7rem;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
 
   /* --- terminal ------------------------------------------------------ */
 
@@ -938,6 +962,34 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <div class="fret" role="presentation"></div>
+
+  <section class="showreel">
+    <div class="section-head">
+      <h2 class="display">Twenty steps,<br>taken back</h2>
+      <p class="lede">
+        One real run against a toy CRM. The agent edits the wrong records and deletes one,
+        <code class="inline">synartesis undo</code> puts every reversible call back, and the
+        invoice email is held rather than sent, because that is the one thing nobody can
+        take back.
+      </p>
+    </div>
+    <figure class="showreel-frame">
+      <video
+        src="undo-run.mp4"
+        poster="undo-run.jpg"
+        muted
+        loop
+        playsinline
+        preload="metadata"
+        aria-label="A recorded session: an agent makes twenty calls through Synartesis, undo reverses the reversible ones against the CRM on disk, and a send_invoice_email call is held for approval because it cannot be undone."
+      ></video>
+      <figcaption>
+        Recorded against the toy CRM in this repo. No audio.
+      </figcaption>
+    </figure>
   </section>
 
   <div class="fret" role="presentation"></div>
@@ -2321,5 +2373,42 @@
       if (!running) return;
       if (document.hidden) { stop(); asRun(); } else { play(); }
     });
+  })();
+</script>
+
+<script>
+  // The recorded run. Muted and looping like every silent product video, but
+  // playing only while it is actually on screen: a 28-second loop running
+  // behind five screens of scroll is a phone battery and a fan for nobody.
+  //
+  // Reduced motion gets the poster and nothing else. There is no soundtrack to
+  // miss, and the caption plus the aria-label carry what it shows.
+  (function () {
+    const video = document.querySelector(".showreel-frame video");
+    if (!(video instanceof HTMLVideoElement)) return;
+
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    if (!("IntersectionObserver" in window)) {
+      // No observer is not a reason to show a dead frame.
+      video.play().catch(() => {});
+      return;
+    }
+
+    const watcher = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            // A rejected play promise is the browser declining autoplay, which
+            // is its right; the poster stays and nothing is broken.
+            video.play().catch(() => {});
+          } else {
+            video.pause();
+          }
+        }
+      },
+      { threshold: 0.25 },
+    );
+    watcher.observe(video);
   })();
 </script>
