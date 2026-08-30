@@ -282,10 +282,6 @@ than reporting an opaque failure.
 
 ## Real servers
 
-If you would rather follow steps than read about it, there is a
-[guide to running this against your own files](TESTING-ON-A-REAL-SYSTEM.md),
-with the gate and the drift check as the two things worth testing on purpose.
-
 Synartesis has nothing to do with email in particular. It sits on the MCP
 protocol, so its subject is whatever the servers you have connected can do:
 your files, your repositories, your database, your tickets, your agent's own
