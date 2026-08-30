@@ -187,6 +187,13 @@
     padding-block: clamp(2.2rem, 4.5vw, 3.4rem);
   }
 
+  /* A grid item will not shrink below its content, and the terminal below
+     holds a pre whose longest line is about 480px. Without this the hero
+     column refuses to go narrower than that line, the whole page is laid out
+     at 480px on a 390px phone, and the terminal's own overflow-x never gets
+     the chance to do its job. */
+  .hero > div { min-width: 0; }
+
   .hero h1 { font-size: clamp(2.1rem, 6.4vw, 4.4rem); }
 
   .etymology {
