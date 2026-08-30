@@ -725,6 +725,22 @@ describe("prune, from the command line", () => {
     journal.close();
   });
 
+  it("refuses an age too large to be a date", async () => {
+    // Number.isFinite is true for 1e9, but a cutoff that many days back is
+    // before the earliest date a Date can hold, so toISOString threw a
+    // RangeError and the user was told "Invalid time value" -- naming neither
+    // the flag nor the problem, and exiting 1 as though the prune had failed
+    // partway through rather than 2 as though a flag were mistyped.
+    const space = workspace();
+    await run("node", [PROXY, "--manifest", space.manifest, "--journal", space.journal],
+      frames({ name: "get_customer", arguments: { id: "c_001" } }));
+
+    const result = await run("node", [CLI, "prune", "--older-than", "999999999", "--journal", space.journal]);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/--older-than takes a number of days/);
+    expect(result.stderr).not.toMatch(/Invalid time value/);
+  });
+
   it("refuses a nonsense age rather than guessing at one", async () => {
     const space = workspace();
     await run("node", [PROXY, "--manifest", space.manifest, "--journal", space.journal],

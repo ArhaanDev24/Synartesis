@@ -772,10 +772,6 @@ class SqliteJournal implements Journal {
     this.#db.close();
   }
 
-  /**
-   * A failed journal write means the record of what the agent did is
-   * incomplete. It is never swallowed and never merely logged.
-   */
   prunableRuns(before: string): readonly PrunableRun[] {
     return this.#run("prunableRuns", () =>
       this.#db
@@ -847,6 +843,10 @@ class SqliteJournal implements Journal {
     });
   }
 
+  /**
+   * A failed journal write means the record of what the agent did is
+   * incomplete. It is never swallowed and never merely logged.
+   */
   #run<T>(operation: string, body: () => T): T {
     try {
       return body();

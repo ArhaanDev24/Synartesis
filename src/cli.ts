@@ -337,7 +337,7 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
   // Only once it is big enough to be worth a sentence. Keeping what was in
   // every file an agent wrote adds up quietly, and finding out from df is
   // finding out too late.
-  if (bytesOf(journalPath) > PRUNE_NAG_BYTES) {
+  if ((bytesOf(journalPath) ?? 0) > PRUNE_NAG_BYTES) {
     out(`  ${style.quiet(`This journal is ${sizeOf(journalPath)}; synartesis prune reclaims what is old enough to lose.`)}`);
     out("");
   }
@@ -478,28 +478,38 @@ let journalArg = "";
 /** Past this, a journal is worth mentioning without being asked. */
 const PRUNE_NAG_BYTES = 100 * 1024 * 1024;
 
-function bytesOf(path: string): number {
+/** Undefined rather than zero, so "cannot read it" stays distinct from "empty". */
+function bytesOf(path: string): number | undefined {
   try {
     return statSync(path).size;
   } catch {
-    return 0;
+    return undefined;
   }
 }
 
 /** Bytes as something a person reads, since this is the point of the command. */
 function sizeOf(path: string): string {
-  try {
-    const bytes = bytesOf(path);
-    if (bytes < 1024 * 1024) {
-      return `${String(Math.max(1, Math.round(bytes / 1024)))} kB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  } catch {
+  const bytes = bytesOf(path);
+  if (bytes === undefined) {
     return "unknown";
   }
+  if (bytes < 1024 * 1024) {
+    return `${String(Math.max(1, Math.round(bytes / 1024)))} kB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 const PRUNE_DEFAULT_DAYS = 30;
+
+/**
+ * A hundred years, which is not a limit anybody will meet and is well inside
+ * the range a Date can hold. Without a ceiling, --older-than 999999999 puts
+ * the cutoff before the earliest representable date, toISOString throws a
+ * RangeError, and the user is told "Invalid time value" -- which names neither
+ * the flag nor the problem, and exits 1 as though the prune had failed partway
+ * rather than 2 as though they had mistyped a flag.
+ */
+const PRUNE_MAX_DAYS = 36500;
 
 /**
  * Every write keeps the file as it was, the file as it became, and the call
@@ -512,8 +522,10 @@ const PRUNE_DEFAULT_DAYS = 30;
 function runPrune(argv: readonly string[], journal: Journal, journalPath: string): number {
   const given = flag(argv, "--older-than");
   const days = given === undefined ? PRUNE_DEFAULT_DAYS : Number(given);
-  if (!Number.isFinite(days) || days < 0) {
-    throw new UsageError(`--older-than takes a number of days, not ${given ?? ""}`);
+  if (!Number.isFinite(days) || days < 0 || days > PRUNE_MAX_DAYS) {
+    throw new UsageError(
+      `--older-than takes a number of days from 0 to ${String(PRUNE_MAX_DAYS)}, not ${given ?? ""}`,
+    );
   }
 
   const before = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
