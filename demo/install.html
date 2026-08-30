@@ -1,0 +1,1306 @@
+<meta charset="utf-8">
+<title>Synartesis · Install</title>
+<!-- Without this a phone lays the page out at 980px and then shrinks the whole
+     thing to fit, so every measurement below is right and nothing is legible. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+
+<style>
+  /* A single committed visual world. The ground is a bright green, so the ink
+     is a deep green rather than white: white on this ground is about 2:1 and
+     unreadable. Every colour is painted explicitly so the page holds whatever
+     ground the viewer's theme paints behind it. */
+  :root {
+    /* Oxblood: a deep red ground with a warm off-white on it. Everything is
+       painted explicitly so the page holds whatever ground the viewer's own
+       theme paints behind it. */
+    --ground: #5e1420;
+    --ground-lift: #7a1c2b;
+    --ink: #f6e9e5;
+    --panel: #2c080f;
+    --panel-ink: #f0d3cc;
+    --panel-hit: #e8927f;
+
+    --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--ground));
+    --ink-faint: color-mix(in srgb, var(--ink) 52%, var(--ground));
+    --rule: color-mix(in srgb, var(--ink) 24%, var(--ground));
+    --panel-faint: color-mix(in srgb, var(--panel-ink) 62%, var(--panel));
+    --panel-rule: color-mix(in srgb, var(--panel-ink) 26%, var(--panel));
+
+    --display: "Cormorant Garamond", "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+
+    --gutter: clamp(1.1rem, 4vw, 2.5rem);
+    --max: 1140px;
+    --measure: 60ch;
+    /* Grows with the margin it sits in, so a wide display gets a plate
+       rather than a stamp, and 1440px still gets one that fits. */
+    /* Sized from the margin it hangs in: the visible 62% always clears the
+       text column by the same gap, whatever the display. */
+    --medal: clamp(200px, calc(((100vw - 1140px) / 2 - 1.6rem) / 0.62), 380px);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  /* --- movement ------------------------------------------------------- */
+  /* One easing curve everywhere, so nothing feels like it came from a
+     different page. Everything here is opacity and transform only: those are
+     the two properties a browser can animate without laying the page out
+     again, which is the difference between smooth and nearly smooth. */
+  :root { --ease: cubic-bezier(0.22, 0.61, 0.36, 1); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal {
+      opacity: 0;
+      transform: translateY(14px);
+      transition:
+        opacity 0.55s var(--ease),
+        transform 0.55s var(--ease);
+    }
+
+    .reveal[data-shown="true"] { opacity: 1; transform: none; }
+
+    .command,
+    .install-tabs button,
+    .install-line button,
+    .masthead a.label {
+      transition:
+        background-color 0.2s var(--ease),
+        color 0.2s var(--ease),
+        border-color 0.2s var(--ease);
+    }
+
+    .install-line button:active { transform: translateY(1px); }
+
+    /* The journal rows rise as they land, and the added line fades with the
+       write that made it. Both are opacity and transform, like everything
+       else here. */
+    .ledger-row {
+      transition:
+        opacity 0.4s var(--ease),
+        transform 0.4s var(--ease),
+        border-color 0.35s var(--ease);
+    }
+
+    .ledger-row[data-state="pending"] { transform: translateY(6px); }
+    .ledger-added, .ledger-empty { transition: opacity 0.5s var(--ease); }
+    .ledger-act { transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease); }
+  }
+
+  /* One column, centred, rather than text running the full width of a big
+     display. The gutter grows into the margin instead of the content. */
+  .masthead, .hero, section, .colophon {
+    padding-inline: max(var(--gutter), (100% - var(--max)) / 2);
+  }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: clamp(0.9rem, 0.86rem + 0.14vw, 0.97rem);
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+  }
+
+  /* --- shared type roles -------------------------------------------- */
+
+  .label {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .display {
+    font-family: var(--display);
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    line-height: 0.94;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  .lede { max-width: var(--measure); color: var(--ink-soft); }
+
+  .rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
+
+  /* A meander: one line that turns back on itself without ever breaking,
+     which is what the name means. It divides the page rather than decorating
+     the margins of it. */
+  .fret {
+    height: 24px;
+    /* Masked rather than drawn: a data-uri cannot read a custom property, and
+       the fret has to follow whichever ink the palette is using. */
+    background-color: var(--ink);
+    opacity: 0.32;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    -webkit-mask-repeat: repeat-x;
+    mask-repeat: repeat-x;
+    -webkit-mask-position: center;
+    mask-position: center;
+  }
+
+  /* --- masthead ------------------------------------------------------ */
+
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-block: 1rem;
+    border-bottom: 1px solid var(--rule);
+    flex-wrap: wrap;
+  }
+
+  .wordmark {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 0.78rem;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+  }
+
+  .masthead .label { text-decoration: none; }
+  .masthead a.label:hover { color: var(--ink); }
+
+  /* --- hero ---------------------------------------------------------- */
+
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: clamp(1.5rem, 3.5vw, 3rem);
+    align-items: center;
+    padding-block: clamp(2.2rem, 4.5vw, 3.4rem);
+  }
+
+  /* A grid item will not shrink below its content, and the terminal below
+     holds a pre whose longest line is about 480px. Without this the hero
+     column refuses to go narrower than that line, the whole page is laid out
+     at 480px on a 390px phone, and the terminal's own overflow-x never gets
+     the chance to do its job. */
+  .hero > div { min-width: 0; }
+
+  .hero h1 { font-size: clamp(2.1rem, 6.4vw, 4.4rem); }
+
+  .etymology {
+    margin: 1.4rem 0 0;
+    padding-left: 1rem;
+    border-left: 1px solid var(--rule);
+    max-width: 46ch;
+    color: var(--ink-soft);
+  }
+
+  .etymology em {
+    font-family: var(--display);
+    font-style: italic;
+    font-size: 1.25em;
+    color: var(--ink);
+  }
+
+  .greek {
+    display: block;
+    font-family: var(--display);
+    font-size: clamp(1.3rem, 2.4vw, 1.75rem);
+    letter-spacing: 0.32em;
+    color: var(--ink);
+    margin-bottom: 0.55rem;
+  }
+
+  .hero-side {
+    display: grid;
+    gap: clamp(1.1rem, 2.4vw, 1.7rem);
+    min-width: 0;
+  }
+
+  .hero-figure { position: relative; aspect-ratio: 1; width: 100%; max-width: 21rem; justify-self: center; }
+  .hero-figure canvas { display: block; width: 100%; height: 100%; }
+
+  /* --- the journal, playing itself ----------------------------------- */
+  /* The other half of the hero was the one place a stranger had nothing to
+     look at while deciding whether to keep reading. What fills it is not a
+     picture of the product: it is the product's own output. Four calls of a
+     real run arrive, the fourth is held because it cannot be undone, and then
+     the whole run is taken back while the file underneath changes with it.
+     Every string in it was copied out of an actual session rather than
+     written for the page, which is the only version worth showing. */
+
+  .ledger {
+    background: var(--panel);
+    color: var(--panel-ink);
+    font-family: var(--mono);
+    font-size: clamp(0.66rem, 0.6rem + 0.22vw, 0.76rem);
+    line-height: 1.5;
+    min-width: 0;
+  }
+
+  .ledger-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.85rem;
+    border-bottom: 1px solid var(--panel-rule);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--panel-faint);
+  }
+
+  .ledger-title {
+    background: var(--ground);
+    color: var(--ink);
+    font-weight: 500;
+    padding: 0.1rem 0.5rem;
+    letter-spacing: 0.2em;
+  }
+
+  /* The mode line is the one piece of text here that changes length as the
+     run proceeds. Right-aligning it in the space left over means the panel
+     never rewraps around it. */
+  .ledger-mode {
+    flex: 1;
+    min-width: 0;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ledger-stage { position: relative; }
+
+  .ledger-rows {
+    list-style: none;
+    margin: 0;
+    padding: 0.7rem 0.85rem;
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  /* An empty journal is four rows of nothing, which is a hole in the page
+     rather than a state. It gets the sentence the program itself prints on a
+     journal no agent has reached yet, laid over the space the rows are
+     holding open. */
+  .ledger-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    align-content: center;
+    padding-inline: 1.2rem;
+    margin: 0;
+    text-align: center;
+    text-wrap: balance;
+    color: var(--panel-faint);
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  .ledger[data-phase="empty"] .ledger-empty { opacity: 1; }
+
+  /* A fixed final column rather than monospace padding: the status word
+     changes from applied to revert to skip as the run is undone, and a column
+     sized to its content would shove the tool name sideways each time. */
+  .ledger-row {
+    display: grid;
+    grid-template-columns: 1.5rem 1rem minmax(0, 1fr) 9ch;
+    align-items: baseline;
+    column-gap: 0.5rem;
+    padding-left: 0.45rem;
+    border-left: 1px solid transparent;
+  }
+
+  .ledger-seq, .ledger-glyph { color: var(--panel-faint); }
+  .ledger-tool { color: var(--panel-ink); font-weight: 500; }
+  .ledger-status { color: var(--panel-faint); text-align: right; }
+
+  .ledger-tool, .ledger-status, .ledger-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ledger-line {
+    grid-column: 3 / -1;
+    min-width: 0;
+    color: var(--panel-faint);
+  }
+
+  /* Hidden but still holding its place, so nothing below it moves as the run
+     fills in. A row that collapsed would make the whole panel jump four
+     times on the way through. */
+  .ledger-row[data-state="pending"] { opacity: 0; visibility: hidden; }
+
+  .ledger-row[data-state="gated"],
+  .ledger-row[data-state="revert"] { border-left-color: var(--panel-hit); }
+
+  .ledger-row[data-state="gated"] .ledger-status,
+  .ledger-row[data-state="gated"] .ledger-glyph,
+  .ledger-row[data-state="gated"] .ledger-line,
+  .ledger-row[data-state="revert"] .ledger-status { color: var(--panel-hit); }
+
+  .ledger-row[data-state="skip"] { opacity: 0.5; }
+
+  /* Rewinding to an empty journal is bookkeeping, not something to watch:
+     the rows leave at once rather than fading out one by one, so the only
+     motion the eye is given is the run arriving. */
+  .ledger[data-snap="true"] .ledger-row,
+  .ledger[data-snap="true"] .ledger-added { transition: none; }
+
+  .ledger-disk {
+    border-top: 1px solid var(--panel-rule);
+    padding: 0.7rem 0.85rem;
+  }
+
+  .ledger-path {
+    margin: 0;
+    font-size: 0.64rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--panel-faint);
+  }
+
+  /* The label is set in capitals; the path it names is not, because a path
+     that has been shouted is a different path. */
+  .ledger-path span {
+    letter-spacing: 0;
+    text-transform: none;
+    margin-left: 0.5rem;
+  }
+
+  .ledger-body {
+    margin: 0.4rem 0 0;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--panel-ink);
+  }
+
+  /* Opacity rather than display, so the line the agent added leaves its space
+     behind when it goes and the panel keeps one height throughout. */
+  .ledger-added { color: var(--panel-hit); }
+  .ledger-added[data-on="false"] { opacity: 0; }
+
+  .ledger-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.6rem 0.85rem;
+    border-top: 1px solid var(--panel-rule);
+  }
+
+  .ledger-verdict { margin: 0; min-width: 0; color: var(--panel-faint); }
+  .ledger-verdict b { color: var(--panel-hit); font-weight: 500; }
+
+  .ledger-act {
+    font: inherit;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--panel-ink);
+    border: 1px solid var(--panel-rule);
+    padding: 0.4rem 0.75rem;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .ledger-act:hover:enabled { background: var(--ground-lift); border-color: var(--ground-lift); color: var(--ink); }
+  .ledger-act:disabled { opacity: 0.4; cursor: default; }
+
+  /* --- terminal ------------------------------------------------------ */
+
+  .terminal {
+    background: var(--panel);
+    color: var(--panel-ink);
+    border: 1px solid var(--panel);
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    line-height: 1.75;
+    overflow-x: auto;
+  }
+
+  .terminal-bar {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid var(--panel-rule);
+    color: var(--panel-faint);
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .terminal pre { margin: 0; padding: 1rem; white-space: pre; }
+  .terminal .prompt { color: var(--panel-faint); }
+  .terminal .dim { color: var(--panel-faint); }
+  .terminal .hit { color: var(--panel-hit); font-weight: 500; }
+  .terminal .plate {
+    background: var(--ground);
+    color: var(--ink);
+    font-weight: 500;
+    padding: 0 0.35em;
+  }
+
+  .install { margin-top: 1.75rem; max-width: 40rem; }
+
+  /* A numbered sequence, because setting this up genuinely is one. */
+  .setup {
+    list-style: none;
+    counter-reset: setup;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 1.75rem;
+  }
+
+  .setup li {
+    counter-increment: setup;
+    display: grid;
+    grid-template-columns: 2.5rem minmax(0, 1fr);
+    gap: 0 1.25rem;
+    border-top: 1px solid var(--rule);
+    padding-top: 1.1rem;
+  }
+
+  .setup li::before {
+    content: counter(setup, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    color: var(--ink-faint);
+    padding-top: 0.2rem;
+  }
+
+  .setup h3 {
+    grid-column: 2;
+    margin: 0 0 0.35rem;
+    font-family: var(--display);
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    /* The same step as .plate-head h3. It was 1.35rem there and 1.3rem here:
+       0.8px apart, which is not a distinction anyone can see, only two
+       different guesses at one size. */
+    font-size: 1.3rem;
+    line-height: 1.1;
+  }
+
+  .setup p { grid-column: 2; margin: 0 0 0.9rem; color: var(--ink-soft); max-width: var(--measure); }
+  .setup .terminal, .setup .install-box { grid-column: 2; margin-bottom: 0; }
+
+  /* Four terminals side by side, so the whole sequence is visible at once
+     rather than read one panel at a time. */
+  .steps-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+    gap: 1.25rem;
+  }
+
+  .steps-grid .label { margin: 0 0 0.6rem; }
+
+  /* One command, in a box, because that is the thing a person came for. */
+  .install-box {
+    background: var(--panel);
+    color: var(--panel-ink);
+    border: 1px solid var(--panel);
+    max-width: 46rem;
+    margin-bottom: 1.75rem;
+  }
+
+  .install-tabs { display: flex; border-bottom: 1px solid var(--panel-rule); }
+
+  .install-tabs button {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: none;
+    border: 0;
+    border-right: 1px solid var(--panel-rule);
+    color: var(--panel-faint);
+    padding: 0.6rem 1rem;
+    cursor: pointer;
+  }
+
+  .install-tabs button[aria-pressed="true"] { color: var(--panel-ink); background: var(--ground-lift); }
+
+  .install-line {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+  }
+
+  .install-line code {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    flex: 1;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--panel-ink);
+  }
+
+  .install-line button {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: none;
+    border: 1px solid var(--panel-rule);
+    color: var(--panel-faint);
+    padding: 0.35rem 0.7rem;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .install-line button:hover { color: var(--panel-ink); border-color: var(--panel-ink); }
+
+  .inline {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--ground-lift);
+    padding: 0.1em 0.4em;
+  }
+
+  /* --- generic section ----------------------------------------------- */
+
+  section { padding-block: clamp(2rem, 4vw, 3.1rem); }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 1.5rem;
+    margin-bottom: 1.6rem;
+    flex-wrap: wrap;
+  }
+
+  .section-head h2 { font-size: clamp(1.35rem, 2.9vw, 2.05rem); }
+
+  /* --- the four classes, as plates ----------------------------------- */
+
+  .plates {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: clamp(1.25rem, 2.5vw, 2rem);
+  }
+
+  .plate-card { display: flex; flex-direction: column; gap: 0.6rem; margin: 0; }
+
+  .plate-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 0.5rem;
+  }
+
+  .plate-mark {
+    font-family: var(--mono);
+    font-size: 1.1rem;
+    color: var(--ink-faint);
+    width: 1.1rem;
+  }
+
+  .plate-card[data-emphasis="true"] .plate-mark { color: var(--ink); }
+
+  .plate-head h3 {
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 1.3rem;
+    line-height: 1;
+  }
+
+  .plate-card canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 1;
+    border: 1px solid var(--rule);
+  }
+
+  .plate-card figcaption {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    line-height: 1.7;
+    color: var(--ink-soft);
+  }
+
+  .plate-card figcaption b { color: var(--ink); font-weight: 500; }
+
+  /* --- ordered path --------------------------------------------------- */
+
+  /* The rules are row dividers, so they were running the full width of the
+     page while the text they divide stops at its measure -- 485px of hairline
+     per row, pointing at nothing, which read as a table missing a column.
+     Capped so the list ends where the lede above it does: the section head and
+     the list share one right margin instead of having two. */
+  .path { display: grid; gap: 0; counter-reset: step; max-width: 53rem; }
+
+  .step {
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    gap: 1.5rem;
+    padding: 0.95rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .step:first-child { border-top: 1px solid var(--rule); }
+
+  .step::before {
+    counter-increment: step;
+    content: counter(step, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    color: var(--ink-faint);
+    padding-top: 0.25rem;
+  }
+
+  .step h3 {
+    margin: 0 0 0.3rem;
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 0.85rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .step p { margin: 0; color: var(--ink-soft); max-width: var(--measure); }
+
+  /* --- refusal spread -------------------------------------------------- */
+
+  .refusal {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: clamp(2rem, 5vw, 3.5rem);
+    align-items: center;
+  }
+
+  .refusal h2 { font-size: clamp(1.35rem, 2.9vw, 2.05rem); }
+
+  /* --- commands -------------------------------------------------------- */
+
+  /* Rules on the cards, not the container. A container painted rule-colour
+     shows through wherever the last row is short -- nine cards in a grid of
+     four left one card beside a solid block of it. Bordering each card means
+     an empty cell is simply nothing. */
+  .commands {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    border-top: 1px solid var(--rule);
+    border-left: 1px solid var(--rule);
+  }
+
+  .command {
+    background: var(--ground);
+    padding: 1.1rem;
+    border-right: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .command:hover { background: var(--ground-lift); }
+  .install-tabs button:hover { color: var(--panel-ink); }
+
+  .command code {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    font-weight: 500;
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+
+  .command span { color: var(--ink-soft); font-size: 0.9rem; }
+
+  /* --- limits ---------------------------------------------------------- */
+
+  .limits { display: grid; gap: 1.1rem; max-width: var(--measure); }
+  .limits p { margin: 0; color: var(--ink-soft); }
+  .limits strong { color: var(--ink); font-weight: 500; }
+
+  /* The head of the install page. Not the landing hero: no mark, no journal,
+     no argument -- somebody who is here has already decided. */
+  .hero-install { padding-block: clamp(2.4rem, 6vw, 4.5rem); max-width: 46rem; }
+  .hero-install h1 { font-size: clamp(2rem, 5vw, 3.4rem); margin-bottom: 1.2rem; }
+  .hero-install .label { margin-bottom: 1.1rem; }
+
+  /* --- colophon --------------------------------------------------------- */
+
+  .colophon {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding-block: 1.4rem 2rem;
+    border-top: 1px solid var(--rule);
+  }
+
+
+  /* --- the pantheon ----------------------------------------------------- */
+  /* Eight gods as outline medallions, each one pressed half into the edge of
+     the page. Cropping them is not a compromise: a roundel cut by the margin
+     can be three times the size of one sitting politely inside it, and half a
+     medal pressed into an edge is an old habit rather than a new idea.
+
+     They are not ornament for its own sake. Each is named for the part of this
+     system it stands for, so the margin says something the column would
+     otherwise have to repeat. */
+
+  main { position: relative; }
+
+  .pantheon {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    display: none;
+  }
+
+  .niche {
+    position: absolute;
+    top: var(--at);
+    width: var(--medal);
+    margin: 0;
+  }
+
+  /* The fraction of the medal that hangs off the page. */
+  .niche { --cut: 0.38; }
+  .niche.left { left: calc(var(--medal) * var(--cut) * -1); }
+  .niche.right { right: calc(var(--medal) * var(--cut) * -1); }
+
+  .niche canvas {
+    display: block;
+    width: var(--medal);
+    height: var(--medal);
+    opacity: 0.42;
+  }
+
+  /* Only once the margin can hold one without crowding the column, and sized
+     from the margin itself so the visible part always clears the text by the
+     same amount. */
+  @media (min-width: 1440px) {
+    .pantheon { display: block; }
+  }
+
+  @media (max-width: 860px) {
+    .hero { grid-template-columns: 1fr; }
+    .hero-figure { max-width: 15rem; margin-inline: auto; }
+    /* The verdict and its button stop sharing a line once there is not
+       enough width for both to keep their own. */
+    .ledger-foot { flex-wrap: wrap; }
+
+    /* Capitals set this wide cost more than they are worth once the bar has
+       only a phone's width to hold both halves. */
+    .ledger-bar { font-size: 0.6rem; letter-spacing: 0.07em; }
+    .refusal { grid-template-columns: 1fr; }
+    .class-row { grid-template-columns: 2rem 1fr; row-gap: 0.5rem; }
+    .class-what, .class-does { grid-column: 2; }
+  }
+</style>
+<header class="masthead">
+  <a class="label" href="landing.html">&larr; Back</a>
+  <span class="wordmark">Synartesis</span>
+  <a class="label" href="https://github.com/ArhaanDev24/Synartesis">GitHub &rarr;</a>
+</header>
+
+<main>
+  <section class="hero-install">
+    <p class="label">Install &middot; configure &middot; check it worked</p>
+    <h1 class="display">Getting it<br>running</h1>
+    <p class="lede">
+      Everything in order, from an empty machine to an agent whose writes you can take
+      back. Nothing here is needed twice: once a client is pointed at the proxy, it stays
+      pointed at it.
+    </p>
+  </section>
+
+  <div class="fret" role="presentation"></div>
+
+  <section>
+    <div class="section-head">
+      <h2 class="display">Your first<br>undo</h2>
+      <p class="lede">
+        One folder, one rule, one mistake put back. About ten minutes. Every
+        line of output below is what these commands actually print &mdash;
+        nothing here is illustrative.
+      </p>
+    </div>
+
+    <ol class="setup">
+      <li>
+        <h3>Install it</h3>
+        <p>
+          This is for you &mdash; the screen, <code class="inline">undo</code>,
+          <code class="inline">watch</code>. Your agent needs nothing installed: the config
+          later on fetches the proxy on demand.
+        </p>
+        <div class="install-box">
+          <div class="install-tabs">
+            <button type="button" data-os="npm" aria-pressed="true">npm</button>
+            <button type="button" data-os="unix" aria-pressed="false">Script</button>
+            <button type="button" data-os="clone" aria-pressed="false">From a clone</button>
+          </div>
+          <div class="install-line">
+            <code id="install-command">npm install -g synartesis</code>
+            <button type="button" id="install-copy">Copy</button>
+          </div>
+          </div>
+      </li>
+
+      <li>
+        <h3>Put a folder under guard</h3>
+        <p>
+          Pick somewhere real but survivable. <code class="inline">init</code> asks the server
+          what it can do. This one it recognises, so it uses the policy that ships here and
+          checks every rule against what the server actually advertises. A server it does not
+          know gets <b>every tool guarded</b>, because a tool nobody has said how to undo is
+          one your agent should not be using alone.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>from anywhere</span><span>one policy, in your home</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis init</span> fs -- npx -y @modelcontextprotocol/server-filesystem ~/notes
+
+  <span class="plate"> WROTE </span> <span class="dim">~/.synartesis/synartesis.yaml</span>
+
+  <span class="dim">Recognised 14 tools, so the policy that ships for filesystem was used.</span>
+  <span class="dim">Read it before you trust it.</span></pre>
+        </div>
+        <p>
+          That last path is the one thing to choose: everything under it is what your agent can
+          read and write, and nothing outside it exists as far as the server is concerned. Name
+          a real directory you would mind losing but could survive &mdash;
+          <code class="inline">~/notes</code>, <code class="inline">~/Documents/drafts</code>,
+          <code class="inline">~/code/some-project</code>. Pass more than one to allow more than
+          one.
+        </p>
+      </li>
+
+      <li>
+        <h3>Read the one rule that matters</h3>
+        <p>
+          The filesystem server is one it knows, so this is already written. Open the file and
+          find <code class="inline">fs.write_file</code> &mdash; it is the whole idea in eight
+          lines, and the shape you will write yourself for a server it does not recognise.
+          <b>snapshot</b> is what to read before the call; <b>inverse</b> is the call that puts
+          that back. <code class="inline">$.path</code> is an argument the agent passed;
+          <code class="inline">$snapshot.content</code> is what the pre-read found. And
+          <b>absent_when</b> is what this server says when the thing is not there &mdash;
+          without it, a file that exists but cannot be read looks identical to one being
+          created, and gets offered for approval as though it were.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>an unrecognised server, before you fill it in</span></div>
+<pre>- match: <span class="dim">"fs.write_file"</span>
+  class: <span class="hit">irreversible</span>
+  gate: always</pre>
+        </div>
+        <div class="terminal">
+          <div class="terminal-bar"><span>~/.synartesis/synartesis.yaml</span><span>what a finished rule looks like</span></div>
+<pre>- match: <span class="dim">"fs.write_file"</span>
+  class: <span class="hit">reversible</span>
+  snapshot:                        <span class="dim"># read this first</span>
+    tool: <span class="dim">"fs.read_text_file"</span>
+    args:
+      path: <span class="hit">"$.path"</span>
+    <span class="hit">absent_when</span>: [<span class="dim">"ENOENT"</span>, <span class="dim">"no such file"</span>]   <span class="dim"># what "not there" sounds like</span>
+  inverse:                         <span class="dim"># and this puts it back</span>
+    tool: <span class="dim">"fs.write_file"</span>
+    args:
+      path: <span class="hit">"$.path"</span>
+      content: <span class="hit">"$snapshot.content"</span></pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Check it before you trust it</h3>
+        <p>
+          <code class="inline">check</code> starts every server and asks whether the tools
+          your policy names actually exist. One reversible tool is enough to begin; the
+          three still guarded will simply stop and ask.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>synartesis check</span><span>before anything is running</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis check</span>
+
+  <span class="plate"> POLICY </span> <span class="dim">~/.synartesis/synartesis.yaml</span>
+
+  <span class="dim">servers  fs</span>
+  <span class="dim">policies 10 readonly, </span><span class="hit">1 reversible</span><span class="dim">, 3 irreversible</span>
+  <span class="dim">guarded  3</span></pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Point your agent at the proxy, not the server</h3>
+        <p>
+          One entry, however many servers your policy covers. Then work normally: ask
+          your agent to tidy the folder, rewrite a file, whatever you would have asked
+          anyway.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>.mcp.json</span><span>the same block in any client</span></div>
+<pre>{
+  <span class="dim">"mcpServers"</span>: {
+    <span class="dim">"synartesis"</span>: {
+      <span class="dim">"command"</span>: <span class="hit">"npx"</span>,
+      <span class="dim">"args"</span>: [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>,
+               <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
+    }
+  }
+}</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Put it back</h3>
+        <p>
+          Your agent overwrites <code class="inline">roadmap.md</code> with something you
+          did not want. Look first with <code class="inline">--dry-run</code>; both default
+          to the most recent run, so there is usually no id to type. The line that matters
+          is <code class="inline">state matches</code> &mdash; it read the file again and
+          confirmed nothing else had changed it since.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>synartesis undo</span><span>the file comes back</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis undo</span>
+
+    <span class="dim">1  revert           fs.write_file  state matches; applying inverse</span>
+       <span class="dim">called fs.write_file {"path":"~/notes/roadmap.md",</span>
+       <span class="dim">  "content":"# Roadmap\n\nQ3: ship the undo layer.\n"}</span>
+
+  <span class="plate"> RESULT </span> <span class="hit">rolled_back</span></pre>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <div class="fret" role="presentation"></div>
+
+  <section>
+    <div class="section-head">
+      <h2 class="display">Where the<br>config goes</h2>
+      <p class="lede">
+        Synartesis speaks MCP in both directions and never learns who is on the other end
+        &mdash; a thirty-six line script with no SDK drives it the same as any editor does.
+        So the block is the same in every client; what differs is which file it goes in, and
+        every path here was checked against that client&rsquo;s own documentation. Add the entry, restart the client, and the tools appear under
+        Synartesis instead of under the server.
+      </p>
+    </div>
+
+    <ol class="setup">
+      <li>
+        <h3>Claude Code</h3>
+        <p>
+          One command, no file to find. Or write <code class="inline">.mcp.json</code> at the
+          root of a project to share it with everyone working on that repo.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>terminal</span><span>anywhere</span></div>
+<pre><span class="prompt">$</span> <span class="hit">claude mcp add</span> synartesis -- npx -y synartesis proxy \
+    --manifest ~/.synartesis/synartesis.yaml</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Claude Desktop</h3>
+        <p>
+          Settings &rarr; Developer &rarr; Edit Config opens this file, creating it if it is
+          not there. Quit and reopen the app afterwards &mdash; it only reads the file at
+          startup.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>claude_desktop_config.json</span><span>macOS &middot; Windows</span></div>
+<pre><span class="dim">~/Library/Application Support/Claude/claude_desktop_config.json</span>
+<span class="dim">%APPDATA%\Claude\claude_desktop_config.json</span>
+
+{
+  <span class="dim">"mcpServers"</span>: {
+    <span class="dim">"synartesis"</span>: {
+      <span class="dim">"command"</span>: <span class="hit">"npx"</span>,
+      <span class="dim">"args"</span>: [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>,
+               <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
+    }
+  }
+}</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Cursor</h3>
+        <p>
+          <code class="inline">~/.cursor/mcp.json</code> for everywhere,
+          <code class="inline">.cursor/mcp.json</code> in a project for just that one. Cursor
+          wants the transport named explicitly.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>~/.cursor/mcp.json</span><span>note the type field</span></div>
+<pre>{
+  <span class="dim">"mcpServers"</span>: {
+    <span class="dim">"synartesis"</span>: {
+      <span class="hit">"type"</span>: <span class="hit">"stdio"</span>,
+      <span class="dim">"command"</span>: <span class="hit">"npx"</span>,
+      <span class="dim">"args"</span>: [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>,
+               <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]
+    }
+  }
+}</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Codex CLI</h3>
+        <p>
+          OpenAI&rsquo;s local agent, which does run stdio servers. One command, and it writes
+          the TOML below into <code class="inline">~/.codex/config.toml</code> for you.
+          <code class="inline">codex mcp list</code> shows it afterwards.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>terminal</span><span>openai codex</span></div>
+<pre><span class="prompt">$</span> <span class="hit">codex mcp add</span> synartesis -- npx -y synartesis proxy \
+    --manifest ~/.synartesis/synartesis.yaml
+
+  <span class="dim">Added global MCP server &#39;synartesis&#39;.</span></pre>
+        </div>
+        <div class="terminal">
+          <div class="terminal-bar"><span>~/.codex/config.toml</span><span>what that writes</span></div>
+<pre>[<span class="hit">mcp_servers.synartesis</span>]
+command = <span class="hit">"npx"</span>
+args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>, <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]</pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Anything else, and one that will not work</h3>
+        <p>
+          Any client that runs a local MCP server takes the same two fields, whatever it calls
+          its config file. <b>ChatGPT is the one that will not</b>: its connectors accept a
+          remote HTTPS endpoint only and will not start a process on your machine, so a
+          <code class="inline">command</code> entry has nowhere to go. For that, serve the
+          proxy over HTTP instead &mdash; it refuses to start without a token, and binds to
+          loopback until you say otherwise.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>an endpoint instead of a process</span><span>/mcp, bearer token</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis proxy</span> --manifest ~/.synartesis/synartesis.yaml \
+    <span class="hit">--http</span> 9123 <span class="hit">--token</span> <span class="dim">"$SYNARTESIS_TOKEN"</span>
+
+  <span class="dim">a session that goes quiet for half an hour is closed;</span>
+  <span class="dim">--http-idle changes that</span></pre>
+        </div>
+        <p>
+          Reaching that from the internet means a tunnel in front of it, and that stays your
+          decision rather than a flag. What is on the other end can write through every server
+          in your policy: treat the token like a password, and prefer a tunnel that does its
+          own authentication.
+        </p>
+      </li>
+    </ol>
+  </section>
+
+  <div class="fret" role="presentation"></div>
+
+  <section>
+    <div class="section-head">
+      <h2 class="display">Telling whether<br>it worked</h2>
+      <p class="lede">
+        The failure worth knowing about is the quiet one: your agent connects, ignores the
+        tools, and uses its own instead. Nothing errors. Nothing is recorded.
+      </p>
+    </div>
+
+    <ol class="setup">
+      <li>
+        <h3>Ask the agent to do something, then look</h3>
+        <p>
+          Leave <code class="inline">synartesis watch</code> running in a second terminal. Rows
+          appear as calls happen. <b>A live run beside zero actions is the diagnostic</b> &mdash;
+          it means your agent connected and then did the work with its own file tools. Name the
+          tools you want it to use, or take the built-in ones away.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>synartesis watch</span><span>second terminal</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis watch</span>
+
+  <span class="hit">&#10711;</span> <span class="dim">watching  1 runs, 1 live  &middot;  0 recent actions</span>
+        <span class="dim">&#8593; connected, and not being used</span></pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>When the server will not start</h3>
+        <p>
+          Run the same command by hand: whatever it prints is what your client saw and hid.
+          <code class="inline">check</code> starts every server in the policy and reports which
+          named tools do not exist. Claude Desktop keeps per-server logs, and they are the
+          fastest answer when a connector simply never appears.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>three places to look</span><span>in this order</span></div>
+<pre><span class="prompt">$</span> <span class="hit">synartesis check</span>
+<span class="prompt">$</span> npx -y synartesis proxy --manifest ~/.synartesis/synartesis.yaml
+<span class="prompt">$</span> tail -n 20 -f <span class="dim">~/Library/Logs/Claude/mcp*.log</span></pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Paths, which are most of it</h3>
+        <p>
+          Use absolute paths in the config &mdash; a client does not start in the directory you
+          think it does, and <code class="inline">~</code> is not expanded inside a JSON string.
+          Give <code class="inline">--manifest</code> the real path. If
+          <code class="inline">npx</code> cannot be found, the client is running with a smaller
+          PATH than your shell: give the full path to <code class="inline">npx</code>, or install
+          with <code class="inline">npm install -g synartesis</code> and use
+          <code class="inline">synartesis</code> directly.
+        </p>
+      </li>
+    </ol>
+  </section>
+</main>
+
+<footer class="colophon">
+  <span class="label">Synartesis &middot; MIT licence &middot; open source &middot; <a href="https://www.npmjs.com/package/synartesis">npm</a></span>
+  <span class="label">Built on the Model Context Protocol</span>
+</footer>
+
+<script>
+  // The install box: two ways to get the same result, and a copy button that
+  // falls back to selecting the text where the clipboard is not available.
+  (function () {
+    const COMMANDS = {
+      npm: "npm install -g synartesis",
+      unix: "curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash",
+      clone: "git clone https://github.com/ArhaanDev24/Synartesis.git && cd Synartesis && ./install.sh",
+    };
+
+    const code = document.getElementById("install-command");
+    const copy = document.getElementById("install-copy");
+    const tabs = [...document.querySelectorAll(".install-tabs button")];
+    if (!code || !copy) return;
+
+    for (const tab of tabs) {
+      tab.addEventListener("click", () => {
+        const os = tab.dataset.os;
+        code.textContent = COMMANDS[os] ?? COMMANDS.npm;
+        for (const other of tabs) {
+          other.setAttribute("aria-pressed", String(other === tab));
+        }
+      });
+    }
+
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent ?? "");
+        copy.textContent = "Copied";
+      } catch {
+        // Clipboard access is often refused in an embedded frame. Selecting the
+        // text leaves the reader one keystroke away rather than stuck.
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        copy.textContent = "Selected";
+      }
+      setTimeout(() => {
+        copy.textContent = "Copy";
+      }, 1600);
+    });
+  })();
+</script>
+
+<script>
+  // Reveal on scroll.
+  //
+  // Hiding content and waiting for an observer to give it back is a bargain
+  // worth making only if the giving back cannot fail. So anything already in
+  // view is shown at once without waiting to be told, and a timer shows
+  // everything regardless a moment later. If the observer never fires, the
+  // page is merely unanimated rather than blank.
+  (function () {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || !("IntersectionObserver" in window)) return;
+
+    const groups = [
+      ...document.querySelectorAll(
+        ".section-head, .plate-card, .step, .setup li, .command, .limits p, .refusal .terminal",
+      ),
+    ];
+    if (groups.length === 0) return;
+
+    for (const element of groups) {
+      element.classList.add("reveal");
+    }
+
+    // Everything wearing the class, not only what the selector above found.
+    // The class is what the stylesheet hides on, so an element marked up by
+    // hand was hidden by the css and then never shown by the script, and even
+    // the safety net below could not reach it: it is a way of writing markup
+    // that silently deletes it from the page.
+    const all = [...document.querySelectorAll(".reveal")];
+
+    const show = (element, index) => {
+      if (element.dataset.shown === "true") return;
+      // A short stagger within a row, capped, so a wide grid ripples rather
+      // than arriving all at once or crawling in one at a time.
+      element.style.transitionDelay = `${String(Math.min(index, 5) * 60)}ms`;
+      element.dataset.shown = "true";
+    };
+
+    const positionIn = (element) => {
+      const siblings = [...(element.parentElement?.children ?? [])];
+      return Math.max(0, siblings.indexOf(element));
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          show(entry.target, positionIn(entry.target));
+          observer.unobserve(entry.target);
+        }
+      },
+      { rootMargin: "0px 0px -10% 0px", threshold: 0.05 },
+    );
+
+    requestAnimationFrame(() => {
+      for (const element of all) {
+        const box = element.getBoundingClientRect();
+        if (box.top < window.innerHeight && box.bottom > 0) {
+          show(element, positionIn(element));
+        } else {
+          observer.observe(element);
+        }
+      }
+    });
+
+    // The safety net. Whatever happened, nothing stays hidden -- and it does
+    // not ask a transition to do it. A transition is itself a thing that can
+    // fail to happen: these were seen sitting at playState "running" with a
+    // currentTime of zero, so the element had been told to become visible and
+    // simply never advanced. Cutting the transition first means the last word
+    // on whether content appears is a style change, not an animation.
+    setTimeout(() => {
+      for (const element of all) {
+        element.style.transition = "none";
+        element.style.transitionDelay = "0ms";
+        element.dataset.shown = "true";
+      }
+      observer.disconnect();
+    }, 2500);
+  })();
+</script>
