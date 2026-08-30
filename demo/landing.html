@@ -1090,8 +1090,8 @@
       <p class="lede" style="margin-top:1.5rem">
         Anything can write an old value back. Declining to is the hard part. Before undoing
         a step, Synartesis re-reads the record and compares it against the state that step
-        left behind. If somebody has been there since, it stops on that step and prints both
-        versions. It is not all-or-nothing: undo walks newest first, so whatever it had
+        left behind. If somebody has been there since, it stops on that step and shows the
+        lines that differ. It is not all-or-nothing: undo walks newest first, so whatever it had
         already put back stays put back. Resolve the conflict and
         <code class="inline">undo --replan</code> carries on from there.
       </p>
@@ -1107,8 +1107,10 @@
 
   <span class="hit">halted</span> <span class="dim">at sequence 1</span>  drift detected
   <span class="dim">the resource is not in the state this run left it in.</span>
-  <span class="dim">  expected: {"plan":"free","notes":"churn risk"}</span>
-  <span class="dim">  actual:   {"plan":"free","notes":"spoke to her Tuesday"}</span>
+  <span class="dim">  at line 1:</span>
+  <span class="dim">  - churn risk</span>
+  <span class="hit">  + spoke to her Tuesday</span>
+  <span class="dim">  1 removed, 1 added.</span>
 
   <span class="dim">R E S U L T</span>  <span class="hit">partial</span></pre>
     </div>
