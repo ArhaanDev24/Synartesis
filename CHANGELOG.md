@@ -2,6 +2,31 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.3.2 — 2026-08-30
+
+### Fixed
+
+- **A drift halt shows what changed, not both documents.** Halting on drift
+  printed the expected and actual contents of the resource in full. On a
+  200-line file that is two screens of escaped JSON with the one line that
+  matters buried inside, which is the same as not saying. It now trims the head
+  and tail the two sides agree on and prints only the region that differs,
+  capped at eight lines a side:
+
+  ```
+  drift at sequence 4: the resource is not in the state this run left it in.
+    at line 123:
+    + // A HUMAN FIXED THIS BY HAND.
+    0 removed, 1 added.
+  ```
+
+  Both values are still on the row, and `synartesis show` prints them.
+- **And it no longer crashes on a snapshot it cannot walk.** Finding the text
+  to diff, and the fallback for when there is none, both recursed — so a
+  snapshot nested a few thousand levels deep turned a drift halt into a stack
+  trace, at exactly the moment a person needs to be told their work is at risk.
+  Walked with an explicit stack now, with a node cap, and the fallback catches.
+
 ## 0.3.1 — 2026-08-30
 
 ### Fixed
