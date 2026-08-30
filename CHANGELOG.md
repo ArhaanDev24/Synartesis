@@ -2,6 +2,31 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.3.1 — 2026-08-30
+
+### Fixed
+
+- **`--older-than` no longer crashes on a number too large to be a date.**
+  `Number.isFinite` is true for 1e9, but a cutoff that many days back sits
+  before the earliest date a `Date` can hold, so `toISOString` threw and
+  `synartesis prune --older-than 999999999` answered `Invalid time value` and
+  exited 1. That names neither the flag nor the problem, and exit 1 means
+  "halted or refused" — so it read as a prune that had failed partway through
+  rather than a mistyped argument. Bounded to 0–36500 days, with the range in
+  the message and exit 2 where it belongs.
+- **A journal that cannot be read is reported as unknown, not as `1 kB`.**
+  `sizeOf` could never throw, because the function it called already swallowed
+  the error and returned zero, so the "unknown" branch was unreachable and a
+  missing file was reported at a confident wrong size.
+
+### Documentation
+
+- `synartesis prune` is on the landing page, which listed eleven commands and
+  not the twelfth.
+- The doc comment promising that a failed journal write is never swallowed sits
+  on the method that does that again, rather than on `prunableRuns`, which is a
+  read and promises no such thing.
+
 ## 0.3.0 — 2026-08-29
 
 ### Security
