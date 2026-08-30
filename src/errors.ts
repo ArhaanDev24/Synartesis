@@ -76,9 +76,95 @@ export class SnapshotError extends SynartesisError {
 }
 
 /**
+ * The longest string anywhere in a snapshot, which for anything file-shaped is
+ * the contents. Found by looking rather than by field name: a snapshot is
+ * whatever the server's read returned, and servers nest the payload
+ * differently. Short strings are ignored so a path or an id is never mistaken
+ * for the body.
+ */
+function longestString(value: unknown, best = ""): string {
+  if (typeof value === "string") {
+    return value.length > best.length ? value : best;
+  }
+  if (Array.isArray(value)) {
+    let found = best;
+    for (const item of value) {
+      found = longestString(item, found);
+    }
+    return found;
+  }
+  if (typeof value === "object" && value !== null) {
+    let found = best;
+    for (const item of Object.values(value)) {
+      found = longestString(item, found);
+    }
+    return found;
+  }
+  return best;
+}
+
+/** How many changed lines are worth printing before it stops being readable. */
+const DIFF_BUDGET = 8;
+
+/**
+ * What changed, as lines, rather than both documents in full. Trims the common
+ * head and tail so only the region that actually differs is shown.
+ */
+function lineDiff(before: string, after: string): string {
+  const a = before.split("\n");
+  const b = after.split("\n");
+
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) {
+    head += 1;
+  }
+  let tail = 0;
+  while (
+    tail < a.length - head &&
+    tail < b.length - head &&
+    a[a.length - 1 - tail] === b[b.length - 1 - tail]
+  ) {
+    tail += 1;
+  }
+
+  const removed = a.slice(head, a.length - tail);
+  const added = b.slice(head, b.length - tail);
+  const show = (lines: readonly string[], mark: string): string[] => [
+    ...lines.slice(0, DIFF_BUDGET).map((line) => `  ${mark} ${line}`),
+    ...(lines.length > DIFF_BUDGET
+      ? [`  ${mark} ... ${String(lines.length - DIFF_BUDGET)} more`]
+      : []),
+  ];
+
+  return [
+    `  at line ${String(head + 1)}:`,
+    ...show(removed, "-"),
+    ...show(added, "+"),
+    `  ${String(removed.length)} removed, ${String(added.length)} added.`,
+  ].join("\n");
+}
+
+/** A value with no text in it, kept short enough to read. */
+function brief(value: unknown): string {
+  // JSON.stringify returns undefined rather than a string for a top-level
+  // undefined, and .length on that throws. Journal values are parsed JSON, so
+  // this is the only one of its cases that can reach here.
+  if (value === undefined) {
+    return "undefined";
+  }
+  const text = JSON.stringify(value);
+  return text.length <= 160 ? text : `${text.slice(0, 157)}...`;
+}
+
+/**
  * The resource changed after the agent touched it. Writing the old value back
- * would silently destroy whatever happened in between, so both values are
+ * would silently destroy whatever happened in between, so what differs is
  * carried here for a human to judge.
+ *
+ * What differs, not both documents in full: printing the whole expected and
+ * actual contents of a 200-line file buried the one line that mattered in two
+ * screens of escaped JSON. Both values are still on the row, and
+ * `synartesis show <run>` prints them.
  */
 export class DriftConflict extends SynartesisError {
   readonly code = "DRIFT_CONFLICT";
@@ -88,10 +174,18 @@ export class DriftConflict extends SynartesisError {
     readonly expected: unknown,
     readonly actual: unknown,
   ) {
+    const before = longestString(expected);
+    const after = longestString(actual);
+    // Two texts to compare, and they are not the same text. Anything else --
+    // a resource that is simply gone, a snapshot with no body in it -- has no
+    // lines to diff, so it says what it has.
+    const body =
+      before !== "" && after !== "" && before !== after
+        ? lineDiff(before, after)
+        : `  expected: ${brief(expected)}\n  actual:   ${brief(actual)}`;
+
     super(
-      `drift at sequence ${String(seq)}: the resource is not in the state this run left it in.\n` +
-        `  expected: ${JSON.stringify(expected)}\n` +
-        `  actual:   ${JSON.stringify(actual)}`,
+      `drift at sequence ${String(seq)}: the resource is not in the state this run left it in.\n${body}`,
     );
   }
 }
