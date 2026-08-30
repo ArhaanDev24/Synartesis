@@ -641,7 +641,12 @@
 
   /* --- ordered path --------------------------------------------------- */
 
-  .path { display: grid; gap: 0; counter-reset: step; }
+  /* The rules are row dividers, so they were running the full width of the
+     page while the text they divide stops at its measure -- 485px of hairline
+     per row, pointing at nothing, which read as a table missing a column.
+     Capped so the list ends where the lede above it does: the section head and
+     the list share one right margin instead of having two. */
+  .path { display: grid; gap: 0; counter-reset: step; max-width: 53rem; }
 
   .step {
     display: grid;
