@@ -1547,52 +1547,6 @@
 </script>
 
 <script>
-  // The install box: two ways to get the same result, and a copy button that
-  // falls back to selecting the text where the clipboard is not available.
-  (function () {
-    const COMMANDS = {
-      npm: "npm install -g synartesis",
-      unix: "curl -fsSL https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/install.sh | bash",
-      clone: "git clone https://github.com/ArhaanDev24/Synartesis.git && cd Synartesis && ./install.sh",
-    };
-
-    const code = document.getElementById("install-command");
-    const copy = document.getElementById("install-copy");
-    const tabs = [...document.querySelectorAll(".install-tabs button")];
-    if (!code || !copy) return;
-
-    for (const tab of tabs) {
-      tab.addEventListener("click", () => {
-        const os = tab.dataset.os;
-        code.textContent = COMMANDS[os] ?? COMMANDS.npm;
-        for (const other of tabs) {
-          other.setAttribute("aria-pressed", String(other === tab));
-        }
-      });
-    }
-
-    copy.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(code.textContent ?? "");
-        copy.textContent = "Copied";
-      } catch {
-        // Clipboard access is often refused in an embedded frame. Selecting the
-        // text leaves the reader one keystroke away rather than stuck.
-        const range = document.createRange();
-        range.selectNodeContents(code);
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-        copy.textContent = "Selected";
-      }
-      setTimeout(() => {
-        copy.textContent = "Copy";
-      }, 1600);
-    });
-  })();
-</script>
-
-<script>
   // Reveal on scroll.
   //
   // Hiding content and waiting for an observer to give it back is a bargain
