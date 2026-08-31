@@ -177,6 +177,18 @@
   .masthead .label { text-decoration: none; }
   .masthead a.label:hover { color: var(--ink); }
 
+  /* A text link is only as tall as its text, which on a phone is a target of
+     about eighteen pixels -- under what a thumb reliably hits. The hit area is
+     grown with an absolutely positioned pseudo-element rather than padding, so
+     what responds to a touch gets bigger and nothing on the page moves. */
+  .masthead a, .colophon a { position: relative; }
+  .masthead a::after, .colophon a::after {
+    content: "";
+    position: absolute;
+    inset-block: -0.5rem;
+    inset-inline: -0.4rem;
+  }
+
   /* --- hero ---------------------------------------------------------- */
 
   .hero {
