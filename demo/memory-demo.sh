@@ -42,7 +42,7 @@ session() {
 }
 
 seed() { session "$@" | server >/dev/null 2>&1 || true; }
-# A real client, one call at a time. See demo/agent.mjs for why that matters
+# A real client, one call at a time. See demo/agent.ts for why that matters
 # here in particular.
 agent() {
   MEMORY_FILE_PATH="$GRAPH" node "$ROOT/dist/demo-agent.js" \
