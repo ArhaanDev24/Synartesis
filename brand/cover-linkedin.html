@@ -1,0 +1,115 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* LinkedIn company cover: 1128 x 191. Rendered at twice that and reduced, so
+     the type is antialiased rather than snapped to a 191px-tall grid.
+
+     Two constraints shape this. It is nearly six times as wide as it is tall,
+     which suits the meander -- a horizontal repeat is what that ornament is --
+     and the page's own logo is dropped over the bottom-left corner, so nothing
+     that has to be read may sit there. */
+  :root {
+    /* The page ground. Swap for the panel tone #2c080f to render the dark
+       variant: LinkedIn drops the org logo over the bottom-left, and the logo's
+       own field is this same oxblood, so on the darker ground the logo reads as
+       a struck badge instead of a hole in the banner. */
+    --ground: #5e1420;
+    --ink: #f6e9e5;
+    --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--ground));
+    --ink-faint: color-mix(in srgb, var(--ink) 52%, var(--ground));
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --display: "Cormorant Garamond", "Times New Roman", serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  .cover {
+    width: 2256px;
+    height: 382px;
+    background: var(--ground);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    /* The left inset is the logo's parking space, not a margin. */
+    padding-left: 470px;
+    padding-right: 104px;
+    /* The meander owns the bottom band, so the type is centred in what is left
+       above it rather than in the whole height. */
+    padding-bottom: 52px;
+    gap: 64px;
+  }
+
+  .stack { display: grid; gap: 18px; }
+
+  .wordmark {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 60px;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+    color: var(--ink);
+    line-height: 1;
+    /* Tracking adds space after the final letter too, which throws the block
+       optically right. Pulled back by one step to sit where it looks placed. */
+    margin-left: -0.42em;
+  }
+
+  .tagline {
+    font-family: var(--display);
+    font-weight: 300;
+    font-size: 44px;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+    line-height: 1;
+  }
+
+  .spacer { flex: 1; }
+
+  /* The right-hand third was a hole with a URL floating in it. The one command
+     is what the site leads with and what a reader can act on, and set in the
+     same mono as everything else it balances the wordmark instead of competing
+     with it. The domain is already the page's Website field. */
+  .command {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: 30px;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    white-space: nowrap;
+  }
+
+  .command .prompt { color: var(--ink-faint); margin-right: 0.6em; }
+
+  /* The meander, along the bottom edge. The same ornament and the same mask the
+     site uses between its sections, which is the point: it is the one piece of
+     the identity that was already built to run horizontally. */
+  .fret {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 44px;
+    background-color: var(--ink);
+    opacity: 0.3;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='44' height='44' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    -webkit-mask-repeat: repeat-x;
+    mask-repeat: repeat-x;
+    -webkit-mask-position: left bottom;
+    mask-position: left bottom;
+  }
+</style>
+
+<div class="cover">
+  <div class="stack">
+    <div class="wordmark">Synartesis</div>
+    <div class="tagline">An undo layer for AI agents</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="command"><span class="prompt">$</span>npm install -g synartesis</div>
+  <div class="fret"></div>
+</div>
