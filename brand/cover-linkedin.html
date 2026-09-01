@@ -34,40 +34,44 @@
     overflow: hidden;
     display: flex;
     align-items: center;
-    /* The left inset is the logo's parking space, not a margin. */
-    padding-left: 470px;
-    padding-right: 104px;
+    /* Everything lives in the right half.
+       The first version put the type at 21% of the width and cleared the logo
+       on a full-width desktop page -- but LinkedIn renders this card narrow in
+       several places, and there the logo is far bigger relative to the strip
+       and sits nearer the middle, straight through the wordmark. It also crops
+       the strip from both edges, so the far right is no safer than the left.
+       The block therefore starts past halfway and stops well short of the right
+       edge, which is the only band that survives every one of those cuts. */
+    padding-left: 1175px;
+    padding-right: 180px;
     /* The meander owns the bottom band, so the type is centred in what is left
        above it rather than in the whole height. */
     padding-bottom: 52px;
-    gap: 64px;
   }
 
-  .stack { display: grid; gap: 18px; }
+  .stack { display: grid; gap: 16px; justify-items: start; }
 
   .wordmark {
     font-family: var(--mono);
     font-weight: 500;
-    font-size: 60px;
-    letter-spacing: 0.42em;
+    font-size: 52px;
+    letter-spacing: 0.34em;
     text-transform: uppercase;
     color: var(--ink);
     line-height: 1;
     /* Tracking adds space after the final letter too, which throws the block
        optically right. Pulled back by one step to sit where it looks placed. */
-    margin-left: -0.42em;
+    margin-left: -0.34em;
   }
 
   .tagline {
     font-family: var(--display);
     font-weight: 300;
-    font-size: 44px;
+    font-size: 38px;
     letter-spacing: 0.04em;
     color: var(--ink-soft);
     line-height: 1;
   }
-
-  .spacer { flex: 1; }
 
   /* The right-hand third was a hole with a URL floating in it. The one command
      is what the site leads with and what a reader can act on, and set in the
@@ -76,7 +80,7 @@
   .command {
     font-family: var(--mono);
     font-weight: 400;
-    font-size: 30px;
+    font-size: 26px;
     letter-spacing: 0.06em;
     color: var(--ink-soft);
     white-space: nowrap;
@@ -108,8 +112,7 @@
   <div class="stack">
     <div class="wordmark">Synartesis</div>
     <div class="tagline">An undo layer for AI agents</div>
+    <div class="command"><span class="prompt">$</span>npm install -g synartesis</div>
   </div>
-  <div class="spacer"></div>
-  <div class="command"><span class="prompt">$</span>npm install -g synartesis</div>
   <div class="fret"></div>
 </div>
