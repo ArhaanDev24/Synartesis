@@ -1333,3 +1333,11 @@ args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <s
     }, 2500);
   })();
 </script>
+
+<!-- Vercel Web Analytics and Speed Insights. Both are served by the platform
+     itself from /_vercel/..., so they exist only once this is deployed on
+     Vercel and only after the two features are switched on for the project.
+     Anywhere else they are a pair of deferred requests that 404 and change
+     nothing on the page. No cookies, no cross-site identifier. -->
+<script defer src="/_vercel/insights/script.js"></script>
+<script defer src="/_vercel/speed-insights/script.js"></script>
