@@ -1,0 +1,171 @@
+<meta charset="utf-8">
+<title>Synartesis &middot; Not found</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%235e1420'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23f6e9e5' stroke-width='3.5' stroke-dasharray='41 16' transform='rotate(-58 16 16)'/%3E%3Cpath d='M19.2 3.6l4.6 5.2-6.6 2.2z' fill='%23f6e9e5'/%3E%3C/svg%3E">
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+
+<style>
+  /* The palette and the type roles of the rest of the site, and nothing else.
+     A page whose whole job is to point somewhere else does not need the seven
+     hundred lines the front page carries. */
+  :root {
+    --ground: #5e1420;
+    --ground-lift: #7a1c2b;
+    --ink: #f6e9e5;
+    --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--ground));
+    --ink-faint: color-mix(in srgb, var(--ink) 52%, var(--ground));
+    --rule: color-mix(in srgb, var(--ink) 24%, var(--ground));
+
+    --display: "Cormorant Garamond", "Times New Roman", serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+
+    --gutter: clamp(1.1rem, 4vw, 2.5rem);
+    --max: 1140px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: clamp(0.9rem, 0.86rem + 0.14vw, 0.97rem);
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .masthead, main, .colophon {
+    padding-inline: max(var(--gutter), (100% - var(--max)) / 2);
+  }
+
+  a { color: inherit; }
+  a:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+
+  .label {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .masthead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-block: 1rem;
+    border-bottom: 1px solid var(--rule);
+    flex-wrap: wrap;
+  }
+
+  .masthead .label { text-decoration: none; }
+  .masthead a.label:hover { color: var(--ink); }
+
+  .wordmark {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 0.78rem;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+  }
+
+  /* The links here are the whole point of the page, so they get a hit area a
+     thumb can land on, the way the rest of the site's links do. */
+  .masthead a, .colophon a, .ways a { position: relative; }
+  .masthead a::after, .colophon a::after, .ways a::after {
+    content: "";
+    position: absolute;
+    inset-block: -0.5rem;
+    inset-inline: -0.4rem;
+  }
+
+  main {
+    flex: 1;
+    display: grid;
+    align-content: center;
+    padding-block: clamp(3rem, 12vh, 7rem);
+  }
+
+  .code {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 0 0 1.2rem;
+  }
+
+  h1 {
+    font-family: var(--display);
+    font-weight: 300;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    line-height: 0.94;
+    font-size: clamp(2.1rem, 6.4vw, 4rem);
+    margin: 0 0 1.6rem;
+    text-wrap: balance;
+  }
+
+  .lede { max-width: 46ch; color: var(--ink-soft); margin: 0 0 2.2rem; }
+
+  .ways {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.9rem 1.6rem;
+    font-family: var(--mono);
+    font-size: 0.8rem;
+  }
+
+  .ways a {
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 0.15rem;
+  }
+
+  .ways a:hover { border-bottom-color: var(--ink); }
+
+  .colophon {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding-block: 1.4rem 2rem;
+    border-top: 1px solid var(--rule);
+  }
+</style>
+
+<header class="masthead">
+  <a class="label" href="/">&larr; Back</a>
+  <span class="wordmark">Synartesis</span>
+  <a class="label" href="https://github.com/ArhaanDev24/Synartesis">GitHub &rarr;</a>
+</header>
+
+<main>
+  <p class="code">Error 404</p>
+  <h1>There is nothing<br>at this address</h1>
+  <p class="lede">
+    The page you asked for is not here. It may have moved, or it may never have
+    existed. This is the one kind of gone that Synartesis cannot put back.
+  </p>
+  <nav class="ways">
+    <a href="/">The front page</a>
+    <a href="/install.html">Install and set up</a>
+    <a href="https://github.com/ArhaanDev24/Synartesis">Source on GitHub</a>
+  </nav>
+</main>
+
+<footer class="colophon">
+  <span class="label">&copy; 2026 Synartesis &middot; <a href="https://www.linkedin.com/in/arhaankhan143" rel="me">Arhaan Khan</a> &middot; MIT licence &middot; open source &middot; <a href="https://www.npmjs.com/package/synartesis">npm</a> &middot; <a href="https://www.instagram.com/synartesis_in/" rel="me">Instagram</a></span>
+  <span class="label">Built on the Model Context Protocol</span>
+</footer>
