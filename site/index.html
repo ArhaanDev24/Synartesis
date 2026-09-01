@@ -80,6 +80,7 @@
     .command,
     .install-tabs button,
     .install-line button,
+    .command-line button,
     .masthead a.label {
       transition:
         background-color 0.2s var(--ease),
@@ -87,7 +88,8 @@
         border-color 0.2s var(--ease);
     }
 
-    .install-line button:active { transform: translateY(1px); }
+    .install-line button:active,
+    .command-line button:active { transform: translateY(1px); }
 
     /* The journal rows rise as they land, and the added line fades with the
        write that made it. Both are opacity and transform, like everything
@@ -609,7 +611,8 @@
     color: var(--panel-ink);
   }
 
-  .install-line button {
+  .install-line button,
+  .command-line button {
     font-family: var(--mono);
     font-size: 0.68rem;
     letter-spacing: 0.12em;
@@ -622,7 +625,15 @@
     flex-shrink: 0;
   }
 
-  .install-line button:hover { color: var(--panel-ink); border-color: var(--panel-ink); }
+  .install-line button:hover,
+  .command-line button:hover { color: var(--panel-ink); border-color: var(--panel-ink); }
+
+  /* The one command, and the button that takes it. The pre keeps its own
+     padding so the command sits exactly where it did before there was a button
+     beside it, and it scrolls inside itself rather than pushing the button off
+     a narrow screen. */
+  .command-line { display: flex; align-items: center; gap: 1rem; padding-right: 1rem; }
+  .command-line pre { flex: 1; min-width: 0; overflow-x: auto; }
 
   .inline {
     font-family: var(--mono);
@@ -901,7 +912,10 @@
       <div class="install">
         <div class="terminal">
           <div class="terminal-bar"><span>one command</span><span>node 22 or newer</span></div>
-<pre><span class="prompt">$</span> <span class="hit">npm install -g synartesis</span></pre>
+          <div class="command-line">
+<pre><span class="prompt">$</span> <span class="hit" id="install-command">npm install -g synartesis</span></pre>
+            <button type="button" id="install-copy">Copy</button>
+          </div>
         </div>
         <p class="hero-next">
           <a href="install.html">Point a client at it &rarr;</a>
@@ -2380,6 +2394,36 @@
       { threshold: 0.25 },
     );
     watcher.observe(video);
+  })();
+</script>
+
+<script>
+  // Copy the one command. The text taken is the command alone -- the prompt is
+  // a separate span, so a reader never pastes a dollar sign into their shell.
+  (function () {
+    const code = document.getElementById("install-command");
+    const copy = document.getElementById("install-copy");
+    if (!code || !copy) return;
+
+    let restore;
+    copy.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent ?? "");
+        copy.textContent = "Copied";
+      } catch {
+        // The clipboard is refused outside a secure context and in some framed
+        // views. Selecting the text leaves the reader one keystroke away
+        // rather than stuck with a button that did nothing.
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        copy.textContent = "Selected";
+      }
+      clearTimeout(restore);
+      restore = setTimeout(() => { copy.textContent = "Copy"; }, 1600);
+    });
   })();
 </script>
 
