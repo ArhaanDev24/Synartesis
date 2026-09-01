@@ -1,7 +1,10 @@
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**"] },
+  // docs/ holds the build tooling for the user guide -- a Chrome DevTools
+  // driver and a Python script -- not project source, so it is outside the
+  // tsconfig the type-aware rules need and cannot be linted by them.
+  { ignores: ["dist/**", "node_modules/**", "docs/**"] },
   ...tseslint.configs.strictTypeChecked,
   {
     languageOptions: {
