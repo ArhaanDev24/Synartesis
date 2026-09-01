@@ -640,4 +640,6 @@ world, and the job is to be honest about it.
 
 Synartesis is open source under the MIT licence.
 
-`synartesis.online` · `github.com/ArhaanDev24/Synartesis` · `npm i -g synartesis`
+synartesis.online · github.com/ArhaanDev24/Synartesis · npm i -g synartesis
+
+© 2026 Synartesis · Arhaan Khan · www.linkedin.com/in/arhaankhan143
