@@ -264,6 +264,15 @@ function pick<T extends { id: string }>(
     return only;
   }
 
+  // An empty id prefix-matches every candidate, which reported an ambiguity
+  // with nothing in its subject: "synartesis:  matches 2 runs:". It is nearly
+  // always an unset shell variable rather than a person, and it is refused
+  // rather than read as absent, because absent means the newest run and for
+  // undo that is the wrong thing to do quietly.
+  if (given === "") {
+    throw new UsageError(`no ${noun.one} was named; an empty id is usually an unset variable`);
+  }
+
   const exact = candidates.find((item) => item.id === given);
   if (exact !== undefined) {
     return exact;
@@ -588,8 +597,23 @@ function runClose(argv: readonly string[], journal: Journal): number {
   // Left active by a proxy that was killed rather than disconnected. Nothing
   // can tell that apart from a run still going, so this is asked for, never
   // guessed: several proxies can share one journal.
-  const active = journal.listRuns().filter((candidate) => candidate.status === "active");
-  const run = pick([...active].reverse(), positional(argv)[1], RUN, true);
+  const all = journal.listRuns();
+  const given = positional(argv)[1];
+  // Resolved against every run, not only the active ones. Picking from the
+  // active list meant naming a run that had already finished answered "no run
+  // matches", which is untrue of a run sitting in `list` and sends people
+  // hunting for a problem they do not have. closeAbandonedRun only touches a
+  // run that is still active, so it is left to say no, and the branch below
+  // reports which of the two mistakes it was.
+  const run =
+    given === undefined
+      ? pick(
+          [...all.filter((candidate) => candidate.status === "active")].reverse(),
+          undefined,
+          RUN,
+          true,
+        )
+      : pick([...all].reverse(), given, RUN, true);
   const closed = journal.closeAbandonedRun(run.id);
   out("");
   out(

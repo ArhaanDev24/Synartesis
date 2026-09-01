@@ -263,6 +263,42 @@ describe("the cli", () => {
     expect(missing.stderr).toContain("no run matches");
   });
 
+  it("tells a finished run apart from one that does not exist", async () => {
+    const space = workspace();
+    await damage(space);
+    const id = await onlyRunId(space.journal);
+
+    // close only ever acts on an active run, and it used to pick from a list
+    // of only those -- so naming a run that had already finished answered "no
+    // run matches", which is untrue of a run sitting in `list` and sends
+    // somebody hunting for a problem they do not have.
+    const finished = await run("node", [CLI, "close", id, "--journal", space.journal]);
+    expect(finished.code).toBe(1);
+    expect(finished.stdout).toContain("was not active");
+    expect(finished.stderr).not.toContain("no run matches");
+
+    // A run that really is not there still says so.
+    const absent = await run("node", [CLI, "close", "deadbeef", "--journal", space.journal]);
+    expect(absent.code).toBe(2);
+    expect(absent.stderr).toContain("no run matches");
+  });
+
+  it("refuses an empty id rather than matching every run with it", async () => {
+    const space = workspace();
+    await damage(space);
+
+    // An empty argument is an unset shell variable far more often than a
+    // person, and it prefix-matches everything: the ambiguity it reported had
+    // nothing in its subject, "synartesis:  matches 2 runs:". It must not be
+    // read as absent either, because absent means the newest run and for undo
+    // that would quietly reverse something nobody named.
+    for (const command of ["show", "undo", "approve"]) {
+      const empty = await run("node", [CLI, command, "", "--journal", space.journal]);
+      expect(empty.code, command).toBe(2);
+      expect(empty.stderr, command).toContain("empty id");
+    }
+  });
+
   it("opens the screen when it is given nothing to do", async () => {
     const space = workspace();
     await damage(space);
