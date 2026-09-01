@@ -1,0 +1,117 @@
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; }
+  canvas { display: block; }
+</style>
+<canvas id="c" width="1080" height="1080"></canvas>
+<script>
+/* The Synartesis mark: a band that closes on itself, opening at the east with
+ * an arrowhead on the terminus, turning anticlockwise -- the direction undo
+ * runs. Clockwise would read as redo, which is the opposite of the product.
+ *
+ * The engraving in the site hero modulates the band's weight around the circle,
+ * which reads as a burin line at that size and as a wilted blob at this one.
+ * Here the ring is struck rather than drawn: exact circles, and the engraving
+ * carried by grooves incised into a solid band instead of by wobble. Precision
+ * is the more honest signal anyway for a tool whose whole claim is exactness.
+ *
+ * Everything is sized against a circle, because every platform that shows an
+ * avatar crops it to one.
+ *
+ * Render:
+ *   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+ *     --headless --disable-gpu --force-device-scale-factor=1 \
+ *     --window-size=1080,1080 --screenshot=avatar.png "file://$PWD/mark.html"
+ */
+const GROUND = "#5e1420";
+const INK = "#f6e9e5";
+
+const SIZE = 1080;
+const C = SIZE / 2;
+
+/* The inscribed circle is the whole visible area. Nothing crosses this, and
+   the margin left inside it is what stops the mark reading as cropped. */
+const SAFE = 424;
+
+/* The band. */
+const MID = 268;
+const WIDTH = 84;
+
+/* Half the opening at the east, in radians. Generous on purpose: at feed size
+   the gap and the arrowhead are the only two things separating this from a
+   plain ring. */
+const GAP = 0.62;
+
+const g = document.getElementById("c").getContext("2d");
+
+g.fillStyle = GROUND;
+g.fillRect(0, 0, SIZE, SIZE);
+
+/* Canvas angles run clockwise on screen because y grows downward, so travelling
+   anticlockwise means the angle decreasing. The band therefore runs from -GAP
+   down to GAP - 2pi, and the head sits at the far end. */
+const FROM = -GAP;
+const TO = GAP - Math.PI * 2;
+
+function arcPath(radius, width, from, to) {
+  g.beginPath();
+  g.arc(C, C, radius, from, to, true);
+  g.lineWidth = width;
+  g.stroke();
+}
+
+/* The band. Butt caps: a round cap would round off the end the arrowhead grows
+   out of. */
+g.lineCap = "butt";
+g.strokeStyle = INK;
+arcPath(MID, WIDTH, FROM, TO);
+
+/* Two grooves incised along it, the way a line is cut into a struck seal.
+   Cut at part strength and kept narrow on purpose: at full ground colour and
+   five across they survived the downsample to feed size and split the band
+   into three stripes, which is the opposite of what a mark that has to hold at
+   110px needs. Here they read as incised close up and close to nothing small.
+   They stop short of the head rather than dying into its edge. */
+g.strokeStyle = "rgba(94, 20, 32, 0.62)";
+const GROOVE_END = TO + 0.16;
+arcPath(MID - WIDTH * 0.3, 3.5, FROM, GROOVE_END);
+arcPath(MID + WIDTH * 0.3, 3.5, FROM, GROOVE_END);
+
+/* The arrowhead, on the centre line of the band and pointing the way the band
+   travels. */
+const head = { angle: TO, r: MID };
+g.save();
+g.translate(C + Math.cos(head.angle) * head.r, C + Math.sin(head.angle) * head.r);
+/* Rotated onto the tangent. Travelling anticlockwise the direction at angle a
+   is (sin a, -cos a), which is exactly where a rotation by a sends the
+   triangle's own up, so the angle is used as it stands. */
+g.rotate(head.angle);
+/* Half again as tall as it is wide. The first attempt was near enough
+   equilateral, which at this size reads as a wedge stuck on the end rather
+   than as a direction. Where head and band meet it is 95 across against the
+   band's 84, and perpendicular to travel is the radius, so the butt cut runs
+   parallel to the base and the overlap is even on both sides. */
+g.beginPath();
+g.moveTo(0, -132);
+g.lineTo(58, 30);
+g.lineTo(-58, 30);
+g.closePath();
+g.fillStyle = INK;
+g.fill();
+g.restore();
+
+/* The rim: the double ring the medallions on the site carry, which is what
+   makes this a struck thing rather than a drawn one. */
+g.strokeStyle = INK;
+g.globalAlpha = 0.92;
+g.beginPath();
+g.arc(C, C, SAFE, 0, Math.PI * 2);
+g.lineWidth = 9;
+g.stroke();
+g.globalAlpha = 0.5;
+g.beginPath();
+g.arc(C, C, SAFE - 21, 0, Math.PI * 2);
+g.lineWidth = 4;
+g.stroke();
+g.globalAlpha = 1;
+</script>
