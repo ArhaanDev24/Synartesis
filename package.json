@@ -53,6 +53,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@vercel/analytics": "^2.0.1",
     "better-sqlite3": "^13.0.3",
     "pino": "^10.3.1",
     "yaml": "^2.9.0",
