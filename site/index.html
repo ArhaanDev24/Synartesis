@@ -78,8 +78,6 @@
     .reveal[data-shown="true"] { opacity: 1; transform: none; }
 
     .command,
-    .install-tabs button,
-    .install-line button,
     .command-line button,
     .masthead a.label {
       transition:
@@ -88,7 +86,6 @@
         border-color 0.2s var(--ease);
     }
 
-    .install-line button:active,
     .command-line button:active { transform: translateY(1px); }
 
     /* The journal rows rise as they land, and the added line fades with the
@@ -514,104 +511,7 @@
 
   .install { margin-top: 1.75rem; max-width: 40rem; }
 
-  /* A numbered sequence, because setting this up genuinely is one. */
-  .setup {
-    list-style: none;
-    counter-reset: setup;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 1.75rem;
-  }
-
-  .setup li {
-    counter-increment: setup;
-    display: grid;
-    grid-template-columns: 2.5rem minmax(0, 1fr);
-    gap: 0 1.25rem;
-    border-top: 1px solid var(--rule);
-    padding-top: 1.1rem;
-  }
-
-  .setup li::before {
-    content: counter(setup, decimal-leading-zero);
-    font-family: var(--mono);
-    font-size: 0.78rem;
-    letter-spacing: 0.12em;
-    color: var(--ink-faint);
-    padding-top: 0.2rem;
-  }
-
-  .setup h3 {
-    grid-column: 2;
-    margin: 0 0 0.35rem;
-    font-family: var(--display);
-    font-weight: 300;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    /* The same step as .plate-head h3. It was 1.35rem there and 1.3rem here:
-       0.8px apart, which is not a distinction anyone can see, only two
-       different guesses at one size. */
-    font-size: 1.3rem;
-    line-height: 1.1;
-  }
-
-  .setup p { grid-column: 2; margin: 0 0 0.9rem; color: var(--ink-soft); max-width: var(--measure); }
-  .setup .terminal, .setup .install-box { grid-column: 2; margin-bottom: 0; }
-
-  /* Four terminals side by side, so the whole sequence is visible at once
-     rather than read one panel at a time. */
-  .steps-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
-    gap: 1.25rem;
-  }
-
-  .steps-grid .label { margin: 0 0 0.6rem; }
-
-  /* One command, in a box, because that is the thing a person came for. */
-  .install-box {
-    background: var(--panel);
-    color: var(--panel-ink);
-    border: 1px solid var(--panel);
-    max-width: 46rem;
-    margin-bottom: 1.75rem;
-  }
-
-  .install-tabs { display: flex; border-bottom: 1px solid var(--panel-rule); }
-
-  .install-tabs button {
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    background: none;
-    border: 0;
-    border-right: 1px solid var(--panel-rule);
-    color: var(--panel-faint);
-    padding: 0.6rem 1rem;
-    cursor: pointer;
-  }
-
-  .install-tabs button[aria-pressed="true"] { color: var(--panel-ink); background: var(--ground-lift); }
-
-  .install-line {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    padding: 0.9rem 1rem;
-  }
-
-  .install-line code {
-    font-family: var(--mono);
-    font-size: 0.82rem;
-    flex: 1;
-    overflow-x: auto;
-    white-space: pre;
-    color: var(--panel-ink);
-  }
-
-  .install-line button,
+  /* The button that takes the one command. */
   .command-line button {
     font-family: var(--mono);
     font-size: 0.68rem;
@@ -625,7 +525,6 @@
     flex-shrink: 0;
   }
 
-  .install-line button:hover,
   .command-line button:hover { color: var(--panel-ink); border-color: var(--panel-ink); }
 
   /* The one command, and the button that takes it. The pre keeps its own
@@ -780,7 +679,6 @@
     border-bottom: 1px solid var(--rule);
   }
   .command:hover { background: var(--ground-lift); }
-  .install-tabs button:hover { color: var(--panel-ink); }
 
   .command code {
     font-family: var(--mono);
@@ -1588,7 +1486,7 @@
 
     const groups = [
       ...document.querySelectorAll(
-        ".section-head, .plate-card, .step, .setup li, .command, .limits p, .refusal .terminal",
+        ".section-head, .plate-card, .step, .command, .limits p, .refusal .terminal",
       ),
     ];
     if (groups.length === 0) return;
