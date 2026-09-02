@@ -121,7 +121,11 @@
     background: var(--ground);
     color: var(--ink);
     font-family: var(--sans);
-    font-size: clamp(0.9rem, 0.86rem + 0.14vw, 0.97rem);
+    /* Body never reached 16px at any width: this clamp bottomed out at 14.4px
+     on a phone and topped out at 15.5px on a desktop. 16px is the floor
+     below which body text is small type, and a phone is exactly where it
+     cannot be. Now 16.05px at 375 and 17.1px from 1140 up. */
+  font-size: clamp(1rem, 0.97rem + 0.14vw, 1.07rem);
     line-height: 1.62;
     -webkit-font-smoothing: antialiased;
   }
@@ -608,7 +612,7 @@
 
   .plate-card figcaption {
     font-family: var(--mono);
-    font-size: 0.74rem;
+    font-size: 0.78rem;
     line-height: 1.7;
     color: var(--ink-soft);
   }
