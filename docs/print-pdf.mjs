@@ -117,11 +117,19 @@ async function main() {
   const started = Date.now();
   let pages = 0;
   for (;;) {
-    pages = (await evaluate("document.querySelectorAll('.pagedjs_page').length")) ?? 0;
+    // Paged.js documents report their own page boxes; a document that
+    // paginates natively (one slide, one @page) has none, so it declares the
+    // count itself. Either way a zero here is still a failure rather than a
+    // surprise in the PDF.
+    pages =
+      (await evaluate(
+        "document.querySelectorAll('.pagedjs_page').length" +
+          " || Number(document.documentElement.dataset.pages) || 0",
+      )) ?? 0;
     const done = await evaluate("document.documentElement.dataset.pagedDone === '1'");
     if (done && pages > 0) break;
     if (Date.now() - started > PAGINATION_TIMEOUT_MS) {
-      throw new Error(`paged.js did not finish within ${PAGINATION_TIMEOUT_MS}ms (saw ${pages} pages)`);
+      throw new Error(`pagination did not finish within ${PAGINATION_TIMEOUT_MS}ms (saw ${pages} pages)`);
     }
     await sleep(400);
   }
