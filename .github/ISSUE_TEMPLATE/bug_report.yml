@@ -1,0 +1,59 @@
+name: Bug report
+description: Something Synartesis did that it should not have, or did not do that it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The journal knows what happened. A description of what you think
+        happened is a second-hand account of it, so please include the real
+        output where you can.
+
+        **Do not paste your journal wholesale.** It holds prior file contents
+        verbatim, which is how undo works and also means it can contain
+        secrets. Trim to the run in question.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you got instead.
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Synartesis version
+      description: Output of `synartesis --version`
+      placeholder: "0.3.2"
+    validations: { required: true }
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version`
+      placeholder: "v22.16.0"
+    validations: { required: true }
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "macOS 15.6, Ubuntu 24.04, Windows 11"
+    validations: { required: true }
+  - type: input
+    id: server
+    attributes:
+      label: Which MCP server were you wrapping
+      placeholder: "@modelcontextprotocol/server-filesystem 2026.7.10"
+    validations: { required: true }
+  - type: textarea
+    id: run
+    attributes:
+      label: What the journal says
+      description: >
+        `synartesis show <run> --json`, trimmed. If a run is not involved, say so.
+      render: json
+  - type: textarea
+    id: policy
+    attributes:
+      label: The relevant part of your policy
+      description: The rule for the tool involved, from your synartesis.yaml.
+      render: yaml

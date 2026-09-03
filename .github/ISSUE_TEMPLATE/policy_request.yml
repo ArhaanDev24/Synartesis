@@ -1,0 +1,32 @@
+name: Policy request
+description: Synartesis does not know a server you use, and drafts everything as irreversible
+labels: [policy]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Four policies ship today: filesystem, git, github, memory. Everything
+        else gets a draft where every tool is held.
+
+        If you are willing to write the policy yourself, CONTRIBUTING.md walks
+        through it and that is by far the fastest route. This template is for
+        asking, or for getting unstuck partway.
+  - type: input
+    id: server
+    attributes:
+      label: Which server
+      placeholder: "@modelcontextprotocol/server-postgres"
+    validations: { required: true }
+  - type: textarea
+    id: tools
+    attributes:
+      label: Which tools matter most
+      description: >
+        The writes you actually care about undoing, and for each one, the read
+        that would capture its prior state. That pairing is the whole policy.
+    validations: { required: true }
+  - type: textarea
+    id: irreversible
+    attributes:
+      label: Anything that genuinely cannot be undone
+      description: Calls that should be held for a person rather than reversed.

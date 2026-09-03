@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ArhaanDev24/Synartesis/security/policy
+    about: Do not open a public issue. SECURITY.md has the private reporting route.

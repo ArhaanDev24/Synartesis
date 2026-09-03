@@ -1,0 +1,95 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* GitHub social preview: 1280x640, rendered at twice that and reduced.
+     This is the card that appears when the repo is pasted into Slack, X or a
+     message. GitHub's default is the repo name on white, which is legible and
+     says nothing. */
+  :root {
+    --ground: #5e1420;
+    --ink: #f6e9e5;
+    --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--ground));
+    --ink-faint: color-mix(in srgb, var(--ink) 52%, var(--ground));
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --display: "Cormorant Garamond", "Times New Roman", serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  .card {
+    width: 2560px;
+    height: 1280px;
+    background: var(--ground);
+    position: relative;
+    overflow: hidden;
+    padding: 130px 170px;
+    display: flex;
+    align-items: center;
+    gap: 120px;
+  }
+
+  /* The text carries the left; the mark is the counterweight on the right.
+     Stacked in one column it left two thirds of a 2:1 card empty. */
+  .stack { flex: 1; display: flex; flex-direction: column; gap: 40px; }
+  .mark { width: 440px; height: 440px; display: block; flex-shrink: 0; }
+
+  .wordmark {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: 92px;
+    letter-spacing: 0.34em;
+    text-transform: uppercase;
+    color: var(--ink);
+    line-height: 1;
+    /* Tracking adds space after the final letter too, which throws the block
+       optically right. Pulled back one step so it sits where it looks placed. */
+    margin-left: -0.34em;
+  }
+
+  .tagline {
+    font-family: var(--display);
+    font-weight: 300;
+    font-size: 96px;
+    line-height: 1.04;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+
+  .command {
+    font-family: var(--mono);
+    font-size: 44px;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  .command .prompt { color: var(--ink-faint); margin-right: 0.6em; }
+
+  /* The meander, along the bottom edge: the same ornament and mask the site
+     uses between sections. */
+  .fret {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 56px;
+    background-color: var(--ink);
+    opacity: 0.3;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    -webkit-mask-repeat: repeat-x;
+    mask-repeat: repeat-x;
+    -webkit-mask-position: left bottom;
+    mask-position: left bottom;
+  }
+</style>
+
+<div class="card">
+  <div class="stack">
+    <div class="wordmark">Synartesis</div>
+    <p class="tagline">An undo layer<br>for AI agents</p>
+    <p class="command"><span class="prompt">$</span>npm install -g synartesis</p>
+  </div>
+  <img class="mark" src="synartesis-mark-1080.png" alt="">
+  <div class="fret"></div>
+</div>

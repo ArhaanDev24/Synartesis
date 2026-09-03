@@ -3,7 +3,10 @@
 An undo layer for AI agents.
 
 [![check](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml/badge.svg)](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml)
-[![MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/synartesis?color=5e1420&label=npm)](https://www.npmjs.com/package/synartesis)
+[![downloads](https://img.shields.io/npm/dm/synartesis?color=5e1420&label=downloads)](https://www.npmjs.com/package/synartesis)
+[![node](https://img.shields.io/node/v/synartesis?color=5e1420)](https://nodejs.org)
+[![MIT](https://img.shields.io/badge/licence-MIT-5e1420.svg)](LICENSE)
 
 An agent with write access to a real system runs twenty steps, misreads step
 seven, and applies the rest to the wrong records. Today your options are to
