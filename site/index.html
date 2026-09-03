@@ -1169,10 +1169,10 @@
         it stopped.
       </p>
       <p>
-        <strong>It cannot snapshot something very large.</strong> A resource of more than
-        roughly three megabytes cannot be read back through a stdio connection &mdash; the
-        reply is too large to carry. Synartesis says so, and refuses the write rather than
-        applying a change it could not capture. Nothing is lost; the call does not go through.
+        <strong>It cannot snapshot something very large.</strong> Past a few megabytes a
+        resource cannot be read back through a stdio connection &mdash; the reply is too large
+        to carry. Synartesis says so, and refuses the write rather than applying a change it
+        could not capture. Nothing is lost; the call does not go through.
       </p>
       <p>
         <strong>It can only undo what the system underneath allows.</strong> GitHub has no

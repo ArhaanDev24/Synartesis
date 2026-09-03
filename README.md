@@ -466,12 +466,17 @@ one. Every policy bundled here declares it.
 
 ### The size of what you can snapshot
 
-A resource of more than roughly three megabytes cannot be read back through a
-stdio MCP connection — the reply is too large to carry, and the connection
-closes. Synartesis reconnects and says so, and refuses the write rather than
-applying a change it could not capture. That is the right answer, but it does
-mean **writes to very large files are refused, not undone**. Nothing is lost;
-the call simply does not go through.
+Past a few megabytes a resource cannot be read back through a stdio MCP
+connection — the reply is too large to carry, and the connection closes.
+Synartesis reconnects and says so, and refuses the write rather than applying a
+change it could not capture. That is the right answer, but it does mean
+**writes to very large files are refused, not undone**. Nothing is lost; the
+call simply does not go through.
+
+Where the ceiling falls depends on the server and its transport, so no exact
+figure here would be true of every one. Measured against the bundled
+filesystem policy: a 4 MB file was captured and restored intact; 8 MB and above
+was refused with the file untouched.
 
 ## Commands
 
