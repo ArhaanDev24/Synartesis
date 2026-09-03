@@ -1,6 +1,6 @@
 {
   "name": "synartesis",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "An undo layer for AI agents.",
   "type": "module",
   "private": false,

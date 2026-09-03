@@ -2,6 +2,23 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.3.4 — 2026-09-03
+
+### Changed
+
+- **The README shows what the tool does.** It opened with a heading and five
+  badges, and nothing above the fold showed a single line of output — for a
+  tool whose whole argument is what its output looks like. It now carries a
+  header lockup and two terminal shots of real output from
+  `demo/filesystem-demo.sh`: a clean rollback, and an undo halting on drift
+  rather than overwriting a colleague's edit.
+
+  This is the only reason for the release. npm cannot refresh a package page
+  without a version, so 0.3.3 kept serving the old README while the repository
+  served the new one. **No code changed**: every file under `dist/` and
+  `manifests/` is byte-identical to 0.3.3, verified by unpacking the published
+  tarball and diffing it against this one.
+
 ## 0.3.3 — 2026-09-03
 
 ### Changed
