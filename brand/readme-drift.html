@@ -1,0 +1,53 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* A terminal card for the README. The output inside is verbatim: it was
+     produced by ./demo/filesystem-demo.sh and pasted, not typeset. Where a
+     line was too wide for the card, the whole line was cut — never shortened,
+     because a half-quoted inverse is a claim about output the tool does not
+     make. If it stops matching what the tool prints, reshoot it. */
+  :root {
+    --ground: #5e1420;
+    --panel: #2c080f;
+    --ink: #f0d3cc;
+    --ink-faint: color-mix(in srgb, var(--ink) 55%, var(--panel));
+    --accent: #e8927f;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--ground); }
+  .card { width: 1000px; height: 506px; background: var(--ground); padding: 34px; display: flex; }
+  .panel {
+    flex: 1; background: var(--panel); padding: 26px 30px;
+    font-family: var(--mono); font-size: 16px; line-height: 1.65;
+    color: var(--ink); overflow: hidden;
+  }
+  .prompt { color: var(--ink-faint); }
+  .prompt b { color: var(--ink); font-weight: 500; }
+  /* pre, not pre-wrap: the columns are the output. A wrap would break the
+     alignment the tool went to the trouble of producing. */
+  pre { margin: 0; font: inherit; white-space: pre; }
+  .accent { color: var(--accent); }
+  .faint { color: var(--ink-faint); }
+</style>
+
+<div class="card"><div class="panel">
+  <div class="prompt">$ <b>synartesis undo 35527260</b></div>
+  <pre>
+
+  U N D O  35527260-6bde-4bd2-ad89-172397f1938b
+  <span class="faint">┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛</span>
+
+    1  halt             fs.write_file  drift detected
+
+  halted at sequence 1  <span class="accent">drift detected</span>
+  drift at sequence 1: the resource is not in the state this run left it in.
+    at line 1:
+    - AGENT VERSION
+    + <span class="accent">A HUMAN FIXED THIS BY HAND</span>
+    1 removed, 1 added.
+
+  R E S U L T  <span class="accent">partial</span></pre>
+</div></div>

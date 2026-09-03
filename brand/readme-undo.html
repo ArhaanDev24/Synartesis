@@ -1,0 +1,47 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* A terminal card for the README. The output inside is verbatim: it was
+     produced by ./demo/filesystem-demo.sh and pasted, not typeset. Where a
+     line was too wide for the card, the whole line was cut — never shortened,
+     because a half-quoted inverse is a claim about output the tool does not
+     make. If it stops matching what the tool prints, reshoot it. */
+  :root {
+    --ground: #5e1420;
+    --panel: #2c080f;
+    --ink: #f0d3cc;
+    --ink-faint: color-mix(in srgb, var(--ink) 55%, var(--panel));
+    --accent: #e8927f;
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--ground); }
+  .card { width: 1000px; height: 348px; background: var(--ground); padding: 34px; display: flex; }
+  .panel {
+    flex: 1; background: var(--panel); padding: 26px 30px;
+    font-family: var(--mono); font-size: 16px; line-height: 1.65;
+    color: var(--ink); overflow: hidden;
+  }
+  .prompt { color: var(--ink-faint); }
+  .prompt b { color: var(--ink); font-weight: 500; }
+  /* pre, not pre-wrap: the columns are the output. A wrap would break the
+     alignment the tool went to the trouble of producing. */
+  pre { margin: 0; font: inherit; white-space: pre; }
+  .accent { color: var(--accent); }
+  .faint { color: var(--ink-faint); }
+</style>
+
+<div class="card"><div class="panel">
+  <div class="prompt">$ <b>synartesis undo a37d2f9b</b></div>
+  <pre>
+
+  U N D O  a37d2f9b-705b-472a-99eb-c1b2dd5c45ba
+  <span class="faint">┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛┗━┓┏━┛</span>
+
+    2  skip             fs.move_file  never applied (awaiting approval)
+    1  revert           fs.write_file  state matches; applying inverse
+
+  R E S U L T  <span class="accent">rolled_back</span></pre>
+</div></div>

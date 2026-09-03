@@ -1,0 +1,71 @@
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* README header, 1280x300. Wider and shorter than the social card: this one
+     sits above the badges in a column of text, so it has to read at the width
+     GitHub gives it (~880px) without the type going to nothing.
+
+     Mark and type are locked together and centred as one group. Pushed to
+     opposite edges — which is right on the 2:1 social card — a strip this wide
+     leaves a third of it empty in the middle, and the two halves stop reading
+     as one thing. */
+  :root {
+    --ground: #5e1420;
+    --ink: #f6e9e5;
+    --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--ground));
+    --ink-faint: color-mix(in srgb, var(--ink) 52%, var(--ground));
+    --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+    --display: "Cormorant Garamond", "Times New Roman", serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--ground); }
+
+  .card {
+    width: 1280px; height: 300px;
+    background: var(--ground);
+    position: relative; overflow: hidden;
+    padding: 52px 90px;
+    display: flex; align-items: center; justify-content: center; gap: 56px;
+  }
+  .stack { display: flex; flex-direction: column; gap: 20px; }
+  .mark { width: 176px; height: 176px; display: block; flex-shrink: 0; }
+
+  .wordmark {
+    font-family: var(--mono); font-weight: 500; font-size: 46px;
+    letter-spacing: 0.34em; text-transform: uppercase;
+    color: var(--ink); line-height: 1;
+    /* Tracking adds space after the last letter too; pull back one step so the
+       block sits where it looks placed rather than where it measures. */
+    margin-left: -0.34em;
+  }
+  .tagline {
+    font-family: var(--display); font-weight: 300; font-size: 52px;
+    line-height: 1.05; color: var(--ink-soft); margin: 0;
+  }
+  .command {
+    font-family: var(--mono); font-size: 21px; letter-spacing: 0.05em;
+    color: var(--ink-faint); margin: 0;
+  }
+  .command .prompt { margin-right: 0.6em; }
+
+  .fret {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 28px;
+    background-color: var(--ink); opacity: 0.3;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    -webkit-mask-repeat: repeat-x; mask-repeat: repeat-x;
+    -webkit-mask-position: left bottom; mask-position: left bottom;
+  }
+</style>
+
+<div class="card">
+  <img class="mark" src="synartesis-mark-1080.png" alt="">
+  <div class="stack">
+    <div class="wordmark">Synartesis</div>
+    <p class="tagline">An undo layer for AI agents</p>
+    <p class="command"><span class="prompt">$</span>npm install -g synartesis</p>
+  </div>
+  <div class="fret"></div>
+</div>

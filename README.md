@@ -1,6 +1,6 @@
-# Synartesis
-
-An undo layer for AI agents.
+<!-- Absolute URLs, not relative paths: this README is also the npm package
+     page, and npm does not resolve relative image paths against the repo. -->
+[![Synartesis — an undo layer for AI agents](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-banner.png)](https://synartesis.online)
 
 [![check](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml/badge.svg)](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml)
 [![npm](https://img.shields.io/npm/v/synartesis?color=5e1420&label=npm)](https://www.npmjs.com/package/synartesis)
@@ -20,6 +20,28 @@ back. What cannot be put back, it refuses to let an agent do unsupervised.
 It is not a sandbox: the container your agent runs in is disposable, but the
 CRM row it updated over the network is not. It is not a tracing tool: a trace
 tells you `update_customer` ran forty times, not what the values were before.
+
+## What it looks like
+
+Two commands, both real. The output below was produced by
+[`./demo/filesystem-demo.sh`](demo/filesystem-demo.sh) against the official
+filesystem MCP server and pasted, not typeset.
+
+An agent overwrote a file and tried to move another. One command puts the
+first back and reports that the second never happened:
+
+![synartesis undo, reverting a write and skipping a gated move](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-undo.png)
+
+`skip` is the interesting row. `move_file` is irreversible on that server, so
+it was never applied in the first place — there is nothing to undo.
+
+Now the same damage, except a colleague edited the file before you got to the
+undo. Writing the old contents back would destroy their work, so it does not:
+
+![synartesis undo halting on drift, showing the human's line](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-drift.png)
+
+It stops at the record that moved and exits non-zero. Anything it had already
+put back stays put back; `synartesis show` tells you what is left.
 
 ## What it can and cannot do
 
