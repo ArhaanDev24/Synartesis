@@ -2,6 +2,32 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.3.3 — 2026-09-03
+
+### Changed
+
+- **Source maps no longer ship.** They were 385 kB of a 603 kB install and
+  nothing ever read them: no `--enable-source-maps` in the shebang, nothing
+  calling `setSourceMapsEnabled`, nothing in `package.json`, so Node never
+  consulted them. Verified they are not load-bearing by deleting them and
+  running the CLI, the error paths and the proxy, with and without
+  `--enable-source-maps`: no warning, no error, identical output. The package
+  goes from 17 files to 13, 164 kB to 61 kB packed, 603 kB to 219 kB
+  unpacked. They are still generated for local development.
+
+### Fixed
+
+- **The documented snapshot ceiling was wrong.** The README and the site both
+  said a resource over roughly three megabytes cannot be captured and the
+  write is refused. Measured against the bundled filesystem policy: a 4 MB
+  file was captured whole and restored byte for byte, and 8 MB and above was
+  refused with the file untouched. The number was wrong in the user's favour,
+  which is still wrong on the one page whose job is to be exact about limits.
+  Where the ceiling falls depends on the server and its transport, so the
+  text now says a few megabytes and carries the measured figures. The
+  behaviour was never in doubt: when the pre-read cannot complete, the write
+  does not happen.
+
 ## 0.3.2 — 2026-08-30
 
 ### Fixed

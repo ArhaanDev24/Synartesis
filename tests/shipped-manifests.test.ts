@@ -65,6 +65,10 @@ describe("what the published package carries", () => {
         : [];
     expect(files).toContain("!dist/toy-crm.*");
     expect(files).toContain("!dist/demo-agent.*");
+    // Source maps are generated for local development and never shipped:
+    // nothing enables them at runtime, so they were 385kB of an install
+    // that Node never read.
+    expect(files).toContain("!dist/*.map");
     expect(files).toContain("!manifests/toy-crm.yaml");
     // And the things a user does need are still declared.
     expect(files).toContain("dist");
