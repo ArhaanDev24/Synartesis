@@ -86,7 +86,13 @@ export function plainly(action: ActionRow): Plain {
     case "pending":
       return { text: "sent, outcome unknown", needs: true };
     case "unrecoverable":
-      return { text: "cannot be undone", needs: true };
+      // Two very different things wear this status. Without an inverse the
+      // action is permanent and nothing will ever change that. With one, it
+      // was recoverable until somebody changed the resource afterwards --
+      // which is a conflict a person can resolve, not a dead end.
+      return action.inverse === undefined
+        ? { text: "cannot be undone", needs: true }
+        : { text: "changed since; not safe to undo", needs: true };
     default:
       return { text: action.status, needs: false };
   }

@@ -113,6 +113,11 @@ function windowed(lines: readonly string[], at: number, room: number): string[] 
   ];
 }
 
+/** The sentence, not the diff that follows it. */
+function firstLine(text: string): string {
+  return text.split("\n")[0]?.trim() ?? "";
+}
+
 function truncate(text: string, limit: number): string {
   return text.length <= limit ? text : `${text.slice(0, limit - 3)}...`;
 }
@@ -482,11 +487,17 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     try {
       const report = await options.undo(runId, dryRun);
       const reverted = report.steps.filter((step) => step.kind === "revert").length;
-      const halted = report.halted === undefined ? "" : ` ${DOT} halted: ${report.halted.reason}`;
+      // The reason on its own can be "halted here on an earlier attempt",
+      // which explains nothing. The detail is the half that says somebody
+      // edited the resource since, and it is the only useful sentence here.
+      const why =
+        report.halted === undefined
+          ? ""
+          : ` ${DOT} halted: ${firstLine(report.halted.detail) || report.halted.reason}`;
       say(
         dryRun
-          ? `${String(reverted)} would be reverted ${DOT} nothing changed${halted}`
-          : `${report.status} ${DOT} ${String(reverted)} reverted${halted}`,
+          ? `${String(reverted)} would be reverted ${DOT} nothing changed${why}`
+          : `${report.status} ${DOT} ${String(reverted)} reverted${why}`,
       );
     } catch (error: unknown) {
       say(error instanceof Error ? error.message : "the undo failed");

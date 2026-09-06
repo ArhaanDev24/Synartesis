@@ -1052,6 +1052,13 @@ function report(result: RollbackReport): number {
     out(
       `  ${style.accent("halted")} ${style.quiet(`at sequence ${String(result.halted.seq)}`)}  ${result.halted.reason}`,
     );
+    // A halt with no reason reads as a failure of the tool rather than the
+    // refusal it is. The advice about what to do next already follows the
+    // detail below; what was missing was why stopping was the right answer.
+    out(
+      `  ${style.quiet("Writing the old value back would discard whatever changed it since,")}`,
+    );
+    out(`  ${style.quiet("so nothing was written. Everything newer than this was reverted.")}`);
     if (result.halted.detail !== "") {
       for (const line of result.halted.detail.split("\n")) {
         out(`  ${style.quiet(line)}`);

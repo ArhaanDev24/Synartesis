@@ -137,6 +137,7 @@ function classify(action: ActionRow, replanning: boolean): Decision | undefined 
       // Otherwise it is genuine uncertainty. A replan is a person saying they
       // corrected the policy and want it tried again; every check still runs,
       // so real drift halts on it a second time.
+      //
       return replanning
         ? undefined
         : { kind: "halt", reason: "halted here on an earlier attempt", verified: false };
