@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   ConfigError,
@@ -41,21 +41,22 @@ function scratch(): string {
 /**
  * Drafting a policy starts the server to ask what tools it has, so these are
  * real servers against a real directory rather than names in a fixture.
+ *
+ * The local build, the way tests/init.test.ts does it, not `npx -y`. On a cold
+ * CI runner npx fetches the package first and the test times out; nothing here
+ * is about whether a download works.
  */
+const FS_SERVER = resolve("node_modules/@modelcontextprotocol/server-filesystem/dist/index.js");
+
 function configFor(dir: string): Record<string, unknown> {
   return {
     coworkUserFilesPath: "/somewhere/else",
     preferences: { theme: "dark", nested: { kept: true } },
     mcpServers: {
-      filesystem: {
-        command: "npx",
-        args: ["-y", "@modelcontextprotocol/server-filesystem", dir],
-      },
-      memory: {
-        command: "npx",
-        args: ["-y", "@modelcontextprotocol/server-memory"],
-        env: { MEMORY_FILE_PATH: join(dir, "mem.json") },
-      },
+      filesystem: { command: "node", args: [FS_SERVER, dir] },
+      // A second entry so the multi-server behaviour is covered. It is the
+      // same server under another name, which is all these assertions need.
+      notes: { command: "node", args: [FS_SERVER, dir], env: { NOTE: join(dir, "n.json") } },
       remote: { type: "http", url: "https://example.com/mcp" },
     },
   };
@@ -79,7 +80,7 @@ describe("planning an install", () => {
     const { plans } = await planInstall([siteIn(dir)], join(dir, "synartesis.yaml"));
     const byName = new Map(plans[0]?.servers.map((server) => [server.name, server]));
     expect(byName.get("filesystem")?.adopted).toBe("filesystem");
-    expect(byName.get("memory")?.adopted).toBe("memory");
+    expect(byName.get("notes")?.adopted).toBe("filesystem");
   });
 
   it("leaves a remote server alone, because the upstream here is a process", async () => {
@@ -128,7 +129,7 @@ describe("installing and uninstalling", () => {
     applyInstall(plans, manifest, yaml);
 
     const servers = readServers(readDocument(site), site.at);
-    expect(servers["memory"]?.env).toEqual({ MEMORY_FILE_PATH: join(dir, "mem.json") });
+    expect(servers["notes"]?.env).toEqual({ NOTE: join(dir, "n.json") });
   });
 
   it("gives each server its own --server, so no tool is renamed", async () => {
@@ -141,7 +142,7 @@ describe("installing and uninstalling", () => {
     // A proxy carrying two servers has to qualify tool names to keep them
     // apart. One entry per server is what keeps the names the agent knows.
     const servers = readServers(readDocument(site), site.at);
-    for (const name of ["filesystem", "memory"]) {
+    for (const name of ["filesystem", "notes"]) {
       const args = servers[name]?.args ?? [];
       expect(args).toContain("--server");
       expect(args[args.indexOf("--server") + 1]).toBe(name);
@@ -184,9 +185,9 @@ describe("installing and uninstalling", () => {
     rmSync(join(dir, "installed.json"));
     const [restored] = applyUninstall([site], manifest);
     expect(restored?.servers).toHaveLength(0);
-    expect(restored?.unknown).toEqual(expect.arrayContaining(["filesystem", "memory"]));
+    expect(restored?.unknown).toEqual(expect.arrayContaining(["filesystem", "notes"]));
     const servers = readServers(readDocument(site), site.at);
-    expect(Object.keys(servers)).toEqual(expect.arrayContaining(["filesystem", "memory"]));
+    expect(Object.keys(servers)).toEqual(expect.arrayContaining(["filesystem", "notes"]));
   });
 });
 
