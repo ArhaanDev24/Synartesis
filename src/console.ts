@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 
-import { labelFor, openJournal, wasRefused, type ActionRow, type Journal, type RunRow } from "./journal/journal.js";
+import { openJournal, wasRefused, type Journal, type RunRow } from "./journal/journal.js";
 import type { RollbackReport } from "./rollback/rollback.js";
+import { shortTime } from "./clock.js";
+import { plainly, subject } from "./describe.js";
 import { keysIn } from "./keys.js";
 import { NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
 
@@ -27,14 +29,6 @@ const FRAMES = [
   "⠇",
   "⠏",
 ];
-
-const MARK: Record<string, string> = {
-  readonly: "·",
-  reversible: "←",
-  compensable: "≈",
-  irreversible: "!",
-  unclassified: "?",
-};
 
 const CURSOR = "❯";
 const DOT = "·";
@@ -178,18 +172,10 @@ function runsView(journal: Journal, screen: Screen, options: ConsoleOptions): st
     const note = held === 0 ? "" : `  ${style.accent(`${String(held)} awaiting approval`)}`;
     return (
       `  ${here ? style.accent(CURSOR) : " "} ${here ? style.accent(name) : style.strong(name)} ` +
-      `${style.quiet(run.startedAt.slice(0, 19).replace("T", " "))}  ` +
+      `${style.quiet(shortTime(run.startedAt).trimEnd().padEnd(13))}  ` +
       `${style.quiet(run.status.padEnd(11))} ${style.quiet(`${String(actions.length)} actions`)}${note}`
     );
   });
-}
-
-function statusOf(action: ActionRow): string {
-  const text = labelFor(action).padEnd(13);
-  if (wasRefused(action)) {
-    return style.accent(text);
-  }
-  return action.status === "gated" ? style.strong(text) : style.quiet(text);
 }
 
 function runView(journal: Journal, screen: Screen): string[] {
@@ -208,10 +194,16 @@ function runView(journal: Journal, screen: Screen): string[] {
     return out;
   }
   for (const action of actions) {
-    const badge = `${MARK[action.class] ?? "?"} ${action.class}`.padEnd(14);
+    // The tool and what it acted on, then whether it still needs anybody. The
+    // class and the raw status are what the code branches on, not what a
+    // person reading a list of twelve edits is looking for.
+    const state = plainly(action);
+    const said = state.needs || wasRefused(action)
+      ? style.accent(state.text)
+      : style.quiet(state.text);
     out.push(
-      `  ${style.quiet(String(action.seq).padStart(3))}  ${style.quiet(badge)} ` +
-        `${statusOf(action)} ${style.strong(`${action.server}.${action.tool}`)}`,
+      `  ${style.quiet(String(action.seq).padStart(3))}  ${style.quiet(action.server.padEnd(10))} ` +
+        `${style.strong(action.tool.padEnd(20))} ${style.quiet(subject(action.args).padEnd(20))} ${said}`,
     );
     out.push(`        ${style.quiet(truncate(JSON.stringify(action.args), 62))}`);
     if (action.inverse !== undefined) {

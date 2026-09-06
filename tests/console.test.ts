@@ -138,7 +138,7 @@ describe("the console", () => {
   it("opens a run and shows what the agent did in it", async () => {
     const { path } = fixture();
     const { text } = await drive(path, ["\r"]);
-    expect(text).toContain("crm.send_email");
+    expect(text).toContain("send_email");
   });
 
   it("goes back out of a run", async () => {

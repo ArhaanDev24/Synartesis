@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 
-import { labelFor, openJournal, wasRefused, type ActionRow, type Journal } from "./journal/journal.js";
+import { openJournal, wasRefused, type ActionRow, type Journal } from "./journal/journal.js";
 import { keysIn } from "./keys.js";
+import { shortTime } from "./clock.js";
+import { plainly, subject } from "./describe.js";
 import { NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
 
 /**
@@ -15,14 +17,6 @@ import { NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
  */
 
 const FRAMES = ["\u280b", "\u2819", "\u2839", "\u2838", "\u283c", "\u2834", "\u2826", "\u2827", "\u2807", "\u280f"];
-
-const MARK: Record<string, string> = {
-  readonly: "\u00b7",
-  reversible: "\u2190",
-  compensable: "\u2248",
-  irreversible: "!",
-  unclassified: "?",
-};
 
 export interface WatchOptions {
   readonly journalPath: string;
@@ -58,38 +52,27 @@ interface View {
  */
 const NOTICE_TICKS = 26;
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 /**
- * The time, and the date too when it is not today's.
+ * One action, as a sentence rather than a row of enum values.
  *
- * A time on its own reads as ordering, and the list is not ordered by clock:
- * an action from two weeks ago at 13:09 sat above one from this morning at
- * 09:00, so the oldest row in the view looked like the newest. Somebody
- * checking whether their own write had been recorded read the top line, saw a
- * fortnight-old call, and concluded nothing had been.
+ * What was there: `15:36:56  reversible  rolled_back  sim.edit_file`, twelve
+ * times over, which says a class and a status and never once says which file.
+ * What a person reading a live view wants is what changed and whether it still
+ * needs them.
  */
-function stamp(iso: string, today: string): string {
-  const time = iso.slice(11, 19);
-  if (iso.slice(0, 10) === today) {
-    return time.padEnd(12);
-  }
-  const month = MONTHS[Number(iso.slice(5, 7)) - 1] ?? "";
-  return `${iso.slice(8, 10)} ${month} ${time.slice(0, 5)}`.padEnd(12);
-}
-
-function line(action: ActionRow, today: string): string {
-  const mark = MARK[action.class] ?? "?";
-  const badge = `${mark} ${action.class}`.padEnd(14);
-  const when = stamp(action.ts, today);
-  const label = labelFor(action).padEnd(13);
-  const status =
-    action.status === "gated"
-      ? style.strong(label)
-      : wasRefused(action)
-        ? style.accent(label)
-        : style.quiet(label);
-  return `  ${style.quiet(when)}  ${style.quiet(badge)} ${status} ${action.server}.${action.tool}`;
+function line(action: ActionRow, now: Date): string {
+  const when = shortTime(action.ts, now);
+  // The server stays, dimmed. Dropping it read better until two servers both
+  // offered an edit_file and the rows stopped saying which system changed.
+  const where = action.server.padEnd(10);
+  const what = action.tool.padEnd(20);
+  const on = subject(action.args);
+  const state = plainly(action);
+  const said = state.needs || wasRefused(action) ? style.accent(state.text) : style.quiet(state.text);
+  return (
+    `  ${style.quiet(when)}  ${style.quiet(where)} ${style.strong(what)} ` +
+    `${style.quiet(on.padEnd(20))} ${said}`
+  );
 }
 
 /**
@@ -120,9 +103,8 @@ function waitingForJournal(options: WatchOptions, tick: number): string {
 function render(journal: Journal, options: WatchOptions, tick: number, view: View): string {
   const runs = journal.listRuns();
   const recent = journal.recentActions(12);
-  // The journal stores UTC, and the view prints UTC, so "today" is UTC too.
-  // Mixing the two would put a date beside a time from a different day.
-  const today = new Date().toISOString().slice(0, 10);
+  // Local, because the person reading this is looking at a wall clock.
+  const now = new Date();
   const waiting = journal.listGated();
   const active = runs.filter((run) => run.status === "active").length;
 
@@ -145,7 +127,7 @@ function render(journal: Journal, options: WatchOptions, tick: number, view: Vie
     out.push(`  ${style.quiet("No agent has done anything through this journal yet.")}`);
   } else {
     for (const action of recent) {
-      out.push(line(action, today));
+      out.push(line(action, now));
     }
   }
 

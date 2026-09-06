@@ -29,13 +29,17 @@ import { findJournal, findManifest } from "./locate.js";
 import { watch } from "./watch.js";
 import { openConsole } from "./console.js";
 import { cliCommand, proxyCommand } from "./invocation.js";
+import { ago, fullTime, shortTime } from "./clock.js";
 import { discover } from "./install/clients.js";
 import { applyInstall, applyUninstall, isWrapped, keyFor, planInstall, readRecord } from "./install/install.js";
 import { readDocument, readServers } from "./install/clients.js";
 
 const COMMANDS = `
-  synartesis                                      the screen; everything below,
-                                                  driven with the arrow keys
+  synartesis                                      start here. Live activity,
+                                                  what is waiting for you, and
+                                                  undo -- all in one place, with
+                                                  the arrow keys. Everything
+                                                  below can be done from it.
   synartesis install [--client <name>] [--dry-run] [--print]
   synartesis uninstall [--client <name>]
   synartesis status
@@ -262,9 +266,14 @@ async function runInstall(argv: readonly string[]): Promise<number> {
   }
   out("");
   out(`  ${style.quiet("Restart your client, and its servers now run through Synartesis.")}`);
-  out(`  ${style.quiet("Leave this running to see anything held for approval:")}`);
   out("");
-  out(`  ${style.accent(`${cliCommand()} watch`)}`);
+  out(`  ${style.quiet("One command shows everything and does everything:")}`);
+  out(`  ${style.accent(cliCommand())}`);
+  out("");
+  out(
+    `  ${style.quiet("Live activity, what is held for approval, and undo, all from there.")}`,
+  );
+  out(`  ${style.quiet("You do not need a second terminal unless you want one.")}`);
   out("");
   return 0;
 }
@@ -536,7 +545,7 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
     const note =
       notes.length === 0 ? "" : `  ${style.accent(`(${notes.join("; ")})`)}`;
     out(
-      `  ${style.strong(run.id)}  ${style.quiet(run.startedAt)}  ${run.status.padEnd(12)}  ` +
+      `  ${style.strong(run.id)}  ${style.quiet(shortTime(run.startedAt).trimEnd().padEnd(13))}  ${run.status.padEnd(12)}  ` +
         `${String(actions.length).padStart(7)}  ${run.label ?? "-"}${note}`,
     );
   }
@@ -566,10 +575,10 @@ function runShow(argv: readonly string[], journal: Journal, asJson: boolean): nu
   out(`  ${rule(54)}`);
   out("");
   out(`  ${style.quiet("agent  ")} ${run.label ?? "-"}`);
-  out(`  ${style.quiet("started")} ${run.startedAt}`);
+  out(`  ${style.quiet("started")} ${fullTime(run.startedAt)}  ${style.quiet(ago(run.startedAt))}`);
   out(
     `  ${style.quiet("status ")} ${run.status}` +
-      (run.endedAt === undefined ? "" : style.quiet(`  ended ${run.endedAt}`)),
+      (run.endedAt === undefined ? "" : style.quiet(`  ended ${fullTime(run.endedAt)}`)),
   );
 
   const actions = journal.getActions(runId);
