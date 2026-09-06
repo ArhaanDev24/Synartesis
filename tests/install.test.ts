@@ -26,6 +26,10 @@ import {
  * Installing rewrites a file the user did not open, in an application they did
  * not start. What is asserted here is mostly what must NOT happen to it.
  */
+/** A fixed invoker, so what a test asserts about an entry is not a fact about
+ *  whichever synartesis happens to be on the machine running the suite. */
+const INVOKER = { command: "synartesis", args: ["proxy"] };
+
 const dirs: string[] = [];
 
 afterEach(() => {
@@ -80,7 +84,7 @@ function siteIn(dir: string, config: unknown = configFor(dir)): ConfigSite {
 describe("planning an install", () => {
   it("adopts the policy that ships, rather than drafting TODOs for a server we know", async () => {
     const dir = scratch();
-    const { plans } = await planInstall([siteIn(dir)], join(dir, "synartesis.yaml"));
+    const { plans } = await planInstall([siteIn(dir)], join(dir, "synartesis.yaml"), INVOKER);
     const byName = new Map(plans[0]?.servers.map((server) => [server.name, server]));
     expect(byName.get("filesystem")?.adopted).toBe("filesystem");
     expect(byName.get("notes")?.adopted).toBe("filesystem");
@@ -88,7 +92,7 @@ describe("planning an install", () => {
 
   it("leaves a remote server alone, because the upstream here is a process", async () => {
     const dir = scratch();
-    const { plans } = await planInstall([siteIn(dir)], join(dir, "synartesis.yaml"));
+    const { plans } = await planInstall([siteIn(dir)], join(dir, "synartesis.yaml"), INVOKER);
     expect(plans[0]?.servers.map((server) => server.name)).not.toContain("remote");
     expect(plans[0]?.skipped.map((skip) => skip.name)).toContain("remote");
   });
@@ -101,7 +105,7 @@ describe("installing and uninstalling", () => {
     const before = readFileSync(site.path, "utf8");
     const manifest = join(dir, "synartesis.yaml");
 
-    const { plans, yaml } = await planInstall([site], manifest);
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER);
     applyInstall(plans, manifest, yaml);
     expect(readFileSync(site.path, "utf8")).not.toBe(before);
 
@@ -114,7 +118,7 @@ describe("installing and uninstalling", () => {
     const dir = scratch();
     const site = siteIn(dir);
     const manifest = join(dir, "synartesis.yaml");
-    const { plans, yaml } = await planInstall([site], manifest);
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER);
     applyInstall(plans, manifest, yaml);
 
     const after: unknown = JSON.parse(readFileSync(site.path, "utf8"));
@@ -128,7 +132,7 @@ describe("installing and uninstalling", () => {
     const dir = scratch();
     const site = siteIn(dir);
     const manifest = join(dir, "synartesis.yaml");
-    const { plans, yaml } = await planInstall([site], manifest);
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER);
     applyInstall(plans, manifest, yaml);
 
     const servers = readServers(readDocument(site), site.at);
@@ -139,7 +143,7 @@ describe("installing and uninstalling", () => {
     const dir = scratch();
     const site = siteIn(dir);
     const manifest = join(dir, "synartesis.yaml");
-    const { plans, yaml } = await planInstall([site], manifest);
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER);
     applyInstall(plans, manifest, yaml);
 
     // A proxy carrying two servers has to qualify tool names to keep them
@@ -156,11 +160,11 @@ describe("installing and uninstalling", () => {
     const dir = scratch();
     const site = siteIn(dir);
     const manifest = join(dir, "synartesis.yaml");
-    const first = await planInstall([site], manifest);
+    const first = await planInstall([site], manifest, INVOKER);
     applyInstall(first.plans, manifest, first.yaml);
     const settled = readFileSync(site.path, "utf8");
 
-    const second = await planInstall([site], manifest);
+    const second = await planInstall([site], manifest, INVOKER);
     expect(second.plans[0]?.servers).toHaveLength(0);
     applyInstall(second.plans, manifest, second.yaml);
     expect(readFileSync(site.path, "utf8")).toBe(settled);
@@ -171,7 +175,7 @@ describe("installing and uninstalling", () => {
     const site = siteIn(dir);
     const before = readFileSync(site.path, "utf8");
     const manifest = join(dir, "synartesis.yaml");
-    const { plans, yaml } = await planInstall([site], manifest);
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER);
     const [applied] = applyInstall(plans, manifest, yaml);
     expect(readFileSync(applied?.backup ?? "", "utf8")).toBe(before);
   });
@@ -180,7 +184,7 @@ describe("installing and uninstalling", () => {
     const dir = scratch();
     const site = siteIn(dir);
     const manifest = join(dir, "synartesis.yaml");
-    const { plans, yaml } = await planInstall([site], manifest);
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER);
     applyInstall(plans, manifest, yaml);
 
     // The record is what says how to put things back. Losing it must not turn
@@ -217,7 +221,7 @@ describe("the record's key", () => {
     const dir = scratch();
     const site = siteIn(dir);
     const manifest = join(dir, "synartesis.yaml");
-    const { plans, yaml } = await planInstall([site], manifest);
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER);
     applyInstall(plans, manifest, yaml);
     expect(Object.keys(readRecord(manifest).wrapped)).toContain(keyFor(site, "filesystem"));
   });
@@ -370,7 +374,7 @@ describe("a client that keeps its servers in TOML", () => {
     const before = readFileSync(site.path, "utf8");
     const manifest = join(dir, "synartesis.yaml");
 
-    const { plans, yaml } = await planInstall([site], manifest);
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER);
     applyInstall(plans, manifest, yaml);
     expect(readFileSync(site.path, "utf8")).not.toBe(before);
 
@@ -381,7 +385,7 @@ describe("a client that keeps its servers in TOML", () => {
   it("leaves a server that is switched off alone", async () => {
     const dir = scratch();
     const site = codexSiteIn(dir);
-    const { plans } = await planInstall([site], join(dir, "synartesis.yaml"));
+    const { plans } = await planInstall([site], join(dir, "synartesis.yaml"), INVOKER);
     expect(plans[0]?.skipped.map((skip) => skip.name)).toContain("off");
   });
 });

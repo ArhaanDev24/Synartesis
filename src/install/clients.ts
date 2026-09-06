@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import { readServers as readTomlServers, writeServers as writeTomlServers } from "./toml.js";
 
@@ -260,6 +260,30 @@ export function backupPathFor(path: string): string {
   return `${path}.synartesis-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
 }
 
+/** How many copies of one config to keep. Enough to undo a mistake, not a pile. */
+const KEEP_BACKUPS = 5;
+
+/**
+ * Every install and uninstall leaves another timestamped copy beside the
+ * config, and nothing ever removed one. Names sort by time because the stamp
+ * is ISO, so the newest are simply the last.
+ */
+function pruneBackups(path: string): void {
+  try {
+    const dir = dirname(path);
+    const prefix = `${basename(path)}.synartesis-backup-`;
+    const ours = readdirSync(dir)
+      .filter((name) => name.startsWith(prefix))
+      .sort();
+    for (const name of ours.slice(0, Math.max(0, ours.length - KEEP_BACKUPS))) {
+      rmSync(join(dir, name), { force: true });
+    }
+  } catch {
+    // Tidying is not the job. Failing to remove an old copy must never stop
+    // the write it was taken for.
+  }
+}
+
 /**
  * Write the document back, having first copied the original aside.
  *
@@ -277,6 +301,7 @@ function writeText(site: ConfigSite, text: string): string {
   const backup = backupPathFor(site.path);
   const original = readFileSync(site.path);
   writeFileSync(backup, original);
+  pruneBackups(site.path);
 
   const temporary = join(dirname(site.path), `.synartesis-write-${String(process.pid)}.tmp`);
   try {

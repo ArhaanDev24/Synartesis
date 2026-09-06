@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import { openJournal, wasRefused, type Journal, type RunRow } from "./journal/journal.js";
 import type { RollbackReport } from "./rollback/rollback.js";
 import { shortTime } from "./clock.js";
-import { plainly, subject } from "./describe.js";
+import { plainly, subject, summariseArgs } from "./describe.js";
+import { needsConnecting, stateOf, type ClientGroup, type Connection } from "./install/connections.js";
 import { keysIn } from "./keys.js";
 import { NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
 
@@ -58,9 +59,13 @@ export interface ConsoleOptions {
    * does has no business doing.
    */
   readonly undo?: Undo;
+  /** Every AI on this machine. Rebuilt on entering the view and on r. */
+  readonly scan?: () => readonly ClientGroup[];
+  /** Wrap the given servers. Returns the line to show when it is done. */
+  readonly connect?: (targets: readonly Connection[]) => Promise<string>;
 }
 
-type Mode = "runs" | "run" | "gates";
+type Mode = "runs" | "run" | "gates" | "connections";
 
 interface Screen {
   stop: boolean;
@@ -69,6 +74,10 @@ interface Screen {
   openRun: string | undefined;
   /** An undo waiting on a yes. */
   confirming: string | undefined;
+  /** Show every argument and inverse in full, rather than a summary line. */
+  expanded: boolean;
+  /** Rebuilt on entering the connections view and on r. */
+  groups: readonly ClientGroup[];
   busy: string | undefined;
   notice: string;
   noticeUntil: number;
@@ -138,6 +147,8 @@ function modeLabel(screen: Screen): string {
       return "one run, in the order it happened";
     case "gates":
       return "held until a person decides";
+    case "connections":
+      return "every AI on this machine, and whether it goes through Synartesis";
   }
 }
 
@@ -208,10 +219,67 @@ function runView(journal: Journal, screen: Screen): string[] {
       `  ${style.quiet(String(action.seq).padStart(3))}  ${style.quiet(action.server.padEnd(10))} ` +
         `${style.strong(action.tool.padEnd(20))} ${style.quiet(subject(action.args).padEnd(20))} ${said}`,
     );
-    out.push(`        ${style.quiet(truncate(JSON.stringify(action.args), 62))}`);
-    if (action.inverse !== undefined) {
-      out.push(`        ${style.quiet(`undo: ${truncate(JSON.stringify(action.inverse), 56)}`)}`);
+    if (screen.expanded) {
+      // Everything, exactly as recorded. The same thing `show --full` prints.
+      for (const line of JSON.stringify(action.args, undefined, 2).split("\n")) {
+        out.push(`        ${style.quiet(line)}`);
+      }
+      if (action.inverse !== undefined) {
+        out.push(`        ${style.quiet("undo")}`);
+        for (const line of JSON.stringify(action.inverse, undefined, 2).split("\n")) {
+          out.push(`        ${style.quiet(line)}`);
+        }
+      }
+    } else {
+      out.push(`        ${style.quiet(summariseArgs(action.args, 62))}`);
     }
+  }
+  return out;
+}
+
+/** Flattened, because the cursor moves over servers and not over clients. */
+function connectionRows(screen: Screen): Connection[] {
+  return screen.groups.flatMap((group) => group.connections);
+}
+
+function connectionsView(screen: Screen, options: ConsoleOptions): string[] {
+  if (screen.groups.length === 0) {
+    return [
+      `  ${style.quiet("No MCP client config was found on this machine.")}`,
+      "",
+      `  ${style.quiet("Looked for Claude Code, Claude Desktop, Cursor and Codex.")}`,
+    ];
+  }
+  const rows = connectionRows(screen);
+  const at = Math.min(screen.cursor, Math.max(0, rows.length - 1));
+  const now = new Date();
+  const out: string[] = [];
+  let index = 0;
+
+  for (const group of screen.groups) {
+    out.push(`  ${style.strong(group.label)} ${style.quiet(group.scope)}`);
+    if (group.problem !== undefined) {
+      out.push(`      ${style.accent(group.problem)}`);
+      out.push("");
+      continue;
+    }
+    if (group.connections.length === 0) {
+      out.push(`      ${style.quiet("no servers listed")}`);
+      out.push("");
+      continue;
+    }
+    for (const connection of group.connections) {
+      const here = index === at && canPress(options);
+      const state = stateOf(connection, now);
+      const shown = connection.covered ? style.quiet(state) : style.accent(state);
+      out.push(
+        `  ${here ? style.accent(CURSOR) : " "} ${
+          here ? style.accent(connection.server.padEnd(20)) : style.strong(connection.server.padEnd(20))
+        } ${shown}`,
+      );
+      index += 1;
+    }
+    out.push("");
   }
   return out;
 }
@@ -242,7 +310,9 @@ function footer(screen: Screen, options: ConsoleOptions): string[] {
     ];
   }
   const keys =
-    screen.mode === "gates"
+    screen.mode === "connections"
+      ? [keyHint("enter", "connect"), keyHint("a", "connect all"), keyHint("r", "rescan"), keyHint("j/k", "move"), keyHint("h", "back")]
+      : screen.mode === "gates"
       ? [keyHint("a", "approve"), keyHint("d", "deny"), keyHint("j/k", "move"), keyHint("r", "runs")]
       : screen.mode === "run"
         ? [
@@ -320,6 +390,8 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     cursor: 0,
     openRun: undefined,
     confirming: undefined,
+    expanded: false,
+    groups: [],
     busy: undefined,
     notice: "",
     noticeUntil: 0,
@@ -346,7 +418,9 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         ? windowed(runsView(ready, screen, options), screen.cursor, room)
         : screen.mode === "run"
           ? windowed(runView(ready, screen), 0, room)
-          : windowed(gatesView(ready, screen, options), screen.cursor, room);
+          : screen.mode === "connections"
+            ? windowed(connectionsView(screen, options), screen.cursor, room)
+            : windowed(gatesView(ready, screen, options), screen.cursor, room);
     const notice = screen.notice === "" ? [] : ["", `  ${style.accent(screen.notice)}`];
     return [
       ...header(options, screen, tick),
@@ -421,6 +495,35 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     }
   };
 
+  const rescan = (): void => {
+    screen.groups = options.scan?.() ?? [];
+  };
+
+  const connect = async (targets: readonly Connection[]): Promise<void> => {
+    if (options.connect === undefined) {
+      say("no way to connect was configured");
+      return;
+    }
+    if (targets.length === 0) {
+      say("everything here is already covered");
+      return;
+    }
+    // One at a time, for the reason undo is: connecting starts every server it
+    // is drafting a policy for, and a key is easy to lean on.
+    if (screen.busy !== undefined) {
+      return;
+    }
+    screen.busy = `connecting ${String(targets.length)}${targets.length === 1 ? " server" : " servers"}`;
+    try {
+      say(await options.connect(targets));
+    } catch (error: unknown) {
+      say(error instanceof Error ? error.message : "connecting failed");
+    } finally {
+      screen.busy = undefined;
+      rescan();
+    }
+  };
+
   const press = (key: string): void => {
     if (screen.confirming !== undefined) {
       const runId = screen.confirming;
@@ -452,7 +555,26 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         screen.mode = "gates";
         screen.cursor = 0;
         return;
+      case "c":
+        screen.mode = "connections";
+        screen.cursor = 0;
+        rescan();
+        return;
+      case "f":
+        // Expand the action under the cursor to everything that was recorded.
+        if (screen.mode === "run") {
+          screen.expanded = !screen.expanded;
+          say(screen.expanded ? "showing everything recorded" : "back to a summary");
+        }
+        return;
       case "r":
+        // In the connections view r is the retry the reader wants; everywhere
+        // else it is still the way back to the list of sessions.
+        if (screen.mode === "connections") {
+          rescan();
+          say("rescanned");
+          return;
+        }
         screen.mode = "runs";
         screen.cursor = 0;
         return;
@@ -463,6 +585,11 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         return;
       case "\r":
       case "\n": {
+        if (screen.mode === "connections") {
+          const chosen = connectionRows(screen)[screen.cursor];
+          void connect(chosen === undefined ? [] : [chosen]);
+          return;
+        }
         const ready = open();
         const run = ready === undefined ? undefined : selectedRun(ready);
         if (run !== undefined) {
@@ -474,6 +601,10 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
       case "a":
         if (screen.mode === "gates") {
           decide(true);
+          return;
+        }
+        if (screen.mode === "connections") {
+          void connect(needsConnecting(screen.groups));
         }
         return;
       case "d":

@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 
 import { draftManifest } from "../init/draft.js";
 import { parseManifest } from "../manifest/load.js";
-import { onPath } from "../invocation.js";
+import { pathBinaryMatches } from "../invocation.js";
 import { ConfigError, saveServers, serversAt, type ConfigSite, type ServerEntry } from "./clients.js";
 
 /**
@@ -101,11 +101,22 @@ function writeRecord(manifestPath: string, record: InstalledRecord): void {
   writeFileSync(recordPathFor(manifestPath), `${JSON.stringify(record, undefined, 2)}\n`);
 }
 
-/** How the wrapped entry invokes us, worked out the same way `init` prints it. */
-function proxyEntry(manifestPath: string, server: string, original: ServerEntry): ServerEntry {
-  const command = onPath("synartesis")
-    ? { command: "synartesis", args: ["proxy"] }
-    : { command: "npx", args: ["-y", "synartesis", "proxy"] };
+/**
+ * How the wrapped entry invokes us.
+ *
+ * `synartesis` by name only when the one on PATH is the one running: a client
+ * config that names an older global is a set of servers that will not start,
+ * and nothing about that failure is visible from the client. Otherwise the
+ * absolute path of the CLI doing the installing, which is by definition able
+ * to serve what it just wrote.
+ */
+function proxyEntry(
+  manifestPath: string,
+  server: string,
+  original: ServerEntry,
+  invoker: { readonly command: string; readonly args: readonly string[] },
+): ServerEntry {
+  const command = { command: invoker.command, args: [...invoker.args] };
   return {
     ...command,
     args: [...command.args, "--manifest", resolve(manifestPath), "--server", server],
@@ -150,9 +161,29 @@ export interface SitePlan {
  * a policy that ships and which will land as TODOs -- that being the
  * difference between working immediately and needing an afternoon.
  */
+export interface Invoker {
+  readonly command: string;
+  readonly args: readonly string[];
+  /** Set when the name on PATH could not be used, and why. */
+  readonly note?: string;
+}
+
+/** What a client config should run to reach this build of the proxy. */
+export function invokerFor(ourVersion: string, cliPath: string): Invoker {
+  if (pathBinaryMatches(ourVersion)) {
+    return { command: "synartesis", args: ["proxy"] };
+  }
+  return {
+    command: process.execPath,
+    args: [cliPath, "proxy"],
+    note: "the synartesis on your PATH is a different build, so the entries name this one directly",
+  };
+}
+
 export async function planInstall(
   sites: readonly ConfigSite[],
   manifestPath: string,
+  invoker: Invoker,
 ): Promise<{ readonly plans: readonly SitePlan[]; readonly yaml: string }> {
   let yaml = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : undefined;
   const plans: SitePlan[] = [];
@@ -213,7 +244,7 @@ export async function planInstall(
       planned.push({
         name,
         original: entry,
-        wrapped: proxyEntry(manifestPath, key, entry),
+        wrapped: proxyEntry(manifestPath, key, entry, invoker),
         ...(draft.adopted === undefined
           ? {}
           : { adopted: draft.adopted.server, tools: draft.adopted.tools }),
@@ -264,11 +295,15 @@ export function applyInstall(
       servers[server.name] = server.wrapped;
       wrapped[keyFor(plan.site, server.name)] = { original: server.original, at: plan.site.at };
     }
+    // The record before the config it describes, not after all of them. A
+    // record naming something not yet wrapped costs nothing; a wrapped entry
+    // missing from the record cannot be put back, and a failure part way
+    // through several clients would have left exactly that.
+    writeRecord(manifestPath, { version: 1, wrapped });
     const backup = saveServers(plan.site, servers);
     applied.push({ site: plan.site, backup, servers: plan.servers.map((server) => server.name) });
   }
 
-  writeRecord(manifestPath, { version: 1, wrapped });
   return applied;
 }
 

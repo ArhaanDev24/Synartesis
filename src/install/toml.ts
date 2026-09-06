@@ -25,7 +25,9 @@ export interface TomlTable {
   readonly end: number;
 }
 
-const HEADER = /^\s*\[([^\]]+)\]\s*$/;
+// A single `[table]`. An array of tables is `[[x]]`, and taking everything
+// between the first bracket and the last read one as a table called "[x".
+const HEADER = /^\s*\[(?!\[)([^[\]]+)\]\s*$/;
 
 /** Every `[mcp_servers.NAME]` table, excluding its `.env` and other subtables. */
 export function serverTables(lines: readonly string[]): TomlTable[] {
@@ -58,9 +60,20 @@ export function serverTables(lines: readonly string[]): TomlTable[] {
   return tables;
 }
 
+/**
+ * The exact inverse of `quote`. Reading `\\"` back as `\\"` rather than `"` is
+ * how an argument survives being written and read again.
+ */
 function unquote(text: string): string {
   const trimmed = text.trim();
-  return /^".*"$/.test(trimmed) || /^'.*'$/.test(trimmed) ? trimmed.slice(1, -1) : trimmed;
+  if (/^'.*'$/s.test(trimmed)) {
+    // Literal strings in TOML: no escapes inside them at all.
+    return trimmed.slice(1, -1);
+  }
+  if (!/^".*"$/s.test(trimmed)) {
+    return trimmed;
+  }
+  return trimmed.slice(1, -1).replace(/\\(["\\])/g, "$1");
 }
 
 /** A `key = value` line, where value is a quoted string or a single-line array. */
@@ -79,6 +92,52 @@ function readKey(lines: readonly string[], table: TomlTable, key: string): strin
   return undefined;
 }
 
+/**
+ * Split on the commas that separate items, not on the ones inside them.
+ *
+ * `split(",")` tore `["--flag", "a,b"]` into three pieces and left the quotes
+ * stranded in the values -- and because a write re-emits every entry it was
+ * given, that damage reached servers nobody had asked to change.
+ */
+function splitItems(inner: string): string[] {
+  const items: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+
+  for (const character of inner) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    // Only basic strings take escapes; a literal string has none.
+    if (character === "\\" && quote === '"') {
+      current += character;
+      escaped = true;
+      continue;
+    }
+    if (quote === undefined && (character === '"' || character === "'")) {
+      quote = character;
+      current += character;
+      continue;
+    }
+    if (character === quote) {
+      quote = undefined;
+      current += character;
+      continue;
+    }
+    if (character === "," && quote === undefined) {
+      items.push(current);
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  items.push(current);
+  return items;
+}
+
 function parseArray(value: string | undefined): string[] | undefined {
   if (value === undefined || !value.startsWith("[")) {
     return undefined;
@@ -92,7 +151,11 @@ function parseArray(value: string | undefined): string[] | undefined {
   if (inner === "") {
     return [];
   }
-  return inner.split(",").map((item) => unquote(item.trim()));
+  // A trailing comma is legal TOML and leaves an empty last item.
+  return splitItems(inner)
+    .map((item) => item.trim())
+    .filter((item, index, all) => item !== "" || index !== all.length - 1)
+    .map(unquote);
 }
 
 /** The `[mcp_servers.*]` entries, as the JSON clients would have expressed them. */
@@ -135,10 +198,23 @@ const quote = (text: string): string => `"${text.replace(/\\/g, "\\\\").replace(
  */
 export function writeServers(text: string, servers: Record<string, ServerEntry>): string {
   const lines = text.split("\n");
+  // What is in the file now, so an entry that is not actually changing can be
+  // left alone. Callers pass the whole map with one entry replaced, and
+  // re-emitting the rest from parsed values is how a parsing mistake reaches a
+  // server nobody touched. Untouched lines are never rewritten.
+  const current = readServers(text);
+
   // Back to front, so an edit never moves a table this loop has yet to reach.
   for (const table of serverTables(lines).reverse()) {
     const wanted = servers[table.name];
     if (wanted === undefined || wanted.command === undefined) {
+      continue;
+    }
+    const now = current[table.name];
+    if (
+      now?.command === wanted.command &&
+      JSON.stringify(now.args ?? []) === JSON.stringify(wanted.args ?? [])
+    ) {
       continue;
     }
     setKey(lines, table, "command", quote(wanted.command));

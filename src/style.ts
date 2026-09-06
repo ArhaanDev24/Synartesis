@@ -11,7 +11,11 @@ const ACCENT = `${ESC}38;2;226;134;118m`;
 // Deep oxblood with a warm off-white on it, which holds on a light terminal
 // as well as a dark one.
 const ON_ACCENT = `${ESC}48;2;94;20;32m${ESC}38;2;246;233;229m`;
-const BRIGHT = `${ESC}38;2;246;233;229m`;
+// A step down from the off-white. Bold near-white smears at terminal sizes --
+// the strokes thicken into each other and small type stops resolving -- and
+// the palette only works if one thing is bright. This is what a heading and a
+// name are set in; the accent stays the only loud colour.
+const INK = `${ESC}38;2;214;201;197m`;
 const DIM = `${ESC}2m`;
 const BOLD = `${ESC}1m`;
 const RESET = `${ESC}0m`;
@@ -41,9 +45,9 @@ export function spaced(text: string): string {
 export const style = {
   /** A section label: small, capital, spaced out. */
   label: (text: string): string => paint(ACCENT + DIM, spaced(text.toUpperCase())),
-  heading: (text: string): string => paint(BRIGHT + BOLD, text.toUpperCase()),
+  heading: (text: string): string => paint(INK, text.toUpperCase()),
   accent: (text: string): string => paint(ACCENT, text),
-  strong: (text: string): string => paint(BOLD, text),
+  strong: (text: string): string => paint(INK, text),
   quiet: (text: string): string => paint(DIM, text),
   /** Off-white on oxblood, the way the wordmark is set. */
   plate: (text: string): string => paint(ON_ACCENT + BOLD, ` ${text} `),

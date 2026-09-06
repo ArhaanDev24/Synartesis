@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { basename, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,4 +77,26 @@ export function proxyCommand(): string {
     return `node ${invokedAs} proxy`;
   }
   return `node ${fileURLToPath(new URL("cli.js", import.meta.url))} proxy`;
+}
+
+/**
+ * Whether the `synartesis` on PATH is the one that is running.
+ *
+ * Found the hard way. `install` wrote `command: "synartesis"` into every entry
+ * whenever one was on PATH, and on this machine that was an older global build
+ * with no --server flag. Every entry it wrote would have failed to start, in a
+ * client, with no output anybody would see. A config that names a binary must
+ * name one that can actually serve it.
+ */
+export function pathBinaryMatches(ourVersion: string): boolean {
+  if (!onPath("synartesis")) {
+    return false;
+  }
+  try {
+    const result = spawnSync("synartesis", ["--version"], { encoding: "utf8", timeout: 10_000 });
+    return result.status === 0 && result.stdout.trim() === ourVersion;
+  } catch {
+    // A binary we cannot ask is one we should not point a client at.
+    return false;
+  }
 }

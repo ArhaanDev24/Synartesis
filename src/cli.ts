@@ -30,9 +30,10 @@ import { watch } from "./watch.js";
 import { openConsole } from "./console.js";
 import { cliCommand, proxyCommand } from "./invocation.js";
 import { ago, fullTime, shortTime } from "./clock.js";
-import { discover } from "./install/clients.js";
-import { applyInstall, applyUninstall, isWrapped, keyFor, planInstall, readRecord } from "./install/install.js";
-import { readDocument, readServers } from "./install/clients.js";
+import { summariseArgs } from "./describe.js";
+import { discover, type ConfigSite } from "./install/clients.js";
+import { needsConnecting, scan, stateOf } from "./install/connections.js";
+import { applyInstall, applyUninstall, invokerFor, planInstall } from "./install/install.js";
 
 const COMMANDS = `
   synartesis                                      start here. Live activity,
@@ -46,7 +47,7 @@ const COMMANDS = `
   synartesis init <server> -- <command> [args...]  [--manifest <path>]
   synartesis check [--manifest <path>]
   synartesis list [--journal <path>]
-  synartesis show <runId> [--journal <path>]
+  synartesis show <runId> [--full] [--journal <path>]
   synartesis gates [--journal <path>]
   synartesis close [runId] [--journal <path>]
   synartesis prune [--older-than <days>] [--dry-run] [--journal <path>]
@@ -81,6 +82,7 @@ and a and d answer it without a second terminal or an id to copy.
 
   --client    claude-code, claude-desktop, cursor or codex; all by default
   --print     show the entries install would write, and write nothing
+  --full      show every argument, snapshot and inverse in full, nothing elided
   --server    serve one server from the manifest, keeping its tool names
   --manifest  synartesis.yaml, looked for here and upwards, then in the home
   --journal   beside the manifest, or the one in the home
@@ -210,10 +212,14 @@ async function runInstall(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
-  const { plans, yaml } = await planInstall(sites, manifestPath);
+  const invoker = invokerFor(version(), fileURLToPath(import.meta.url));
+  const { plans, yaml } = await planInstall(sites, manifestPath, invoker);
   const total = plans.reduce((sum, plan) => sum + plan.servers.length, 0);
 
   out("");
+  if (invoker.note !== undefined && total > 0) {
+    out(`  ${style.accent("note")}  ${style.quiet(invoker.note)}`);
+  }
   out(`  ${style.label(dryRun || printOnly ? "would cover" : "covering")}  ${style.strong(manifestPath)}`);
   out(`  ${rule(60)}`);
   for (const plan of plans) {
@@ -316,14 +322,67 @@ async function runUninstall(argv: readonly string[]): Promise<number> {
   return await Promise.resolve(0);
 }
 
+/**
+ * The journal if there is one. The connections view is useful before an agent
+ * has ever run, and refusing to scan because no journal exists yet would make
+ * it useless at exactly the moment somebody is setting this up.
+ */
+function openIfPresent(journalPath: string): Journal | undefined {
+  try {
+    return existsSync(journalPath) ? openJournal(journalPath, { mustExist: true }) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Wrap the servers the reader picked, and say what happened in one line.
+ *
+ * The same plan-and-apply the install command runs, narrowed to a chosen few:
+ * pressing a key in a list should do exactly what the command does, not a
+ * second implementation of it that drifts.
+ */
+async function connectThese(
+  targets: readonly { readonly site: ConfigSite; readonly server: string }[],
+  manifestPath: string,
+): Promise<string> {
+  const invoker = invokerFor(version(), fileURLToPath(import.meta.url));
+  const wanted = new Map<string, Set<string>>();
+  const sites = new Map<string, ConfigSite>();
+  for (const target of targets) {
+    const key = `${target.site.path}${target.site.scope}`;
+    sites.set(key, target.site);
+    (wanted.get(key) ?? wanted.set(key, new Set()).get(key))?.add(target.server);
+  }
+
+  const { plans, yaml } = await planInstall([...sites.values()], manifestPath, invoker);
+  // Only what was asked for. A scan may have found five uncovered servers and
+  // the reader may have chosen one.
+  const narrowed = plans.map((plan) => ({
+    ...plan,
+    servers: plan.servers.filter((server) =>
+      wanted.get(`${plan.site.path}${plan.site.scope}`)?.has(server.name) === true,
+    ),
+  }));
+  const applied = applyInstall(narrowed, manifestPath, yaml);
+  const count = applied.reduce((sum, entry) => sum + entry.servers.length, 0);
+  if (count === 0) {
+    return "nothing was connected; see the reasons above";
+  }
+  return `connected ${String(count)}${count === 1 ? " server" : " servers"} \u00b7 restart the client to pick it up`;
+}
+
 /** What is covered, what is not, and how big the journal has grown. */
 function runStatus(argv: readonly string[]): number {
   const manifestPath = findManifest(flag(argv, "--manifest"));
   const journalPath = findJournal(flag(argv, "--journal"), manifestPath);
-  const sites = discover(process.cwd());
 
   out("");
-  out(`  ${style.label("policy")}   ${existsSync(manifestPath) ? style.strong(manifestPath) : style.quiet(`${manifestPath} (none yet)`)}`);
+  out(
+    `  ${style.label("policy")}   ${
+      existsSync(manifestPath) ? style.strong(manifestPath) : style.quiet(`${manifestPath} (none yet)`)
+    }`,
+  );
   out(
     `  ${style.label("journal")}  ${
       bytesOf(journalPath) === undefined
@@ -333,43 +392,43 @@ function runStatus(argv: readonly string[]): number {
   );
   out("");
 
-  if (sites.length === 0) {
-    out(`  ${style.quiet("No MCP client config found.")}`);
+  const journal = openIfPresent(journalPath);
+  try {
+    const groups = scan(journal, process.cwd());
+    if (groups.length === 0) {
+      out(`  ${style.quiet("No MCP client config found.")}`);
+      out(`  ${style.quiet("Looked for Claude Code, Claude Desktop, Cursor and Codex.")}`);
+      out("");
+      return 0;
+    }
+    const now = new Date();
+    for (const group of groups) {
+      out(`  ${style.strong(group.label)} ${style.quiet(group.scope)}`);
+      if (group.problem !== undefined) {
+        out(`      ${style.accent(group.problem)}`);
+      } else if (group.connections.length === 0) {
+        out(`      ${style.quiet("no servers listed")}`);
+      }
+      for (const connection of group.connections) {
+        const state = stateOf(connection, now);
+        out(
+          `    ${connection.server.padEnd(20)} ${
+            connection.covered ? style.quiet(state) : style.accent(state)
+          }`,
+        );
+      }
+      out("");
+    }
+    const waiting = needsConnecting(groups).length;
+    out(
+      waiting === 0
+        ? `  ${style.quiet("Everything found is covered.")}`
+        : `  ${style.accent(`${String(waiting)} not covered.`)} ${style.quiet(`${cliCommand()} install covers them.`)}`,
+    );
     out("");
-    return 0;
+  } finally {
+    journal?.close();
   }
-
-  const record = readRecord(manifestPath);
-  const known = new Set(Object.keys(record.wrapped));
-  for (const site of sites) {
-    let servers: Record<string, ReturnType<typeof readServers>[string]>;
-    try {
-      servers = readServers(readDocument(site), site.at);
-    } catch (error: unknown) {
-      out(`  ${style.strong(site.label)} ${style.quiet(site.scope)}  ${style.accent(describe(error))}`);
-      continue;
-    }
-    const names = Object.keys(servers);
-    out(`  ${style.strong(site.label)} ${style.quiet(site.scope)}`);
-    if (names.length === 0) {
-      out(`    ${style.quiet("no servers listed")}`);
-    }
-    for (const name of names) {
-      const entry = servers[name];
-      const covered = entry !== undefined && isWrapped(entry);
-      const recorded = known.has(keyFor(site, name));
-      out(
-        `    ${name.padEnd(18)} ${
-          covered
-            ? style.strong(recorded ? "covered" : "covered (original not recorded)")
-            : style.quiet("not covered")
-        }`,
-      );
-    }
-    out("");
-  }
-  out(`  ${style.quiet(`${cliCommand()} install`)} ${style.quiet("covers everything listed above.")}`);
-  out("");
   return 0;
 }
 
@@ -561,6 +620,7 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
 }
 
 function runShow(argv: readonly string[], journal: Journal, asJson: boolean): number {
+  const full = argv.includes("--full");
   const runs = [...journal.listRuns()].reverse();
   const run = pick(runs, positional(argv)[1], RUN, true);
   const runId = run.id;
@@ -598,18 +658,40 @@ function runShow(argv: readonly string[], journal: Journal, asJson: boolean): nu
       `  ${style.quiet(String(action.seq).padStart(3))}  ${badgeOf(action)} ` +
         `${statusOf(action)}  ${style.strong(`${action.server}.${action.tool}`)}`,
     );
-    out(`       ${style.quiet(truncate(JSON.stringify(action.args), 96))}`);
+    // Readable by default, complete on request. Truncated JSON was neither:
+    // you could not see what the call did, nor what had been removed.
+    if (full) {
+      out(`       ${style.quiet("arguments")}`);
+      for (const line of block(action.args)) {
+        out(`         ${line}`);
+      }
+    } else {
+      out(`       ${style.quiet(summariseArgs(action.args, 96))}`);
+    }
     if (action.approvedAt !== undefined) {
       const verb = action.status === "denied" ? "denied" : "approved";
       out(
-        `       ${style.accent(`${verb} by ${action.approvedBy ?? "nobody"}`)} ${style.quiet(`at ${action.approvedAt}`)}`,
+        `       ${style.accent(`${verb} by ${action.approvedBy ?? "nobody"}`)} ${style.quiet(`at ${fullTime(action.approvedAt)}`)}`,
       );
     }
     if (action.error !== undefined) {
-      out(`       ${style.quiet(`note: ${truncate(action.error, 200)}`)}`);
+      out(`       ${style.quiet(`note: ${full ? action.error : truncate(action.error, 200)}`)}`);
+    }
+    if (action.snapshot !== undefined && full) {
+      out(`       ${style.quiet("what it replaced")}`);
+      for (const line of block(action.snapshot)) {
+        out(`         ${line}`);
+      }
     }
     if (action.inverse !== undefined) {
-      out(`       ${style.quiet("undo:")} ${truncate(JSON.stringify(action.inverse), 200)}`);
+      if (full) {
+        out(`       ${style.quiet("undo")}`);
+        for (const line of block(action.inverse)) {
+          out(`         ${line}`);
+        }
+      } else {
+        out(`       ${style.quiet("undo:")} ${style.quiet(summariseArgs(inverseArgs(action.inverse), 90))}`);
+      }
     }
   }
 
@@ -669,6 +751,19 @@ function wrapped(text: string, width: number): string[] {
     lines.push(line);
   }
   return lines;
+}
+
+/** Pretty-printed and never shortened, for --full. */
+function block(value: unknown): string[] {
+  return JSON.stringify(value, undefined, 2).split("\n").map((line) => style.quiet(line));
+}
+
+/** An inverse is a call; what a reader wants from it is the arguments. */
+function inverseArgs(inverse: unknown): unknown {
+  if (typeof inverse === "object" && inverse !== null && "args" in inverse) {
+    return (inverse as { args?: unknown }).args;
+  }
+  return inverse;
 }
 
 function truncate(text: string, limit: number): string {
@@ -1062,6 +1157,7 @@ const FLAGS = new Set([
   // so `install --client codex` printed the help instead of installing.
   "--client",
   "--print",
+  "--full",
   "--manifest",
   "--journal",
   "--to",
@@ -1159,6 +1255,8 @@ async function main(argv: readonly string[]): Promise<number> {
     const journalPath = findJournal(flag(argv, "--journal"), manifestPath);
     return await openConsole({
       journalPath,
+      scan: () => scan(openIfPresent(journalPath), process.cwd()),
+      connect: async (targets) => await connectThese(targets, manifestPath),
       write: (text) => process.stdout.write(text),
       live: process.stdout.isTTY,
       decideAs: flag(argv, "--by") ?? process.env["USER"] ?? process.env["LOGNAME"] ?? "unknown",
