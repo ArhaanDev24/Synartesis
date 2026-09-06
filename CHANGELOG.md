@@ -2,6 +2,70 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.4.0 — 2026-09-06
+
+### Added
+
+- **`synartesis install`.** One command wraps every server your MCP client
+  already lists. It knows Claude Code, Claude Desktop, Cursor and Codex, finds
+  their config files, writes a policy covering everything it finds — adopting
+  the bundled policies where they fit — and points each entry at the proxy.
+  `uninstall` puts the configs back; `status` says what is covered.
+
+  Setting a single server up used to mean reading your client's JSON, retyping
+  the command into `init`, hand-editing the policy, then editing the JSON back.
+  Two hand edits across two files, per server, which is most of the reason
+  anyone gave up before seeing an undo work.
+
+  Your config is copied aside first, the write lands by rename rather than in
+  place, a file that does not parse is refused rather than repaired, and every
+  key we do not recognise is carried through. Codex's TOML is edited by line so
+  its comments, ordering and env subtables survive.
+
+- **A connections screen**, on `c` in `synartesis`. Every AI on the machine,
+  whether its config points here, and when anything last actually came through
+  it — read from the journal, which records the server on every action, rather
+  than guessed from processes. `enter` connects one, `a` connects everything
+  uncovered, `r` rescans. Nothing is written without a keypress.
+
+- **`--server <name>` on the proxy**, so one policy can back several client
+  entries. A proxy carrying two servers has to qualify tool names to tell them
+  apart, which renames every tool the agent already knows; one entry per server
+  keeps the names.
+
+- **`synartesis show <session> --full`**, and `f` in the screen: every argument,
+  the captured snapshot and the inverse, pretty-printed with nothing elided.
+
+### Fixed
+
+- **A tool a client would not call at all.** The official filesystem server
+  declares its `outputSchema` as JSON Schema draft-07, and a client whose
+  validator only knows 2020-12 refuses to call the tool — nothing reaches the
+  proxy, and there is nothing in the journal to explain the silence. The
+  dialect is now dropped from advertised output schemas. `inputSchema` is
+  untouched, so the tool list is byte-identical wherever a server declares no
+  output schema.
+
+- **Times are shown where you are standing.** The journal stores UTC, which is
+  right, and every view printed that UTC string unchanged — so somebody in
+  Kolkata watching an agent work saw 10:05 while their own clock said 15:35.
+
+### Changed
+
+- **Actions read as sentences.** `10:36:56 reversible rolled_back
+  sim.edit_file`, twelve times over, is a class and a status and never once
+  which file. Rows now say the server, the tool, what it acted on and what it
+  means: `15:36:56 sim edit_file loadtest.mjs undone`. Arguments are summarised
+  rather than truncated JSON; `--full` shows everything.
+
+- **`synchronous = NORMAL` under WAL.** Measured on the journal alone: writes
+  0.188 → 0.125 ms per action, rollback marks 0.079 → 0.039 ms. A crash of the
+  process still loses nothing; only the machine going down can cost the tail of
+  the WAL, and what is there is the record of a call, never the call.
+
+- Headings and names are a softer ink. Bold near-white smears at terminal
+  sizes, and the palette only works if one thing is bright.
+
 ## 0.3.4 — 2026-09-03
 
 ### Changed
