@@ -202,6 +202,53 @@ async function drain<T>(
   return collected;
 }
 
+/**
+ * Tool schemas a client will actually accept.
+ *
+ * Found by using it: the official filesystem server declares its outputSchema
+ * as draft-07, and a client whose validator only knows 2020-12 refuses to call
+ * the tool at all -- so the agent cannot write a file, and nothing ever reaches
+ * this proxy to be recorded. The same refusal happens without Synartesis in the
+ * way; the difference is that Synartesis is in a position to do something about
+ * it.
+ *
+ * The `$schema` key is dropped rather than rewritten. Claiming 2020-12 on a
+ * server's behalf would assert a dialect it never chose; omitting it lets the
+ * validator use its own default, which is what a client that carries only one
+ * dialect was going to do regardless. Everything else about the schema is left
+ * exactly as the server wrote it.
+ *
+ * Only on outputSchema. inputSchema is what the agent has to satisfy and is
+ * not what was refused, so the tool list stays byte-identical wherever a
+ * server declares no output schema at all -- which is still most of them, and
+ * is what tests/proxy-transparency.test.ts holds this to.
+ */
+function withoutDialect(schema: unknown, seen: (dialect: string) => void): unknown {
+  if (typeof schema !== "object" || schema === null || Array.isArray(schema)) {
+    return schema;
+  }
+  const entries: [string, unknown][] = Object.entries(schema);
+  const declared: unknown = entries.find(([key]) => key === "$schema")?.[1];
+  if (typeof declared !== "string" || declared.includes("2020-12")) {
+    return schema;
+  }
+  seen(declared);
+  return Object.fromEntries(entries.filter(([key]) => key !== "$schema"));
+}
+
+function compatible(
+  tool: Readonly<Record<string, unknown>>,
+  seen: (dialect: string) => void,
+): Record<string, unknown> {
+  // outputSchema only. inputSchema is the shape the agent has to satisfy, and
+  // it is not what the client refused over; leaving it exactly as the server
+  // wrote it keeps the proxy transparent everywhere it can be.
+  if (tool["outputSchema"] === undefined) {
+    return tool;
+  }
+  return { ...tool, outputSchema: withoutDialect(tool["outputSchema"], seen) };
+}
+
 export function createProxyServer(options: ProxyOptions): ProxyServer {
   const { upstreams, manifest, journal } = options;
   const router = createRouter(upstreams, manifest);
@@ -401,7 +448,12 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           });
           for (const tool of items) {
             tools.push({
-              ...tool,
+              ...compatible(tool, (dialect) => {
+                log?.warn(
+                  `${upstream.name}.${tool.name} declares JSON Schema ${dialect}; ` +
+                    `the dialect was dropped so clients that only accept 2020-12 can call it`,
+                );
+              }),
               name: router.expose(upstream.name, tool.name),
             });
           }

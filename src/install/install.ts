@@ -76,15 +76,6 @@ function asRecord(value: unknown): InstalledRecord | undefined {
  * How a wrapped server is named in the record.
  *
  * A unit separator rather than a space: config paths and scopes both contain
- * spaces, so a space here makes two different servers able to produce the same
- * key. Exported because `status` has to ask the same question, and when it
- * spelled the key itself the two drifted apart and it reported everything as
- * unrecorded.
- */
-/**
- * How a wrapped server is named in the record.
- *
- * A unit separator rather than a space: config paths and scopes both contain
  * spaces, so a space here lets two different servers produce the same key.
  * Exported because `status` has to ask the same question, and when it spelled
  * the key itself the two drifted apart and it reported everything it had just
