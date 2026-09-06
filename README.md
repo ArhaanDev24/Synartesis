@@ -83,6 +83,22 @@ clone on macOS run `xcode-select --install`; on Debian or Ubuntu,
 npm install -g synartesis
 ```
 
+Then, from anywhere:
+
+```bash
+synartesis install
+```
+
+That finds what Claude Code, Claude Desktop or Cursor already list, writes one
+policy covering all of it, and points each entry at the proxy. Servers it
+recognises get the policy that ships for them and work immediately; the rest
+are drafted with every tool held until you say how to undo it. Your config is
+copied aside first, `synartesis uninstall` puts it back, and `synartesis
+status` says what is covered.
+
+Each server keeps its own entry and its own proxy, selected with `--server`,
+so **no tool is renamed** — the agent sees exactly the names it saw before.
+
 That is for you: the screen, `undo`, `watch`, `approve`. **Your agent needs
 nothing installed** — the config block below fetches the proxy on demand.
 

@@ -3,3 +3,6 @@ dist/
 *.tsbuildinfo
 .synartesis/
 .DS_Store
+
+# Interview and application material: personal, not part of the project.
+prep/

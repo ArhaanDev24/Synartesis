@@ -29,10 +29,16 @@ import { findJournal, findManifest } from "./locate.js";
 import { watch } from "./watch.js";
 import { openConsole } from "./console.js";
 import { cliCommand, proxyCommand } from "./invocation.js";
+import { discover } from "./install/clients.js";
+import { applyInstall, applyUninstall, isWrapped, keyFor, planInstall, readRecord } from "./install/install.js";
+import { readDocument, readServers } from "./install/clients.js";
 
 const COMMANDS = `
   synartesis                                      the screen; everything below,
                                                   driven with the arrow keys
+  synartesis install [--client <name>] [--dry-run] [--print]
+  synartesis uninstall [--client <name>]
+  synartesis status
   synartesis init <server> -- <command> [args...]  [--manifest <path>]
   synartesis check [--manifest <path>]
   synartesis list [--journal <path>]
@@ -40,7 +46,8 @@ const COMMANDS = `
   synartesis gates [--journal <path>]
   synartesis close [runId] [--journal <path>]
   synartesis prune [--older-than <days>] [--dry-run] [--journal <path>]
-  synartesis proxy --manifest <path> [--journal <path>]   what your agent runs
+  synartesis proxy --manifest <path> [--server <name>]    what your agent runs
+                  [--journal <path>]
                   [--http <port> --token <secret>]      for a client that
                                                         cannot start one
   synartesis watch [--by <name>] [--journal <path>]
@@ -48,6 +55,11 @@ const COMMANDS = `
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
   synartesis undo [runId] [--to <seq>] [--dry-run] [--replan]
                           [--manifest <path>] [--journal <path>]
+
+install is the short way in: it finds what Claude Code, Claude Desktop or
+Cursor already list, writes a policy covering all of it -- using the ones that
+ship where they fit -- and points each entry at the proxy. The original config
+is copied aside first, and uninstall puts it back. status says what is covered.
 
 close ends a run left active by a proxy that was killed; nothing guesses at
 that, since several proxies can share one journal.
@@ -63,6 +75,9 @@ adds to an existing manifest rather than replacing it.
 watch is the one to leave running. Anything held for approval appears there,
 and a and d answer it without a second terminal or an id to copy.
 
+  --client    claude-code, claude-desktop or cursor; all of them by default
+  --print     show the entries install would write, and write nothing
+  --server    serve one server from the manifest, keeping its tool names
   --manifest  synartesis.yaml, looked for here and upwards, then in the home
   --journal   beside the manifest, or the one in the home
   --to        lowest sequence to undo; earlier actions are left alone
@@ -99,7 +114,7 @@ function flag(argv: readonly string[], name: string): string | undefined {
 }
 
 function positional(argv: readonly string[]): string[] {
-  const skip = new Set(["--manifest", "--journal", "--to", "--by", "--reason", "--gate-timeout", "--older-than"]);
+  const skip = new Set(["--manifest", "--journal", "--to", "--by", "--reason", "--gate-timeout", "--older-than", "--client"]);
   const values: string[] = [];
   // Everything after `--` belongs to the wrapped command, not to us.
   const end = argv.indexOf("--");
@@ -162,6 +177,189 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   out(`  ${style.quiet("guarded ")} ${style.accent(String(gated))}`);
   out("");
   out(`  ${style.quiet("Anything not mentioned here is treated as irreversible and guarded.")}`);
+  out("");
+  return 0;
+}
+
+/**
+ * Wrapping every server your MCP client already has, in one command.
+ *
+ * Doing this by hand meant reading the client's JSON, retyping the command
+ * into `init`, then editing the JSON back to point at the proxy -- twice per
+ * server, across two files. That is the whole barrier to anyone getting far
+ * enough to see an undo work.
+ */
+async function runInstall(argv: readonly string[]): Promise<number> {
+  const manifestPath = findManifest(flag(argv, "--manifest"));
+  const only = flag(argv, "--client");
+  const dryRun = argv.includes("--dry-run");
+  const printOnly = argv.includes("--print");
+
+  const sites = discover(process.cwd()).filter(
+    (site) => only === undefined || site.client === only,
+  );
+  if (sites.length === 0) {
+    out("");
+    out(`  ${style.quiet("No MCP client config was found on this machine.")}`);
+    out(`  ${style.quiet("Looked for Claude Code, Claude Desktop and Cursor.")}`);
+    out("");
+    return 0;
+  }
+
+  const { plans, yaml } = await planInstall(sites, manifestPath);
+  const total = plans.reduce((sum, plan) => sum + plan.servers.length, 0);
+
+  out("");
+  out(`  ${style.label(dryRun || printOnly ? "would cover" : "covering")}  ${style.strong(manifestPath)}`);
+  out(`  ${rule(60)}`);
+  for (const plan of plans) {
+    out("");
+    out(`  ${style.strong(plan.site.label)} ${style.quiet(plan.site.scope)}`);
+    out(`  ${style.quiet(plan.site.path)}`);
+    for (const server of plan.servers) {
+      const note =
+        server.adopted === undefined
+          ? style.accent("drafted, every tool held until you say how to undo it")
+          : style.quiet(`the policy that ships for ${server.adopted} (${String(server.tools ?? 0)} tools)`);
+      out(`    ${style.strong(server.name.padEnd(18))} ${note}`);
+    }
+    for (const skip of plan.skipped) {
+      out(`    ${style.quiet(skip.name.padEnd(18))} ${style.quiet(skip.why)}`);
+    }
+    if (plan.servers.length === 0 && plan.skipped.length === 0) {
+      out(`    ${style.quiet("no servers listed")}`);
+    }
+  }
+
+  if (printOnly) {
+    out("");
+    out(`  ${style.label("entries")}`);
+    for (const plan of plans) {
+      for (const server of plan.servers) {
+        out(`  ${JSON.stringify({ [server.name]: server.wrapped }, undefined, 2)}`);
+      }
+    }
+    out("");
+    return 0;
+  }
+  if (total === 0) {
+    out("");
+    out(`  ${style.quiet("Nothing to do; everything found is already covered.")}`);
+    out("");
+    return 0;
+  }
+  if (dryRun) {
+    out("");
+    out(`  ${style.quiet("Nothing was written. Run without --dry-run to apply.")}`);
+    out("");
+    return 0;
+  }
+
+  const applied = applyInstall(plans, manifestPath, yaml);
+  out("");
+  for (const entry of applied) {
+    out(`  ${style.quiet("backed up to")} ${entry.backup}`);
+  }
+  out("");
+  out(`  ${style.quiet("Restart your client, and its servers now run through Synartesis.")}`);
+  out(`  ${style.quiet("Leave this running to see anything held for approval:")}`);
+  out("");
+  out(`  ${style.accent(`${cliCommand()} watch`)}`);
+  out("");
+  return 0;
+}
+
+async function runUninstall(argv: readonly string[]): Promise<number> {
+  const manifestPath = findManifest(flag(argv, "--manifest"));
+  const only = flag(argv, "--client");
+  const sites = discover(process.cwd()).filter(
+    (site) => only === undefined || site.client === only,
+  );
+  const restored = applyUninstall(sites, manifestPath);
+
+  out("");
+  if (restored.length === 0) {
+    out(`  ${style.quiet("Nothing was covered, so nothing was changed.")}`);
+    out("");
+    return 0;
+  }
+  out(`  ${style.label("restored")}`);
+  out(`  ${rule(60)}`);
+  for (const entry of restored) {
+    out("");
+    out(`  ${style.strong(entry.site.label)} ${style.quiet(entry.site.scope)}`);
+    for (const name of entry.servers) {
+      out(`    ${style.strong(name)}`);
+    }
+    for (const name of entry.unknown) {
+      // Removing it would delete a server nobody can put back.
+      out(
+        `    ${style.accent(name)} ${style.quiet("is wrapped but its original was not recorded; left as it is")}`,
+      );
+    }
+    if (entry.backup !== "") {
+      out(`    ${style.quiet(`backed up to ${entry.backup}`)}`);
+    }
+  }
+  out("");
+  out(`  ${style.quiet("The policy and journal were left alone.")}`);
+  out("");
+  return await Promise.resolve(0);
+}
+
+/** What is covered, what is not, and how big the journal has grown. */
+function runStatus(argv: readonly string[]): number {
+  const manifestPath = findManifest(flag(argv, "--manifest"));
+  const journalPath = findJournal(flag(argv, "--journal"), manifestPath);
+  const sites = discover(process.cwd());
+
+  out("");
+  out(`  ${style.label("policy")}   ${existsSync(manifestPath) ? style.strong(manifestPath) : style.quiet(`${manifestPath} (none yet)`)}`);
+  out(
+    `  ${style.label("journal")}  ${
+      bytesOf(journalPath) === undefined
+        ? style.quiet(`${journalPath} (none yet)`)
+        : `${style.strong(journalPath)} ${style.quiet(sizeOf(journalPath))}`
+    }`,
+  );
+  out("");
+
+  if (sites.length === 0) {
+    out(`  ${style.quiet("No MCP client config found.")}`);
+    out("");
+    return 0;
+  }
+
+  const record = readRecord(manifestPath);
+  const known = new Set(Object.keys(record.wrapped));
+  for (const site of sites) {
+    let servers: Record<string, ReturnType<typeof readServers>[string]>;
+    try {
+      servers = readServers(readDocument(site), site.at);
+    } catch (error: unknown) {
+      out(`  ${style.strong(site.label)} ${style.quiet(site.scope)}  ${style.accent(describe(error))}`);
+      continue;
+    }
+    const names = Object.keys(servers);
+    out(`  ${style.strong(site.label)} ${style.quiet(site.scope)}`);
+    if (names.length === 0) {
+      out(`    ${style.quiet("no servers listed")}`);
+    }
+    for (const name of names) {
+      const entry = servers[name];
+      const covered = entry !== undefined && isWrapped(entry);
+      const recorded = known.has(keyFor(site, name));
+      out(
+        `    ${name.padEnd(18)} ${
+          covered
+            ? style.strong(recorded ? "covered" : "covered (original not recorded)")
+            : style.quiet("not covered")
+        }`,
+      );
+    }
+    out("");
+  }
+  out(`  ${style.quiet(`${cliCommand()} install`)} ${style.quiet("covers everything listed above.")}`);
   out("");
   return 0;
 }
@@ -966,6 +1164,15 @@ async function main(argv: readonly string[]): Promise<number> {
   }
   if (command === "check") {
     return await runCheck(argv);
+  }
+  if (command === "install") {
+    return await runInstall(argv);
+  }
+  if (command === "uninstall") {
+    return await runUninstall(argv);
+  }
+  if (command === "status") {
+    return runStatus(argv);
   }
 
   const asJson = argv.includes("--json");

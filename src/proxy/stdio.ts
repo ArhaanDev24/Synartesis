@@ -35,11 +35,19 @@ import { connectStdioUpstream, type Upstream } from "./upstream.js";
  * how to start it, so there is nothing left for flags to say.
  *
  *   synartesis-proxy [--manifest synartesis.yaml] [--journal .synartesis/journal.db]
- *                    [--gate-timeout <seconds>] [--log-level <level>]
+ *                    [--server <name>] [--gate-timeout <seconds>] [--log-level <level>]
+ *
+ * `--server` connects one of the manifest's servers rather than all of them.
+ * A proxy carrying two servers has to qualify tool names to keep them apart
+ * (see routing.ts), which renames every tool the agent already knows. One
+ * policy covering everything, and one entry per server in the client's config,
+ * keeps the names and the single file both.
  */
 interface Argv {
   readonly manifest: string;
   readonly journal: string;
+  /** Connect only this server from the manifest; all of them when absent. */
+  readonly server?: string;
   readonly gateTimeoutMs: number;
   /** Whether --gate-timeout was actually typed, as against defaulted. */
   readonly gateTimeoutGiven: boolean;
@@ -58,7 +66,7 @@ function parseArgv(argv: readonly string[]): Argv {
     const at = argv.indexOf(flag);
     return at === -1 ? undefined : argv[at + 1];
   };
-  const known = ["--manifest", "--journal", "--gate-timeout", "--log-level", "--http", "--http-host", "--http-idle", "--token"];
+  const known = ["--manifest", "--journal", "--server", "--gate-timeout", "--log-level", "--http", "--http-host", "--http-idle", "--token"];
   const unknown = argv.find((token) => token.startsWith("--") && !known.includes(token));
   if (unknown !== undefined) {
     throw new Error(`unknown flag ${unknown}; expected one of ${known.join(", ")}`);
@@ -99,10 +107,16 @@ function parseArgv(argv: readonly string[]): Argv {
     http = { port, host: read("--http-host") ?? "127.0.0.1", token, idleSeconds };
   }
 
+  const server = read("--server");
+  if (argv.includes("--server") && (server === undefined || server.startsWith("--"))) {
+    throw new Error("--server needs the name of a server declared in the manifest");
+  }
+
   const manifest = findManifest(read("--manifest"));
   return {
     manifest,
     journal: findJournal(read("--journal"), manifest),
+    ...(server === undefined ? {} : { server }),
     gateTimeoutMs: seconds === undefined ? DEFAULT_GATE_TIMEOUT_MS : seconds * 1000,
     gateTimeoutGiven: seconds !== undefined,
     ...(http === undefined ? {} : { http }),
@@ -132,8 +146,21 @@ async function main(): Promise<void> {
   const manifest = loadManifest(argv.manifest);
   const journal = openJournal(argv.journal);
 
+  const declared = Object.entries(manifest.servers);
+  const wanted =
+    argv.server === undefined ? declared : declared.filter(([name]) => name === argv.server);
+  if (wanted.length === 0) {
+    // Named but absent. Starting with every server instead would silently
+    // expose more than was asked for, under renamed tools.
+    throw new Error(
+      `--server ${String(argv.server)} is not declared in ${argv.manifest}; it has: ${declared
+        .map(([name]) => name)
+        .join(", ")}`,
+    );
+  }
+
   const upstreams: Upstream[] = [];
-  for (const [name, spec] of Object.entries(manifest.servers)) {
+  for (const [name, spec] of wanted) {
     upstreams.push(
       await connectStdioUpstream({
         name,
@@ -145,8 +172,18 @@ async function main(): Promise<void> {
   }
 
   // Never serve a request under a policy that calls tools the servers do not
-  // have: at run time that is indistinguishable from a missing resource.
-  await verifyAgainstServers(upstreams, manifest);
+  // have: at run time that is indistinguishable from a missing resource. With
+  // --server the policy still describes the others, so only the connected
+  // server's half of it can be checked.
+  await verifyAgainstServers(
+    upstreams,
+    argv.server === undefined
+      ? manifest
+      : {
+          ...manifest,
+          tools: manifest.tools.filter((rule) => rule.match.startsWith(`${String(argv.server)}.`)),
+        },
+  );
 
   log.info(
     {

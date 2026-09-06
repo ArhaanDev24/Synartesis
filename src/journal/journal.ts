@@ -348,6 +348,18 @@ function openDatabase(path: string): Database.Database {
     // tool recommends. Writes here are tiny, so the wait is milliseconds; the
     // five seconds is the ceiling before something is genuinely wedged.
     db.pragma("busy_timeout = 5000");
+    // SQLite's default is FULL: an fsync on every commit. Every action costs
+    // at least two commits, and undoing one costs two more, so that fsync is
+    // the largest single cost in a long run.
+    //
+    // NORMAL is the documented pairing for WAL. The difference is narrow and
+    // worth stating exactly: a crash of this process, or of the CLI mid-undo,
+    // still loses nothing, because the WAL is already written and the next
+    // open recovers it. Only the operating system going down or the power
+    // failing can cost the tail of the WAL -- and what is at that tail is the
+    // record of a call, never the call itself, which either reached the server
+    // or did not regardless of what this file says.
+    db.pragma("synchronous = NORMAL");
     // Again, because turning WAL on is what creates the sidecars, and they
     // hold the same content as the database they belong to.
     if (path !== ":memory:") {

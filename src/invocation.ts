@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
  * exists. Until someone installs it globally it does not, and telling a person
  * to run something that is not there is worse than saying nothing.
  */
-function onPath(command: string): boolean {
+export function onPath(command: string): boolean {
   const dirs = (process.env["PATH"] ?? "").split(delimiter).filter((dir) => dir !== "");
   return dirs.some((dir) => {
     try {
