@@ -1123,7 +1123,34 @@ async function performUndo(
 async function runUndo(argv: readonly string[], journal: Journal): Promise<number> {
   // Defaults to the most recent run: the thing anyone wants to undo is
   // almost always the last thing that happened.
-  const runId = pick([...journal.listRuns()].reverse(), positional(argv)[1], RUN, true).id;
+  const given = positional(argv)[1];
+  const chosen = pick([...journal.listRuns()].reverse(), given, RUN, true);
+  const runId = chosen.id;
+
+  // Say which one, before touching it. Without an id this picks the newest
+  // session, which is not necessarily the one on screen in another window --
+  // somebody undid a session they were not looking at and read the result as
+  // the tool acting on its own.
+  if (given === undefined) {
+    const actions = journal.getActions(runId);
+    const left = actions.filter((action) => action.status === "applied").length;
+    out("");
+    out(
+      `  ${style.quiet("no session named, so the most recent:")} ${style.strong(runId.slice(0, 8))} ` +
+        style.quiet(`${chosen.label ?? "an agent"}, ${shortTime(chosen.startedAt).trim()}`),
+    );
+    if (left === 0) {
+      // Every step would report "already rolled back" and the result would say
+      // rolled_back, which reads as though something had just been undone.
+      out("");
+      out(`  ${style.quiet("Nothing in it is still applied; it has already been undone.")}`);
+      out(
+        `  ${style.quiet(`Name one to undo a different session: ${cliCommand()} undo <session>`)}`,
+      );
+      out("");
+      return 0;
+    }
+  }
 
   const rawTo = flag(argv, "--to");
   const toSeq = rawTo === undefined ? undefined : Number(rawTo);

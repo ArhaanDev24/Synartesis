@@ -74,6 +74,8 @@ interface Screen {
   openRun: string | undefined;
   /** An undo waiting on a yes. */
   confirming: string | undefined;
+  /** How to name it while asking, so the question is not about "this". */
+  confirmingLabel: string | undefined;
   /** Show every argument and inverse in full, rather than a summary line. */
   expanded: boolean;
   /** Rebuilt on entering the connections view and on r. */
@@ -309,9 +311,13 @@ function footer(screen: Screen, options: ConsoleOptions): string[] {
     return [];
   }
   if (screen.confirming !== undefined) {
+    // Named, not "this whole run". Which session a command acts on is the one
+    // thing people get wrong here, and a prompt that does not say makes the
+    // answer a guess about where the cursor was.
     return [
       "",
-      `  ${style.accent("undo this whole run?")}  ${keyHint("y", "yes")}   ${keyHint("n", "no")}`,
+      `  ${style.accent(`undo ${screen.confirmingLabel ?? "this session"}?`)}  ` +
+        `${keyHint("y", "yes")}   ${keyHint("n", "no")}`,
     ];
   }
   const keys =
@@ -395,6 +401,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     cursor: 0,
     openRun: undefined,
     confirming: undefined,
+    confirmingLabel: undefined,
     expanded: false,
     groups: [],
     busy: undefined,
@@ -539,6 +546,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     if (screen.confirming !== undefined) {
       const runId = screen.confirming;
       screen.confirming = undefined;
+      screen.confirmingLabel = undefined;
       if (key === "y") {
         void perform(runId, false);
       } else {
@@ -642,6 +650,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
           // Undo is the one direction that cannot itself be taken back, so it
           // is the one thing here that asks twice.
           screen.confirming = run.id;
+          screen.confirmingLabel = `${run.label ?? "an agent"} ${shortTime(run.startedAt).trim()}`;
         }
         return;
       }
