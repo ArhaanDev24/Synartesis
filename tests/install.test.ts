@@ -277,6 +277,8 @@ describe("writing a nested server list", () => {
     const site = siteIn(dir);
     writeDocument(site, { ...configFor(dir), mcpServers: {} });
     // Whatever else happened, what is on disk parses.
-    expect(() => JSON.parse(readFileSync(site.path, "utf8"))).not.toThrow();
+    expect(() => {
+      JSON.parse(readFileSync(site.path, "utf8"));
+    }).not.toThrow();
   });
 });
