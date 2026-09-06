@@ -60,8 +60,8 @@ const COMMANDS = `
   synartesis undo [runId] [--to <seq>] [--dry-run] [--replan]
                           [--manifest <path>] [--journal <path>]
 
-install is the short way in: it finds what Claude Code, Claude Desktop or
-Cursor already list, writes a policy covering all of it -- using the ones that
+install is the short way in: it finds what Claude Code, Claude Desktop,
+Cursor or Codex already list, writes a policy covering all of it -- using the ones that
 ship where they fit -- and points each entry at the proxy. The original config
 is copied aside first, and uninstall puts it back. status says what is covered.
 
@@ -79,7 +79,7 @@ adds to an existing manifest rather than replacing it.
 watch is the one to leave running. Anything held for approval appears there,
 and a and d answer it without a second terminal or an id to copy.
 
-  --client    claude-code, claude-desktop or cursor; all of them by default
+  --client    claude-code, claude-desktop, cursor or codex; all by default
   --print     show the entries install would write, and write nothing
   --server    serve one server from the manifest, keeping its tool names
   --manifest  synartesis.yaml, looked for here and upwards, then in the home
@@ -205,7 +205,7 @@ async function runInstall(argv: readonly string[]): Promise<number> {
   if (sites.length === 0) {
     out("");
     out(`  ${style.quiet("No MCP client config was found on this machine.")}`);
-    out(`  ${style.quiet("Looked for Claude Code, Claude Desktop and Cursor.")}`);
+    out(`  ${style.quiet("Looked for Claude Code, Claude Desktop, Cursor and Codex.")}`);
     out("");
     return 0;
   }
@@ -526,12 +526,12 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
     return 0;
   }
   out("");
-  out(`  ${style.label("runs")}  ${style.quiet("most recent first")}`);
+  out(`  ${style.label("sessions")}  ${style.quiet("most recent first")}`);
   out(`  ${rule(96)}`);
   out("");
   out(
     style.quiet(
-      `  ${"run".padEnd(36)}  ${"started".padEnd(24)}  ${"status".padEnd(12)}  actions  agent`,
+      `  ${"session".padEnd(36)}  ${"started".padEnd(15)}  ${"status".padEnd(12)}  actions  agent`,
     ),
   );
   for (const run of runs) {
@@ -571,7 +571,7 @@ function runShow(argv: readonly string[], journal: Journal, asJson: boolean): nu
   }
 
   out("");
-  out(`  ${style.label("run")}  ${style.strong(run.id)}`);
+  out(`  ${style.label("session")}  ${style.strong(run.label ?? "an agent")}  ${style.quiet(run.id)}`);
   out(`  ${rule(54)}`);
   out("");
   out(`  ${style.quiet("agent  ")} ${run.label ?? "-"}`);
@@ -1056,6 +1056,12 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
  * default journal and reversing whatever happened to be in it.
  */
 const FLAGS = new Set([
+  // Two lists have to agree about a flag: this one decides whether it is
+  // accepted at all, and the skip set in positional() decides whether its
+  // value is mistaken for a command. --client was in one and not the other,
+  // so `install --client codex` printed the help instead of installing.
+  "--client",
+  "--print",
   "--manifest",
   "--journal",
   "--to",

@@ -89,7 +89,7 @@ Then, from anywhere:
 synartesis install
 ```
 
-That finds what Claude Code, Claude Desktop or Cursor already list, writes one
+That finds what Claude Code, Claude Desktop, Cursor or Codex already list, writes one
 policy covering all of it, and points each entry at the proxy. Servers it
 recognises get the policy that ships for them and work immediately; the rest
 are drafted with every tool held until you say how to undo it. Your config is

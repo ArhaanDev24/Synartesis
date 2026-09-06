@@ -7,6 +7,8 @@ import {
   ConfigError,
   readDocument,
   readServers,
+  saveServers,
+  serversAt,
   withServers,
   writeDocument,
   type ConfigSite,
@@ -68,6 +70,7 @@ function siteIn(dir: string, config: unknown = configFor(dir)): ConfigSite {
   return {
     client: "claude-desktop",
     label: "Claude Desktop",
+    format: "json",
     path,
     scope: "global",
     at: ["mcpServers"],
@@ -201,6 +204,7 @@ describe("the record's key", () => {
     const a: ConfigSite = {
       client: "claude-desktop",
       label: "Claude Desktop",
+      format: "json",
       path: "/Application Support/c.json",
       scope: "global x",
       at: ["mcpServers"],
@@ -227,6 +231,7 @@ describe("refusing rather than repairing", () => {
     const site: ConfigSite = {
       client: "claude-desktop",
       label: "Claude Desktop",
+      format: "json",
       path,
       scope: "global",
       at: ["mcpServers"],
@@ -281,5 +286,102 @@ describe("writing a nested server list", () => {
     expect(() => {
       JSON.parse(readFileSync(site.path, "utf8"));
     }).not.toThrow();
+  });
+});
+
+/**
+ * Codex keeps its servers in TOML. What matters is not that the servers can be
+ * read, but that a file full of things which are nothing to do with us --
+ * comments, plugin tables, a long env subtable -- comes back unharmed.
+ */
+// The startable server is the real one, for the same reason the JSON
+// fixtures use it: drafting a policy starts it to ask what tools it has.
+const CODEX = `model = "gpt-5.6-sol"
+
+# A comment somebody wrote and would like to keep.
+[marketplaces.bundled]
+source_type = "local"
+
+[mcp_servers.node_repl]
+args = []
+command = "SERVER_COMMAND"
+startup_timeout_sec = 120
+
+[mcp_servers.node_repl.env]
+CODEX_HOME = "/Users/someone/.codex"
+NODE_REPL_TRUSTED_SERVICES = '{"browser":"/x/y.mjs"}'
+
+[mcp_servers.off]
+command = "./relative/thing"
+args = ["mcp"]
+enabled = false
+
+[shell_environment_policy.set]
+SOMETHING = "kept"
+`;
+
+function codexTextFor(dir: string): string {
+  return CODEX.replace("SERVER_COMMAND", "node").replace("args = []", `args = ["${FS_SERVER}", "${dir}"]`);
+}
+
+function codexSiteIn(dir: string, text = codexTextFor(dir)): ConfigSite {
+  const path = join(dir, "config.toml");
+  writeFileSync(path, text);
+  return { client: "codex", label: "Codex", format: "toml", path, scope: "global", at: ["mcp_servers"] };
+}
+
+describe("a client that keeps its servers in TOML", () => {
+  it("reads the servers, and knows which one is switched off", () => {
+    const site = codexSiteIn(scratch());
+    const servers = serversAt(site);
+    expect(Object.keys(servers).sort()).toEqual(["node_repl", "off"]);
+    expect(servers["node_repl"]?.command).toBe("node");
+    expect(servers["off"]?.enabled).toBe(false);
+  });
+
+  it("does not treat the env subtable as a server", () => {
+    const site = codexSiteIn(scratch());
+    expect(Object.keys(serversAt(site))).not.toContain("node_repl.env");
+  });
+
+  it("changes only the two lines it means to", () => {
+    const dir = scratch();
+    const site = codexSiteIn(dir);
+    saveServers(site, {
+      ...serversAt(site),
+      node_repl: { command: "synartesis", args: ["proxy", "--server", "node_repl"] },
+    });
+
+    const after = readFileSync(site.path, "utf8");
+    const changed = codexTextFor(dir)
+      .split("\n")
+      .filter((line, index) => after.split("\n")[index] !== line);
+    expect(changed).toHaveLength(2);
+    // Everything a serialiser would have thrown away.
+    expect(after).toContain("# A comment somebody wrote and would like to keep.");
+    expect(after).toContain('NODE_REPL_TRUSTED_SERVICES = \'{"browser":"/x/y.mjs"}\'');
+    expect(after).toContain("[shell_environment_policy.set]");
+    expect(after).toContain("startup_timeout_sec = 120");
+  });
+
+  it("comes back byte for byte after a round trip", async () => {
+    const dir = scratch();
+    const site = codexSiteIn(dir);
+    const before = readFileSync(site.path, "utf8");
+    const manifest = join(dir, "synartesis.yaml");
+
+    const { plans, yaml } = await planInstall([site], manifest);
+    applyInstall(plans, manifest, yaml);
+    expect(readFileSync(site.path, "utf8")).not.toBe(before);
+
+    applyUninstall([site], manifest);
+    expect(readFileSync(site.path, "utf8")).toBe(before);
+  });
+
+  it("leaves a server that is switched off alone", async () => {
+    const dir = scratch();
+    const site = codexSiteIn(dir);
+    const { plans } = await planInstall([site], join(dir, "synartesis.yaml"));
+    expect(plans[0]?.skipped.map((skip) => skip.name)).toContain("off");
   });
 });

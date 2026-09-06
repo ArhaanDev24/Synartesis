@@ -4,15 +4,7 @@ import { dirname, resolve } from "node:path";
 import { draftManifest } from "../init/draft.js";
 import { parseManifest } from "../manifest/load.js";
 import { onPath } from "../invocation.js";
-import {
-  ConfigError,
-  readDocument,
-  readServers,
-  withServers,
-  writeDocument,
-  type ConfigSite,
-  type ServerEntry,
-} from "./clients.js";
+import { ConfigError, saveServers, serversAt, type ConfigSite, type ServerEntry } from "./clients.js";
 
 /**
  * Wrapping a client's servers, and putting them back.
@@ -169,7 +161,7 @@ export async function planInstall(
   );
 
   for (const site of sites) {
-    const servers = readServers(readDocument(site), site.at);
+    const servers = serversAt(site);
     const planned: PlannedServer[] = [];
     const skipped: { name: string; why: string }[] = [];
 
@@ -185,6 +177,10 @@ export async function planInstall(
         skipped.push({ name, why: entry.url === undefined ? "no command to start" : "remote (http); stdio only today" });
         continue;
       }
+      if (entry.enabled === false) {
+        skipped.push({ name, why: "switched off in the config" });
+        continue;
+      }
       // A manifest holds one server per name. Two clients listing a `github`
       // each is ordinary, and the second must not silently redefine the first.
       const key = claimed.has(name) ? `${name}-${site.client}` : name;
@@ -193,12 +189,25 @@ export async function planInstall(
         continue;
       }
 
-      const draft = await draftManifest({
-        name: key,
-        command: entry.command,
-        args: [...(entry.args ?? [])],
-        ...(yaml === undefined ? {} : { existing: yaml }),
-      });
+      // Drafting starts the server to ask what tools it has, and a server
+      // that will not start is a fact about that entry, not a reason to
+      // abandon every other one. One unusable command aborted the whole
+      // install before this.
+      let draft;
+      try {
+        draft = await draftManifest({
+          name: key,
+          command: entry.command,
+          args: [...(entry.args ?? [])],
+          ...(yaml === undefined ? {} : { existing: yaml }),
+        });
+      } catch (error: unknown) {
+        skipped.push({
+          name,
+          why: `will not start: ${(error instanceof Error ? error.message : String(error)).slice(0, 60)}`,
+        });
+        continue;
+      }
       yaml = draft.yaml;
       claimed.add(key);
       planned.push({
@@ -229,6 +238,13 @@ export function applyInstall(
   manifestPath: string,
   yaml: string,
 ): readonly Applied[] {
+  // Nothing to wrap means nothing to write. Every server may have been
+  // skipped -- already covered, switched off, or unable to start -- and
+  // writing an empty policy over a real one, or parsing one that was never
+  // drafted, is not the right answer to "there was nothing to do".
+  if (!plans.some((plan) => plan.servers.length > 0)) {
+    return [];
+  }
   // Never write a policy that would not load: one that fails to parse is worse
   // than none, because the client is by then pointing at it.
   parseManifest(yaml, manifestPath);
@@ -243,13 +259,12 @@ export function applyInstall(
     if (plan.servers.length === 0) {
       continue;
     }
-    const document = readDocument(plan.site);
-    const servers = { ...readServers(document, plan.site.at) };
+    const servers = { ...serversAt(plan.site) };
     for (const server of plan.servers) {
       servers[server.name] = server.wrapped;
       wrapped[keyFor(plan.site, server.name)] = { original: server.original, at: plan.site.at };
     }
-    const backup = writeDocument(plan.site, withServers(document, plan.site.at, servers));
+    const backup = saveServers(plan.site, servers);
     applied.push({ site: plan.site, backup, servers: plan.servers.map((server) => server.name) });
   }
 
@@ -279,8 +294,7 @@ export function applyUninstall(
   const restored: Restored[] = [];
 
   for (const site of sites) {
-    const document = readDocument(site);
-    const servers = { ...readServers(document, site.at) };
+    const servers = { ...serversAt(site) };
     const put: string[] = [];
     const unknown: string[] = [];
 
@@ -301,8 +315,7 @@ export function applyUninstall(
     if (put.length === 0 && unknown.length === 0) {
       continue;
     }
-    const backup =
-      put.length === 0 ? "" : writeDocument(site, withServers(document, site.at, servers));
+    const backup = put.length === 0 ? "" : saveServers(site, servers);
     restored.push({ site, backup, servers: put, unknown });
   }
 

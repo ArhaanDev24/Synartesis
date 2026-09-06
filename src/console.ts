@@ -186,7 +186,10 @@ function runView(journal: Journal, screen: Screen): string[] {
   const run = journal.getRun(runId);
   const actions = journal.getActions(runId);
   const out = [
-    `  ${style.label("run")}  ${style.strong(run?.label ?? "an agent")}  ${style.quiet(runId.slice(0, 8))}`,
+    // "RUN claude 5dce5bda" was read as an instruction to go and run
+    // something: a spaced capital heading followed by two words looks exactly
+    // like a command with two arguments. "Session" is only ever a noun.
+    `  ${style.label("session")}  ${style.strong(run?.label ?? "an agent")}  ${style.quiet(runId.slice(0, 8))}`,
     "",
   ];
   if (actions.length === 0) {

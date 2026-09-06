@@ -2,6 +2,8 @@ import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
+import { readServers as readTomlServers, writeServers as writeTomlServers } from "./toml.js";
+
 /**
  * Where MCP clients keep their list of servers, and how to change it safely.
  *
@@ -15,7 +17,7 @@ import { dirname, join, resolve } from "node:path";
  * one, so every write here is backed up first and lands by rename.
  */
 
-export type ClientId = "claude-code" | "claude-desktop" | "cursor";
+export type ClientId = "claude-code" | "claude-desktop" | "cursor" | "codex";
 
 /** A server entry as the client wrote it, with any keys we do not know kept. */
 export interface ServerEntry {
@@ -25,12 +27,16 @@ export interface ServerEntry {
   readonly cwd?: string;
   readonly type?: string;
   readonly url?: string;
+  /** Some clients switch a server off in place rather than deleting it. */
+  readonly enabled?: boolean;
   readonly [key: string]: unknown;
 }
 
 export interface ConfigSite {
   readonly client: ClientId;
   readonly label: string;
+  /** Codex keeps its servers in TOML; the rest use JSON. */
+  readonly format: "json" | "toml";
   readonly path: string;
   /** Which list this is, when a client keeps more than one. */
   readonly scope: string;
@@ -45,6 +51,7 @@ const LABELS: Readonly<Record<ClientId, string>> = {
   "claude-code": "Claude Code",
   "claude-desktop": "Claude Desktop",
   cursor: "Cursor",
+  codex: "Codex",
 };
 
 export function labelFor(client: ClientId): string {
@@ -87,6 +94,7 @@ export function discover(cwd: string): readonly ConfigSite[] {
       sites.push({
         client: "claude-code",
         label: LABELS["claude-code"],
+        format: "json",
         path: claudeCode,
         scope: `project ${here}`,
         at: ["projects", here, "mcpServers"],
@@ -95,6 +103,7 @@ export function discover(cwd: string): readonly ConfigSite[] {
     sites.push({
       client: "claude-code",
       label: LABELS["claude-code"],
+      format: "json",
       path: claudeCode,
       scope: "global",
       at: ["mcpServers"],
@@ -107,6 +116,7 @@ export function discover(cwd: string): readonly ConfigSite[] {
     sites.push({
       client: "claude-code",
       label: LABELS["claude-code"],
+      format: "json",
       path: projectFile,
       scope: "project file",
       at: ["mcpServers"],
@@ -118,9 +128,23 @@ export function discover(cwd: string): readonly ConfigSite[] {
     sites.push({
       client: "claude-desktop",
       label: LABELS["claude-desktop"],
+      format: "json",
       path: desktop,
       scope: "global",
       at: ["mcpServers"],
+    });
+  }
+
+  // Codex. CODEX_HOME moves it, which is how the app itself finds it.
+  const codex = join(process.env["CODEX_HOME"] ?? join(home, ".codex"), "config.toml");
+  if (existsSync(codex)) {
+    sites.push({
+      client: "codex",
+      label: LABELS.codex,
+      format: "toml",
+      path: codex,
+      scope: "global",
+      at: ["mcp_servers"],
     });
   }
 
@@ -129,7 +153,7 @@ export function discover(cwd: string): readonly ConfigSite[] {
     [join(home, ".cursor", "mcp.json"), "global"],
   ] as const) {
     if (existsSync(path)) {
-      sites.push({ client: "cursor", label: LABELS.cursor, path, scope, at: ["mcpServers"] });
+      sites.push({ client: "cursor", label: LABELS.cursor, format: "json", path, scope, at: ["mcpServers"] });
     }
   }
 
@@ -245,13 +269,18 @@ export function backupPathFor(path: string): string {
  * either the old one or the new one and never half of either.
  */
 export function writeDocument(site: ConfigSite, document: Record<string, unknown>): string {
+  return writeText(site, `${JSON.stringify(document, undefined, indentOf(site.path))}\n`);
+}
+
+/** The backup, the temporary file and the rename, shared by both formats. */
+function writeText(site: ConfigSite, text: string): string {
   const backup = backupPathFor(site.path);
   const original = readFileSync(site.path);
   writeFileSync(backup, original);
 
   const temporary = join(dirname(site.path), `.synartesis-write-${String(process.pid)}.tmp`);
   try {
-    writeFileSync(temporary, `${JSON.stringify(document, undefined, indentOf(site.path))}\n`);
+    writeFileSync(temporary, text);
     renameSync(temporary, site.path);
   } catch (error: unknown) {
     try {
@@ -265,4 +294,32 @@ export function writeDocument(site: ConfigSite, document: Record<string, unknown
     );
   }
   return backup;
+}
+
+/**
+ * The servers at a site, whichever shape the file is.
+ *
+ * Everything above this line is JSON-specific; everything that calls install
+ * works in these two functions and never has to know that Codex is different.
+ */
+export function serversAt(site: ConfigSite): Record<string, ServerEntry> {
+  if (site.format === "toml") {
+    try {
+      return readTomlServers(readFileSync(site.path, "utf8"));
+    } catch (error: unknown) {
+      throw new ConfigError(
+        `cannot read ${site.path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  return readServers(readDocument(site), site.at);
+}
+
+/** Save the servers back, having copied the original aside. Returns the backup. */
+export function saveServers(site: ConfigSite, servers: Record<string, ServerEntry>): string {
+  if (site.format === "toml") {
+    const text = readFileSync(site.path, "utf8");
+    return writeText(site, writeTomlServers(text, servers));
+  }
+  return writeDocument(site, withServers(readDocument(site), site.at, servers));
 }
