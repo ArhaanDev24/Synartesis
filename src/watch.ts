@@ -58,10 +58,30 @@ interface View {
  */
 const NOTICE_TICKS = 26;
 
-function line(action: ActionRow): string {
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * The time, and the date too when it is not today's.
+ *
+ * A time on its own reads as ordering, and the list is not ordered by clock:
+ * an action from two weeks ago at 13:09 sat above one from this morning at
+ * 09:00, so the oldest row in the view looked like the newest. Somebody
+ * checking whether their own write had been recorded read the top line, saw a
+ * fortnight-old call, and concluded nothing had been.
+ */
+function stamp(iso: string, today: string): string {
+  const time = iso.slice(11, 19);
+  if (iso.slice(0, 10) === today) {
+    return time.padEnd(12);
+  }
+  const month = MONTHS[Number(iso.slice(5, 7)) - 1] ?? "";
+  return `${iso.slice(8, 10)} ${month} ${time.slice(0, 5)}`.padEnd(12);
+}
+
+function line(action: ActionRow, today: string): string {
   const mark = MARK[action.class] ?? "?";
   const badge = `${mark} ${action.class}`.padEnd(14);
-  const when = action.ts.slice(11, 19);
+  const when = stamp(action.ts, today);
   const label = labelFor(action).padEnd(13);
   const status =
     action.status === "gated"
@@ -100,6 +120,9 @@ function waitingForJournal(options: WatchOptions, tick: number): string {
 function render(journal: Journal, options: WatchOptions, tick: number, view: View): string {
   const runs = journal.listRuns();
   const recent = journal.recentActions(12);
+  // The journal stores UTC, and the view prints UTC, so "today" is UTC too.
+  // Mixing the two would put a date beside a time from a different day.
+  const today = new Date().toISOString().slice(0, 10);
   const waiting = journal.listGated();
   const active = runs.filter((run) => run.status === "active").length;
 
@@ -122,7 +145,7 @@ function render(journal: Journal, options: WatchOptions, tick: number, view: Vie
     out.push(`  ${style.quiet("No agent has done anything through this journal yet.")}`);
   } else {
     for (const action of recent) {
-      out.push(line(action));
+      out.push(line(action, today));
     }
   }
 

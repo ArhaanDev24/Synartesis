@@ -3,6 +3,8 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import Database from "better-sqlite3";
+
 import { openJournal } from "../src/journal/journal.js";
 import { watch } from "../src/watch.js";
 
@@ -388,5 +390,60 @@ describe("the confirmation line", () => {
       decideAs: "arhaan",
     });
     expect(frames.join("")).not.toMatch(/\[a\] approve/);
+  });
+});
+
+/** Move every action in a journal to one moment, so the view has a known date. */
+function stampedAt(path: string, iso: string): void {
+  const db = new Database(path);
+  db.prepare("UPDATE actions SET ts = ?").run(iso);
+  db.close();
+}
+
+describe("when an action happened", () => {
+  /**
+   * The list is not ordered by clock, so a bare time reads as ordering and
+   * lies. An action from a fortnight ago at 13:09 sat above one from this
+   * morning at 09:00, and the oldest row in the view looked like the newest.
+   */
+  it("dates anything that is not from today, and leaves today bare", async () => {
+    const path = journalWith((journal) => {
+      const run = journal.beginRun("old");
+      const pending = journal.recordPending({
+        runId: run,
+        server: "fs",
+        tool: "write_file",
+        args: { path: "/x" },
+        class: "reversible",
+      });
+      journal.markApplied(pending.actionId, { result: {} });
+    });
+    // Backdated after the fact: the journal has no way to record a past
+    // action, and what is under test is only how a stored timestamp is shown.
+    stampedAt(path, "2026-08-22T13:09:28.000Z");
+
+    const text = await capture(path);
+    expect(text).toContain("22 Aug 13:09");
+    expect(text).not.toMatch(/\s13:09:28\s/);
+  });
+
+  it("shows a time alone for something from today", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const path = journalWith((journal) => {
+      const run = journal.beginRun("today");
+      const pending = journal.recordPending({
+        runId: run,
+        server: "fs",
+        tool: "write_file",
+        args: { path: "/x" },
+        class: "reversible",
+      });
+      journal.markApplied(pending.actionId, { result: {} });
+    });
+    stampedAt(path, `${today}T09:00:21.000Z`);
+
+    const text = await capture(path);
+    expect(text).toContain("09:00:21");
+    expect(text).not.toContain("Aug");
   });
 });
