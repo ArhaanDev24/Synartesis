@@ -642,8 +642,10 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
   // manifest names to discover that is a slow way to say so.
   const inspection =
     argv.includes("--live") && journal.getActions(runId).length > 0
-      ? await withUpstreams(findManifest(flag(argv, "--manifest")), async (router) =>
-          await inspect({ journal, router, runId }),
+      ? await withUpstreams(
+          findManifest(flag(argv, "--manifest")),
+          async (router) => await inspect({ journal, router, runId }),
+          serversUsedBy(journal, runId),
         )
       : undefined;
 
@@ -1176,27 +1178,52 @@ function report(result: RollbackReport, alreadyForcing = false): number {
  * u and there must not be two answers to what undo means.
  */
 /**
- * Starting every server the manifest names, doing one thing with them, and
- * shutting them down. Two commands need a live router now, and a second copy
- * of this loop is a second place for a server to be left running.
+ * Starting the servers, doing one thing with them, and shutting them down.
+ *
+ * `only` is the set of servers the work actually needs. One policy covers
+ * every AI on the machine, so a manifest routinely names servers that have
+ * nothing to do with the session in hand -- and starting all of them meant one
+ * broken entry made every session unreadable and unundoable. A server that
+ * will not start is now skipped and reported, the way install already treats
+ * one; whether that matters is decided per action, by the code that goes
+ * looking for it.
+ *
+ * Starting a subset is safe here because rollback and inspect address an
+ * upstream by name and call the bare tool on it. Neither goes through the
+ * qualifying that depends on how many servers are connected.
  */
 async function withUpstreams<T>(
   manifestPath: string,
   use: (router: Router, manifest: Manifest) => Promise<T>,
+  only?: ReadonlySet<string>,
 ): Promise<T> {
   const manifest = loadManifest(manifestPath);
   const upstreams: Upstream[] = [];
+  const missing: string[] = [];
   try {
     for (const [name, spec] of Object.entries(manifest.servers)) {
-      upstreams.push(
-        await connectStdioUpstream({
-          name,
-          command: spec.command,
-          args: spec.args,
-          stderr: "capture",
-          ...(spec.env === undefined ? {} : { env: spec.env }),
-        }),
-      );
+      if (only !== undefined && !only.has(name)) {
+        continue;
+      }
+      try {
+        upstreams.push(
+          await connectStdioUpstream({
+            name,
+            command: spec.command,
+            args: spec.args,
+            stderr: "capture",
+            ...(spec.env === undefined ? {} : { env: spec.env }),
+          }),
+        );
+      } catch (error: unknown) {
+        missing.push(`${name}: ${describe(error)}`);
+      }
+    }
+    if (upstreams.length === 0 && missing.length > 0) {
+      throw new ManifestError(`no server could be started. ${missing.join("; ")}`);
+    }
+    for (const why of missing) {
+      process.stderr.write(`synartesis: ${why}; anything through it cannot be reached\n`);
     }
     return await use(createRouter(upstreams, manifest), manifest);
   } finally {
@@ -1204,6 +1231,11 @@ async function withUpstreams<T>(
       await upstream.close();
     }
   }
+}
+
+/** The servers a session actually went to, which are the only ones it needs. */
+function serversUsedBy(journal: Journal, runId: string): ReadonlySet<string> {
+  return new Set(journal.getActions(runId).map((action) => action.server));
 }
 
 async function performUndo(
@@ -1215,33 +1247,24 @@ async function performUndo(
     toSeq?: number;
     replan?: boolean;
     force?: boolean;
-    /** Read what forcing would overwrite first, and stop if there is a conflict. */
-    preflight?: boolean;
   },
 ): Promise<RollbackReport> {
-  return await withUpstreams(manifestPath, async (router, manifest) => {
-    const base = {
-      journal,
-      router,
-      runId,
-      ...(options.toSeq === undefined ? {} : { toSeq: options.toSeq }),
-      ...(options.replan === true ? { replanWith: manifest } : {}),
-    };
-    if (options.preflight === true) {
-      // What forcing would overwrite, read from the world as it is now and
-      // writing nothing. In the same router, so showing it first costs no
-      // second round of starting every server the manifest names.
-      const seen = await rollback({ ...base, dryRun: true });
-      if (seen.halted?.conflict === true) {
-        return seen;
-      }
-    }
-    return await rollback({
-      ...base,
-      dryRun: options.dryRun,
-      ...(options.force === true ? { force: true } : {}),
-    });
-  });
+  return await withUpstreams(
+    manifestPath,
+    async (router, manifest) =>
+      await rollback({
+        journal,
+        router,
+        runId,
+        ...(options.toSeq === undefined ? {} : { toSeq: options.toSeq }),
+        ...(options.replan === true ? { replanWith: manifest } : {}),
+        dryRun: options.dryRun,
+        ...(options.force === true ? { force: true } : {}),
+      }),
+    // A replan re-resolves inverses from the current policy, which may name a
+    // server this run never used; everything else needs only what it touched.
+    options.replan === true ? undefined : serversUsedBy(journal, runId),
+  );
 }
 
 async function runUndo(argv: readonly string[], journal: Journal): Promise<number> {
@@ -1339,7 +1362,11 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     // resources written over. Reading them all without stopping is the one
     // job inspect has.
     const over = (
-      await withUpstreams(manifestPath, async (router) => await inspect({ journal, router, runId }))
+      await withUpstreams(
+        manifestPath,
+        async (router) => await inspect({ journal, router, runId }),
+        serversUsedBy(journal, runId),
+      )
     ).resources.filter(
       // Below --to nothing is undone, so a change down there is not something
       // this command would write over and must not stand in its way.
@@ -1500,8 +1527,10 @@ async function main(argv: readonly string[]): Promise<number> {
       check: async (runId) => {
         const journal = openJournal(journalPath, { mustExist: true });
         try {
-          return await withUpstreams(manifestPath, async (router) =>
-            await inspect({ journal, router, runId }),
+          return await withUpstreams(
+            manifestPath,
+            async (router) => await inspect({ journal, router, runId }),
+            serversUsedBy(journal, runId),
           );
         } finally {
           journal.close();

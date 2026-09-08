@@ -328,6 +328,29 @@ describe("the cli", () => {
     expect(after.customers["c_003"]?.notes).toBe("another human was here");
   });
 
+  it("undoes a session even when an unrelated server in the policy is broken", async () => {
+    const space = workspace();
+    await damage(space);
+
+    // One policy covers every AI on the machine, so it routinely names servers
+    // that have nothing to do with the session in hand. Starting all of them
+    // meant one broken entry made every session unreadable and unundoable.
+    writeFileSync(
+      space.manifest,
+      readFileSync(space.manifest, "utf8").replace(
+        "servers:\n",
+        'servers:\n  ghost:\n    command: "/nonexistent/server"\n    args: []\n',
+      ),
+    );
+
+    const undone = await run("node", [
+      CLI, "undo", await onlyRunId(space.journal), "--manifest", space.manifest, "--journal", space.journal,
+    ]);
+    expect(undone.code).toBe(0);
+    expect(undone.stdout).toContain("rolled_back");
+    expect(readState(space.state).customers["c_001"]?.notes).toBe("founding customer");
+  });
+
   it("exits 2 on bad usage and on an unknown run", async () => {
     const space = workspace();
     await damage(space);
