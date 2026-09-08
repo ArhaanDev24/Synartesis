@@ -159,6 +159,23 @@
 
   .lede { max-width: var(--measure); color: var(--ink-soft); }
 
+  /* The claim above it is what the product does; this is why it matters. Set
+     in the display face so it reads as part of the same statement rather than
+     as body copy, but small enough that the headline still leads. */
+  .thesis {
+    font-family: var(--display);
+    font-weight: 300;
+    font-size: clamp(1.25rem, 0.95rem + 1.35vw, 1.7rem);
+    line-height: 1.2;
+    /* The break is written into the markup, the way the headline above does
+       it. Left to itself the line balanced by length and broke after
+       "without", splitting the phrase it is about; the sentence hinges after
+       "reversibility". Narrow screens still re-wrap each half. */
+    max-width: 34ch;
+    color: var(--ink-soft);
+    margin: clamp(1rem, 2vw, 1.4rem) 0 0;
+  }
+
   .rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
 
   /* A meander: one line that turns back on itself without ever breaking,
@@ -818,6 +835,7 @@
     <div>
       <p class="label">Model Context Protocol proxy &middot; SQLite journal</p>
       <h1 class="display">Every action<br>bound to the<br>one that<br>undoes it</h1>
+      <p class="thesis">Autonomy without reversibility<br>isn&rsquo;t trustworthy.</p>
       <div class="install">
         <div class="terminal">
           <div class="terminal-bar"><span>one command</span><span>node 22 or newer</span></div>
