@@ -2,6 +2,62 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.4.1 — 2026-09-09
+
+### Added
+
+- **`synartesis show <session> --live`**, and `l` in the screen. Synartesis
+  records what an agent does, not what happens to a file — nothing you do by
+  hand goes through the proxy. That is what makes the drift check work, and it
+  meant the commonest question about this tool had no answer: has somebody
+  edited that file since? You found out by attempting an undo and having it
+  refuse.
+
+  `--live` reads every resource the session touched as it is now and says
+  which of them still match what the run left. Nothing is written, no
+  reversing call is sent, and no row changes status. Unlike `undo --dry-run`
+  it does not stop at the first conflict: a session with five writes reports
+  on all five.
+
+  An earlier write to a resource is reported as superseded rather than
+  changed. Undo walks backwards, so each older write is checked against a
+  state the one above it restores; measuring them all against the world as it
+  is now would call every write but the last one changed.
+
+### Fixed
+
+- **Undo acted on a session nobody was looking at.** One cursor serves four
+  views, and in the held-calls and connections lists its number counts
+  something else entirely — but `u`, `p` and `l` read it against the sessions
+  regardless. `g`, `j`, `u`, `y`, four keys pressed while looking at the list
+  of held calls, undid a session that was never on screen. That is the failure
+  this tool exists to prevent, committed by the tool. Those keys now do
+  nothing outside the session views and say why.
+
+- **`--force` showed one conflict and overwrote several.** The ask ran a
+  dry-run rollback, and a rollback halts at the first drift — so with two
+  people's edits underneath it, one diff was printed, `--force --yes` was
+  typed, and both were written over. It now reads every conflict and prints
+  each one.
+
+- **One broken server stopped you undoing anything at all.** `install` covers
+  every AI on the machine with one policy, so a manifest routinely names
+  servers that have nothing to do with the session in hand — and undo started
+  all of them. An entry whose command is not there made every session
+  unreadable and unundoable. Undo and `--live` now start only the servers the
+  session actually went to, and skip with a reported reason any that still
+  will not start. `--replan` still starts everything, since it re-resolves
+  inverses from the current policy.
+
+- **`--force` ignored `--to`.** A change below the floor — an action the undo
+  would not touch — refused the whole command.
+
+- The overwrite warning in the screen now expires with the diff that
+  justified it, so the second `u` cannot be answered after the evidence has
+  scrolled away. `--yes` without `--force` says it is being ignored rather
+  than being silently dropped, and `--live` no longer starts every server to
+  inspect a session that recorded nothing.
+
 ## 0.4.0 — 2026-09-08
 
 ### Added
