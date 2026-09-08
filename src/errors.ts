@@ -192,6 +192,24 @@ function brief(value: unknown): string {
  * screens of escaped JSON. Both values are still on the row, and
  * `synartesis show <run>` prints them.
  */
+/**
+ * The difference between two recorded states, as lines somebody can read.
+ *
+ * Shared, because the same two states get asked about twice: what changed
+ * since the run, and what undoing would write over. A person deciding whether
+ * to undo anyway needs the second one, and it is the same rendering.
+ */
+export function changedLines(expected: unknown, actual: unknown): string {
+  const before = longestString(expected);
+  const after = longestString(actual);
+  // Two texts to compare, and they are not the same text. Anything else --
+  // a resource that is simply gone, a snapshot with no body in it -- has no
+  // lines to diff, so it says what it has.
+  return before !== "" && after !== "" && before !== after
+    ? lineDiff(before, after)
+    : `  expected: ${brief(expected)}\n  actual:   ${brief(actual)}`;
+}
+
 export class DriftConflict extends SynartesisError {
   readonly code = "DRIFT_CONFLICT";
 
@@ -200,18 +218,9 @@ export class DriftConflict extends SynartesisError {
     readonly expected: unknown,
     readonly actual: unknown,
   ) {
-    const before = longestString(expected);
-    const after = longestString(actual);
-    // Two texts to compare, and they are not the same text. Anything else --
-    // a resource that is simply gone, a snapshot with no body in it -- has no
-    // lines to diff, so it says what it has.
-    const body =
-      before !== "" && after !== "" && before !== after
-        ? lineDiff(before, after)
-        : `  expected: ${brief(expected)}\n  actual:   ${brief(actual)}`;
-
     super(
-      `drift at sequence ${String(seq)}: the resource is not in the state this run left it in.\n${body}`,
+      `drift at sequence ${String(seq)}: the resource is not in the state this run left it in.\n` +
+        changedLines(expected, actual),
     );
   }
 }

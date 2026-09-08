@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { canonical } from "../canonical.js";
-import { DriftConflict, RollbackHalted, describe } from "../errors.js";
+import { DriftConflict, RollbackHalted, changedLines, describe } from "../errors.js";
 import type { ActionRow, Journal } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
 import {
@@ -50,6 +50,14 @@ export interface RollbackHalt {
   readonly seq: number;
   readonly reason: string;
   readonly detail: string;
+  /** The lines undoing anyway would write over, where that can be worked out. */
+  readonly overwrites?: string;
+  /**
+   * Somebody changed the resource, so this is a decision rather than a fault.
+   * The two ways past it -- put the resource back and replan, or overwrite the
+   * change deliberately -- only make sense for these, so only these are told.
+   */
+  readonly conflict?: boolean;
 }
 
 export interface RollbackReport {
@@ -74,6 +82,16 @@ export interface RollbackOptions {
    * the corrected template, so no upstream state is re-read and D5 still holds.
    */
   readonly replanWith?: Manifest;
+  /**
+   * Apply the recorded inverse even where the resource has changed since.
+   *
+   * Halting on drift is right by default: the alternative is silently
+   * destroying whatever made the change. But a halt with no way past it is
+   * only half an answer, and the person looking at the diff is the one who
+   * knows whether their edit or the old value is the one worth keeping. Every
+   * check still runs; this decides what happens when one of them fails.
+   */
+  readonly force?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -106,7 +124,7 @@ interface Decision {
  * halt, because continuing past them produces a state that is neither the
  * before nor the after (D6).
  */
-function classify(action: ActionRow, replanning: boolean): Decision | undefined {
+function classify(action: ActionRow, replanning: boolean, goAhead: boolean): Decision | undefined {
   switch (action.status) {
     case "rolled_back":
       return { kind: "already-reverted", reason: "already rolled back", verified: true };
@@ -138,7 +156,12 @@ function classify(action: ActionRow, replanning: boolean): Decision | undefined 
       // corrected the policy and want it tried again; every check still runs,
       // so real drift halts on it a second time.
       //
-      return replanning
+      // A dry run passes here too. This halt exists so a second attempt does
+      // not silently retry what a person already stopped, and a dry run is
+      // not an attempt -- it writes nothing. Stopping on it meant the only
+      // thing anyone could be shown about a conflict was the message from the
+      // last try, which by then may not be true of anything.
+      return replanning || goAhead
         ? undefined
         : { kind: "halt", reason: "halted here on an earlier attempt", verified: false };
     case "applied":
@@ -150,6 +173,7 @@ function classify(action: ActionRow, replanning: boolean): Decision | undefined 
 export async function rollback(options: RollbackOptions): Promise<RollbackReport> {
   const { journal, router, runId } = options;
   const dryRun = options.dryRun ?? false;
+  const force = options.force ?? false;
   const signal = options.signal ?? new AbortController().signal;
 
   const policies = options.replanWith === undefined ? undefined : createPolicyResolver(options.replanWith);
@@ -201,7 +225,9 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
   let leftInPlace = false;
 
   for (const action of inScope) {
-    const early = classify(action, policies !== undefined);
+    // Reset per action: forcing past one conflict says nothing about the next.
+    let forcedOver: string | undefined;
+    const early = classify(action, policies !== undefined, force || dryRun);
     if (early?.kind === "halt") {
       // Deliberately not written back. Every halt classify can reach was read
       // off the row's own status, so there is nothing here this rollback
@@ -215,12 +241,9 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       // now, and after the conflict is resolved that reading is simply false.
       // The way on was --replan, which nothing said.
       const seen = action.error ?? "";
-      const detail =
-        action.status === "unrecoverable" && seen !== ""
-          ? `what it saw when it halted, which may no longer hold:\n${seen}\n` +
-            `Resolve the conflict, then run undo --replan to check it against the world as it is now.`
-          : seen;
-      halted = { seq: action.seq, reason: early.reason, detail };
+      const conflicted = action.status === "unrecoverable" && seen !== "";
+      const detail = conflicted ? `what it saw last time, which may no longer hold:\n${seen}` : seen;
+      halted = { seq: action.seq, reason: early.reason, detail, ...(conflicted ? { conflict: true } : {}) };
       steps.push({ ...describeStep(action), ...early });
       break;
     }
@@ -290,9 +313,18 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
           journal.markRolledBack(action.id);
         }
         continue;
-      } else {
+      } else if (!force) {
         const conflict = new DriftConflict(action.seq, recordedPost.data, current);
-        halted = { seq: action.seq, reason: "drift detected", detail: conflict.message };
+        halted = {
+          seq: action.seq,
+          reason: "drift detected",
+          detail: conflict.message,
+          conflict: true,
+          // What the person deciding actually needs: not only that it changed,
+          // but which lines undoing would write over. A halt that shows the
+          // first and hides the second leaves them choosing blind.
+          overwrites: overwriteText(current, action),
+        };
         steps.push({
           ...describeStep(action),
           kind: "halt",
@@ -304,6 +336,8 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
           journal.markUnrecoverable(action.id, conflict.message);
         }
         break;
+      } else {
+        forcedOver = "the resource had changed since; that change was overwritten";
       }
     }
 
@@ -324,7 +358,9 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     steps.push({
       ...describeStep(action),
       kind: "revert",
-      reason: verified ? "state matches; applying inverse" : unverifiedBecause(action),
+      reason: verified
+        ? "state matches; applying inverse"
+        : (forcedOver ?? unverifiedBecause(action)),
       verified,
       plan,
       ...(rebuilt.inverse === undefined ? {} : { replanned: true }),
@@ -423,6 +459,20 @@ function describeStep(action: ActionRow): { seq: number; server: string; tool: s
 }
 
 /** The state the recorded inverse is expected to leave behind. */
+/**
+ * What undoing anyway would change, from what is there now to what the
+ * recorded inverse would put back. The drift message answers "what happened
+ * since"; this answers "what do I lose if I go ahead", which is the question
+ * somebody actually has in front of them.
+ */
+function overwriteText(current: StateObservation, action: ActionRow): string {
+  const intended = intendedAfterInverse(action);
+  if (intended === undefined) {
+    return "";
+  }
+  return changedLines(current, intended);
+}
+
 function intendedAfterInverse(action: ActionRow): StateObservation | undefined {
   return action.snapshot === undefined ? undefined : { present: true, value: action.snapshot };
 }

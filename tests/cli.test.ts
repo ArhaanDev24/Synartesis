@@ -254,6 +254,39 @@ describe("the cli", () => {
     expect(after.customers["c_001"]?.notes).toBe("a human corrected this");
   });
 
+  it("shows what --force would write over, and writes nothing until --yes", async () => {
+    const space = workspace();
+    await damage(space);
+
+    const state = readState(space.state);
+    const target = state.customers["c_001"];
+    if (target === undefined) {
+      throw new Error("c_001 missing");
+    }
+    target.notes = "a human corrected this";
+    writeFileSync(space.state, JSON.stringify(state, null, 2));
+    const runId = await onlyRunId(space.journal);
+
+    // Asked for once: it reads the world, prints the lines it would overwrite,
+    // and leaves the resource exactly as the person left it.
+    const asked = await run("node", [
+      CLI, "undo", runId, "--force", "--manifest", space.manifest, "--journal", space.journal,
+    ]);
+    expect(asked.code).toBe(1);
+    expect(asked.stdout).toContain("undoing anyway would write");
+    expect(asked.stdout).toContain("a human corrected this");
+    expect(asked.stdout).toContain("--force --yes");
+    expect(readState(space.state).customers["c_001"]?.notes).toBe("a human corrected this");
+
+    // Asked for twice: their change goes, which is what they said.
+    const done = await run("node", [
+      CLI, "undo", runId, "--force", "--yes", "--manifest", space.manifest, "--journal", space.journal,
+    ]);
+    expect(done.code).toBe(0);
+    expect(done.stdout).toContain("rolled_back");
+    expect(readState(space.state).customers["c_001"]?.notes).toBe("founding customer");
+  });
+
   it("exits 2 on bad usage and on an unknown run", async () => {
     const space = workspace();
     await damage(space);

@@ -60,6 +60,30 @@ function fixture(): Fixture {
   return { path, runs, gates };
 }
 
+/** One run whose only action stopped because somebody changed the resource. */
+function conflicted(): { readonly path: string; readonly runId: string } {
+  const dir = mkdtempSync(join(tmpdir(), "synartesis-console-"));
+  dirs.push(dir);
+  const path = join(dir, "journal.db");
+  const journal: Journal = openJournal(path);
+  const runId = journal.beginRun("an-agent");
+  const wrote = journal.recordPending({
+    runId,
+    server: "crm",
+    tool: "update_customer",
+    args: { id: "c_001" },
+    class: "reversible",
+  });
+  journal.markApplied(wrote.actionId, {
+    result: {},
+    inverse: { server: "crm", tool: "update_customer", args: { id: "c_001" } },
+  });
+  journal.markUnrecoverable(wrote.actionId, "drift at sequence 1");
+  journal.endRun(runId, "partial");
+  journal.close();
+  return { path, runId };
+}
+
 function keyboard(): {
   press: (key: string) => void;
   done: () => void;
@@ -97,12 +121,12 @@ function keyboard(): {
 
 interface Driven {
   readonly text: string;
-  readonly undone: { runId: string; dryRun: boolean }[];
+  readonly undone: { runId: string; dryRun: boolean; force: boolean }[];
 }
 
 async function drive(path: string, script: readonly string[]): Promise<Driven> {
   const board = keyboard();
-  const undone: { runId: string; dryRun: boolean }[] = [];
+  const undone: { runId: string; dryRun: boolean; force: boolean }[] = [];
   let text = "";
   const running = runConsole({
     journalPath: path,
@@ -111,8 +135,8 @@ async function drive(path: string, script: readonly string[]): Promise<Driven> {
     intervalMs: 1,
     decideAs: "arhaan",
     keys: board.keys,
-    undo: (runId, dryRun): Promise<RollbackReport> => {
-      undone.push({ runId, dryRun });
+    undo: (runId, dryRun, force): Promise<RollbackReport> => {
+      undone.push({ runId, dryRun, force: force ?? false });
       return Promise.resolve({ runId, status: "rolled_back", dryRun, steps: [] });
     },
   });
@@ -162,7 +186,7 @@ describe("the console", () => {
     // Down one first: the newest run here only ever held a call for approval,
     // and there is nothing in it to put back.
     const { undone } = await drive(path, ["j", "u", "y"]);
-    expect(undone).toEqual([{ runId: runs[0], dryRun: false }]);
+    expect(undone).toEqual([{ runId: runs[0], dryRun: false, force: false }]);
   });
 
   it("says so rather than confirming an undo that would revert nothing", async () => {
@@ -189,7 +213,33 @@ describe("the console", () => {
   it("offers a dry run, which needs no confirming because it changes nothing", async () => {
     const { path, runs } = fixture();
     const { undone } = await drive(path, ["j", "p"]);
-    expect(undone).toEqual([{ runId: runs[0], dryRun: true }]);
+    expect(undone).toEqual([{ runId: runs[0], dryRun: true, force: false }]);
+  });
+
+  it("calls a conflicted session a decision, not nothing to undo", async () => {
+    const { path, runId } = conflicted();
+    const { text } = await drive(path, []);
+    expect(text).toContain("changed since this ran");
+    // The way past it, as something to type.
+    expect(text).toContain(`undo ${runId.slice(0, 8)} --force`);
+    expect(text).not.toContain("nothing to undo in this session");
+  });
+
+  it("shows what an undo would write over before it will offer to do it", async () => {
+    const { path, runId } = conflicted();
+    // One u only looks. Two u and a y is what writes over somebody's change.
+    const { undone } = await drive(path, ["u"]);
+    expect(undone).toEqual([{ runId, dryRun: true, force: false }]);
+  });
+
+  it("writes over a change only after being asked twice and answered", async () => {
+    const { path, runId } = conflicted();
+    const { text, undone } = await drive(path, ["u", "u", "y"]);
+    expect(text).toContain("losing that change");
+    expect(undone).toEqual([
+      { runId, dryRun: true, force: false },
+      { runId, dryRun: false, force: true },
+    ]);
   });
 
   it("prints one still frame and leaves when it is not a terminal", async () => {

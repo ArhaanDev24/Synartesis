@@ -58,7 +58,7 @@ const COMMANDS = `
   synartesis watch [--by <name>] [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
-  synartesis undo [runId] [--to <seq>] [--dry-run] [--replan]
+  synartesis undo [runId] [--to <seq>] [--dry-run] [--replan] [--force [--yes]]
                           [--manifest <path>] [--journal <path>]
 
 install is the short way in: it finds what Claude Code, Claude Desktop,
@@ -80,6 +80,10 @@ adds to an existing manifest rather than replacing it.
 watch is the one to leave running. Anything held for approval appears there,
 and a and d answer it without a second terminal or an id to copy.
 
+undo stops when somebody has changed the resource since, rather than writing
+over them. Three ways past that, and it prints all three: leave it, put the
+resource back as the run left it and --replan, or --force to overwrite.
+
   --client    claude-code, claude-desktop, cursor or codex; all by default
   --print     show the entries install would write, and write nothing
   --full      show every argument, snapshot and inverse in full, nothing elided
@@ -94,6 +98,8 @@ and a and d answer it without a second terminal or an id to copy.
   --dry-run   read current state and print the plan without changing anything
   --replan    rebuild each undo from the current manifest, for a run recorded
               under a policy that turned out to be wrong
+  --force     undo even where the resource changed after the run. On its own it
+              prints the lines it would write over and stops; add --yes to do it
   --older-than  days of history prune keeps; defaults to 30
   --version   print the version and exit
 
@@ -1014,7 +1020,11 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
   return failed === 0 ? 0 : 1;
 }
 
-function report(result: RollbackReport): number {
+/**
+ * `alreadyForcing` suppresses the menu of ways on: somebody who typed --force
+ * has chosen one already, and offering it back to them is noise.
+ */
+function report(result: RollbackReport, alreadyForcing = false): number {
   out("");
   out(`  ${style.label(result.dryRun ? "dry run" : "undo")}  ${style.strong(result.runId)}`);
   out(`  ${rule(72)}`);
@@ -1048,21 +1058,38 @@ function report(result: RollbackReport): number {
     }
   }
   if (result.halted !== undefined) {
+    const halt = result.halted;
     out("");
     out(
-      `  ${style.accent("halted")} ${style.quiet(`at sequence ${String(result.halted.seq)}`)}  ${result.halted.reason}`,
+      `  ${style.accent("halted")} ${style.quiet(`at ${String(halt.seq)}`)}  ${halt.reason}\n  ${style.quiet("nothing was written here")}`,
     );
-    // A halt with no reason reads as a failure of the tool rather than the
-    // refusal it is. The advice about what to do next already follows the
-    // detail below; what was missing was why stopping was the right answer.
-    out(
-      `  ${style.quiet("Writing the old value back would discard whatever changed it since,")}`,
-    );
-    out(`  ${style.quiet("so nothing was written. Everything newer than this was reverted.")}`);
-    if (result.halted.detail !== "") {
-      for (const line of result.halted.detail.split("\n")) {
+    if (halt.detail !== "") {
+      out("");
+      for (const line of halt.detail.split("\n")) {
         out(`  ${style.quiet(line)}`);
       }
+    }
+    if (halt.overwrites !== undefined && halt.overwrites !== "") {
+      out("");
+      out(`  ${style.accent("undoing anyway would write:")}`);
+      for (const line of halt.overwrites.split("\n")) {
+        out(`  ${style.quiet(line)}`);
+      }
+    }
+    // A halt with no way past it is half an answer. Both ways are one line
+    // each and both are commands, because a person reading this is looking
+    // for what to type next, not for a paragraph about why it stopped.
+    if (halt.conflict === true && !alreadyForcing) {
+      const self = cliCommand();
+      const id = result.runId.slice(0, 8);
+      out("");
+      out(`  ${style.quiet("keep the change, drop the undo:")}   ${style.quiet("nothing to do")}`);
+      out(
+        `  ${style.quiet("put it back as the run left it:")}  ${style.strong(`${self} undo ${id} --replan`)}`,
+      );
+      out(
+        `  ${style.quiet("undo anyway, losing the change:")}   ${style.strong(`${self} undo ${id} --force`)}`,
+      );
     }
   }
   const permanent = result.steps.filter((step) => step.kind === "permanent");
@@ -1089,7 +1116,14 @@ async function performUndo(
   manifestPath: string,
   journal: Journal,
   runId: string,
-  options: { dryRun: boolean; toSeq?: number; replan?: boolean },
+  options: {
+    dryRun: boolean;
+    toSeq?: number;
+    replan?: boolean;
+    force?: boolean;
+    /** Read what forcing would overwrite first, and stop if there is a conflict. */
+    preflight?: boolean;
+  },
 ): Promise<RollbackReport> {
   const manifest = loadManifest(manifestPath);
   const upstreams: Upstream[] = [];
@@ -1105,13 +1139,26 @@ async function performUndo(
         }),
       );
     }
-    return await rollback({
+    const base = {
       journal,
       router: createRouter(upstreams, manifest),
       runId,
       ...(options.toSeq === undefined ? {} : { toSeq: options.toSeq }),
-      dryRun: options.dryRun,
       ...(options.replan === true ? { replanWith: manifest } : {}),
+    };
+    if (options.preflight === true) {
+      // What forcing would overwrite, read from the world as it is now and
+      // writing nothing. In the same router, so showing it first costs no
+      // second round of starting every server the manifest names.
+      const seen = await rollback({ ...base, dryRun: true });
+      if (seen.halted?.conflict === true) {
+        return seen;
+      }
+    }
+    return await rollback({
+      ...base,
+      dryRun: options.dryRun,
+      ...(options.force === true ? { force: true } : {}),
     });
   } finally {
     for (const upstream of upstreams) {
@@ -1195,13 +1242,27 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     }
   }
 
-  return report(
-    await performUndo(findManifest(flag(argv, "--manifest")), journal, runId, {
-      dryRun: argv.includes("--dry-run"),
-      ...(toSeq === undefined ? {} : { toSeq }),
-      replan: argv.includes("--replan"),
-    }),
-  );
+  // --force writes over somebody's change, so it is asked for twice: the
+  // first time shows the lines it would overwrite and stops, the second says
+  // go ahead. Two flags rather than a prompt, because this has to work the
+  // same in a terminal and in a script.
+  const forcing = argv.includes("--force");
+  const said = argv.includes("--yes");
+  const result = await performUndo(findManifest(flag(argv, "--manifest")), journal, runId, {
+    dryRun: argv.includes("--dry-run"),
+    ...(toSeq === undefined ? {} : { toSeq }),
+    replan: argv.includes("--replan"),
+    ...(forcing ? { force: said, preflight: !said } : {}),
+  });
+  const code = report(result, forcing);
+  if (forcing && !said && result.halted?.conflict === true) {
+    out(`  ${style.quiet("nothing has been written. To go ahead and lose that change:")}`);
+    out(
+      `  ${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force --yes`)}`,
+    );
+    out("");
+  }
+  return code;
 }
 
 /**
@@ -1229,6 +1290,7 @@ const FLAGS = new Set([
   "--replan",
   "--reason",
   "--force",
+  "--yes",
   "--older-than",
   "--help",
   "-h",
@@ -1320,10 +1382,13 @@ async function main(argv: readonly string[]): Promise<number> {
       write: (text) => process.stdout.write(text),
       live: process.stdout.isTTY,
       decideAs: flag(argv, "--by") ?? process.env["USER"] ?? process.env["LOGNAME"] ?? "unknown",
-      undo: async (runId, dryRun) => {
+      undo: async (runId, dryRun, force) => {
         const journal = openJournal(journalPath, { mustExist: true });
         try {
-          return await performUndo(manifestPath, journal, runId, { dryRun });
+          return await performUndo(manifestPath, journal, runId, {
+            dryRun,
+            ...(force === true ? { force: true } : {}),
+          });
         } finally {
           journal.close();
         }

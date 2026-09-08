@@ -39,7 +39,15 @@ const ESC = "\u001b";
 /** How long a confirmation stays up, in ticks, counted from when it appeared. */
 const NOTICE_TICKS = 26;
 
-export type Undo = (runId: string, dryRun: boolean) => Promise<RollbackReport>;
+/** Long enough to read a diff and decide, rather than long enough to notice. */
+const READING_TICKS = 200;
+
+export type Undo = (
+  runId: string,
+  dryRun: boolean,
+  /** Apply the recorded undo even where the resource has changed since. */
+  force?: boolean,
+) => Promise<RollbackReport>;
 
 export interface ConsoleOptions {
   readonly journalPath: string;
@@ -77,6 +85,10 @@ interface Screen {
   confirming: string | undefined;
   /** How to name it while asking, so the question is not about "this". */
   confirmingLabel: string | undefined;
+  /** The confirmation on screen is for an undo that writes over a change. */
+  confirmingForce: boolean;
+  /** A conflicted session whose overwrite has already been shown once. */
+  warned: string | undefined;
   /** Show every argument and inverse in full, rather than a summary line. */
   expanded: boolean;
   /** Rebuilt on entering the connections view and on r. */
@@ -198,21 +210,44 @@ function runsView(journal: Journal, screen: Screen, options: ConsoleOptions): st
 }
 
 /**
- * How many of these `u` would actually put back.
+ * What `u` would find in a session: what it can still put back, and what it
+ * would have to write over somebody's change to put back.
  *
- * Pressing undo on a session with none of them appears to do nothing, which is
- * exactly what it did: the run that was on screen was a client that had opened
- * a connection and called nothing. Counting first is what lets the screen say
- * so instead of asking for a confirmation and reverting zero.
+ * Pressing undo on a session with neither appears to do nothing, which is
+ * exactly what it did: the run on screen was a client that had opened a
+ * connection and called nothing. And a session that halted on a conflict is
+ * not "nothing to undo" either -- it is a decision waiting for a person, and
+ * saying nothing was the reason there seemed to be no way past it.
  */
-function revertible(actions: readonly ActionRow[]): number {
-  return actions.filter((action) => action.status === "applied" && action.inverse !== undefined).length;
+interface Standing {
+  readonly undoable: number;
+  readonly conflicted: number;
 }
 
-/** The newest other session that does have something to put back. */
+function standing(actions: readonly ActionRow[]): Standing {
+  let undoable = 0;
+  let conflicted = 0;
+  for (const action of actions) {
+    if (action.inverse === undefined) {
+      continue;
+    }
+    if (action.status === "applied") {
+      undoable += 1;
+    } else if (action.status === "unrecoverable") {
+      conflicted += 1;
+    }
+  }
+  return { undoable, conflicted };
+}
+
+/** The newest other session that still has something a person could act on. */
 function elsewhere(journal: Journal, exceptId: string): RunRow | undefined {
   for (const run of [...journal.listRuns()].reverse()) {
-    if (run.id !== exceptId && revertible(journal.getActions(run.id)) > 0) {
+    if (run.id === exceptId) {
+      continue;
+    }
+    const found = standing(journal.getActions(run.id));
+    if (found.undoable > 0 || found.conflicted > 0) {
       return run;
     }
   }
@@ -352,11 +387,10 @@ function footer(screen: Screen, options: ConsoleOptions): string[] {
     // Named, not "this whole run". Which session a command acts on is the one
     // thing people get wrong here, and a prompt that does not say makes the
     // answer a guess about where the cursor was.
-    return [
-      "",
-      `  ${style.accent(`undo ${screen.confirmingLabel ?? "this session"}?`)}  ` +
-        `${keyHint("y", "yes")}   ${keyHint("n", "no")}`,
-    ];
+    const what = screen.confirmingForce
+      ? `undo ${screen.confirmingLabel ?? "this session"} anyway, losing that change?`
+      : `undo ${screen.confirmingLabel ?? "this session"}?`;
+    return ["", `  ${style.accent(what)}  ${keyHint("y", "yes")}   ${keyHint("n", "no")}`];
   }
   const keys =
     screen.mode === "connections"
@@ -440,6 +474,8 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     openRun: undefined,
     confirming: undefined,
     confirmingLabel: undefined,
+    confirmingForce: false,
+    warned: undefined,
     expanded: false,
     groups: [],
     busy: undefined,
@@ -452,9 +488,9 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
   // that could have changed it.
   const stopped = (): boolean => screen.stop;
 
-  const say = (text: string): void => {
+  const say = (text: string, ticks = NOTICE_TICKS): void => {
     screen.notice = text;
-    screen.noticeUntil = tick + NOTICE_TICKS;
+    screen.noticeUntil = tick + ticks;
   };
 
   const frame = (): string => {
@@ -465,7 +501,8 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     // The command line is part of the chrome, so the list gets what is left
     // after it rather than pushing the top of the frame off the terminal.
     const tail = command(ready);
-    const room = Math.max(3, roomFor(options) - tail.length);
+    const shout = screen.notice === "" ? 0 : screen.notice.split("\n").length;
+    const room = Math.max(3, roomFor(options) - tail.length - shout);
     const body =
       screen.mode === "runs"
         ? windowed(runsView(ready, screen, options), screen.cursor, room)
@@ -474,7 +511,12 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
           : screen.mode === "connections"
             ? windowed(connectionsView(screen, options), screen.cursor, room)
             : windowed(gatesView(ready, screen, options), screen.cursor, room);
-    const notice = screen.notice === "" ? [] : ["", `  ${style.accent(screen.notice)}`];
+    // Several lines, because what undoing would write over is a diff and
+    // there is no useful one-line form of it.
+    const notice =
+      screen.notice === ""
+        ? []
+        : ["", ...screen.notice.split("\n").map((line) => `  ${style.accent(line)}`)];
     return [
       ...header(options, screen, tick),
       ...body,
@@ -509,7 +551,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     const why =
       actions.length === 0
         ? "nothing was recorded in this session"
-        : actions.some((action) => action.status === "rolled_back")
+        : actions.every((action) => action.status === "rolled_back" || action.class === "readonly")
           ? "this session has already been undone"
           : "nothing in this session can be undone";
     const other = elsewhere(ready, run.id);
@@ -529,14 +571,28 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     if (run === undefined) {
       return [];
     }
-    if (revertible(ready.getActions(run.id)) === 0) {
-      return ["", `  ${style.quiet("nothing to undo in this session")}`];
+    const here = standing(ready.getActions(run.id));
+    const id = run.id.slice(0, 8);
+    if (here.undoable > 0) {
+      return [
+        "",
+        `  ${style.quiet("u undoes it here")}  ${style.quiet(DOT)}  ${style.quiet("or from any terminal:")}  ` +
+          style.strong(`${cliCommand()} undo ${id}`),
+      ];
     }
-    return [
-      "",
-      `  ${style.quiet("u undoes it here")}  ${style.quiet(DOT)}  ${style.quiet("or from any terminal:")}  ` +
-        style.strong(`${cliCommand()} undo ${run.id.slice(0, 8)}`),
-    ];
+    // A conflict is the case somebody gets stuck on, so it is the one that
+    // must say what to type. Without this the screen said "nothing to undo"
+    // about a session that had simply refused, and there was nothing on it
+    // pointing anywhere.
+    if (here.conflicted > 0) {
+      return [
+        "",
+        `  ${style.accent(`${String(here.conflicted)} changed since this ran`)}  ${style.quiet(DOT)}  ` +
+          style.quiet("u shows what undoing would write over"),
+        `  ${style.quiet("or from any terminal:")}  ${style.strong(`${cliCommand()} undo ${id} --force`)}`,
+      ];
+    }
+    return ["", `  ${style.quiet("nothing to undo in this session")}`];
   };
 
   const decide = (approve: boolean): void => {
@@ -564,7 +620,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     screen.cursor = 0;
   };
 
-  const perform = async (runId: string, dryRun: boolean): Promise<void> => {
+  const perform = async (runId: string, dryRun: boolean, force = false): Promise<void> => {
     if (options.undo === undefined) {
       say("no way to undo was configured");
       return;
@@ -579,7 +635,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     }
     screen.busy = dryRun ? "reading the current state..." : "putting it back...";
     try {
-      const report = await options.undo(runId, dryRun);
+      const report = await options.undo(runId, dryRun, force);
       const reverted = report.steps.filter((step) => step.kind === "revert").length;
       // The reason on its own can be "halted here on an earlier attempt",
       // which explains nothing. The detail is the half that says somebody
@@ -588,10 +644,22 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         report.halted === undefined
           ? ""
           : ` ${DOT} halted: ${firstLine(report.halted.detail) || report.halted.reason}`;
+      const headline = dryRun
+        ? `${String(reverted)} would be reverted ${DOT} nothing changed${why}`
+        : `${report.status} ${DOT} ${String(reverted)} reverted${why}`;
+      // What undoing anyway would write over, in full. A person choosing
+      // between their own edit and the recorded value has to see both, and a
+      // one-line summary of a diff is not a diff.
+      const over = report.halted?.overwrites ?? "";
+      if (over === "") {
+        say(headline);
+        return;
+      }
+      // Not the headline: it repeats the drift sentence the diff below says
+      // better, and the one fact worth stating here is that nothing moved.
       say(
-        dryRun
-          ? `${String(reverted)} would be reverted ${DOT} nothing changed${why}`
-          : `${report.status} ${DOT} ${String(reverted)} reverted${why}`,
+        ["changed since this ran, so nothing was written", "", "undoing anyway would write:", ...over.split("\n"), "", "u again to do it"].join("\n"),
+        READING_TICKS,
       );
     } catch (error: unknown) {
       say(error instanceof Error ? error.message : "the undo failed");
@@ -632,10 +700,13 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
   const press = (key: string): void => {
     if (screen.confirming !== undefined) {
       const runId = screen.confirming;
+      const forcing = screen.confirmingForce;
       screen.confirming = undefined;
+      screen.confirmingForce = false;
       screen.confirmingLabel = undefined;
       if (key === "y") {
-        void perform(runId, false);
+        screen.warned = undefined;
+        void perform(runId, false, forcing);
       } else {
         say("left alone");
       }
@@ -724,7 +795,8 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         if (ready === undefined || run === undefined) {
           return;
         }
-        if (revertible(ready.getActions(run.id)) === 0) {
+        const here = standing(ready.getActions(run.id));
+        if (here.undoable === 0 && here.conflicted === 0) {
           say(nothingToUndo(ready, run));
           return;
         }
@@ -741,17 +813,35 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         if (ready === undefined || run === undefined) {
           return;
         }
+        const here = standing(ready.getActions(run.id));
         // Asking to confirm an undo that would revert nothing is how a
         // keypress comes to look broken: you answer yes, the file does not
         // change, and nothing on screen says the session was empty.
-        if (revertible(ready.getActions(run.id)) === 0) {
+        if (here.undoable === 0 && here.conflicted === 0) {
           say(nothingToUndo(ready, run));
+          return;
+        }
+        const label = `${run.label ?? "an agent"} ${shortTime(run.startedAt).trim()}`;
+        // Only a conflict is left, so going ahead means writing over whatever
+        // somebody changed. That is shown first and asked for separately: the
+        // first u prints the lines it would overwrite, the second offers to
+        // do it, and y is still required after that.
+        if (here.undoable === 0) {
+          if (screen.warned !== run.id) {
+            screen.warned = run.id;
+            void perform(run.id, true);
+            return;
+          }
+          screen.confirming = run.id;
+          screen.confirmingForce = true;
+          screen.confirmingLabel = label;
           return;
         }
         // Undo is the one direction that cannot itself be taken back, so it
         // is the one thing here that asks twice.
         screen.confirming = run.id;
-        screen.confirmingLabel = `${run.label ?? "an agent"} ${shortTime(run.startedAt).trim()}`;
+        screen.confirmingForce = false;
+        screen.confirmingLabel = label;
         return;
       }
       default:

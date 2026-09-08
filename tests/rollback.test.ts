@@ -238,9 +238,56 @@ describe("drift detection", () => {
       router: active.router,
       runId: active.runId,
     });
-    expect(second.halted?.detail ?? "").toMatch(/earlier attempt|when it halted/i);
-    // And it says how to carry on, which nothing did.
-    expect(second.halted?.detail ?? "").toMatch(/--replan/);
+    expect(second.halted?.detail ?? "").toMatch(/last time|when it halted/i);
+    // And it is marked as somebody's decision rather than a fault, which is
+    // what puts the ways past it in front of them.
+    expect(second.halted?.conflict).toBe(true);
+  });
+
+  it("says what undoing anyway would write over, not only what changed", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    active.store.updateCustomer("c_001", { notes: "a human wrote this" });
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+    expect(report.halted?.conflict).toBe(true);
+    // The half a person deciding actually needs: their own line is the one
+    // that would go.
+    expect(report.halted?.overwrites ?? "").toContain("a human wrote this");
+  });
+
+  it("undoes over a change when a person asks for it in so many words", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    active.store.updateCustomer("c_001", { notes: "a human wrote this" });
+
+    const refused = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+    expect(refused.status).toBe("partial");
+
+    // Same conflict, same checks; the difference is who decides. Note this
+    // also has to get past the unrecoverable the refusal just recorded.
+    const forced = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      force: true,
+    });
+    expect(forced.status).toBe("rolled_back");
+    expect(active.store.getCustomer("c_001").notes).toBe("founding customer");
   });
 
   it("treats an already-reverted action as done rather than as drift", async () => {
