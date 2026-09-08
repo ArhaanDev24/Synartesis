@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
 
-import { openJournal, wasRefused, type Journal, type RunRow } from "./journal/journal.js";
+import { openJournal, wasRefused, type ActionRow, type Journal, type RunRow } from "./journal/journal.js";
 import type { RollbackReport } from "./rollback/rollback.js";
 import { shortTime } from "./clock.js";
 import { plainly, subject, summariseArgs } from "./describe.js";
 import { needsConnecting, stateOf, type ClientGroup, type Connection } from "./install/connections.js";
+import { cliCommand } from "./invocation.js";
 import { keysIn } from "./keys.js";
 import { NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
 
@@ -196,6 +197,28 @@ function runsView(journal: Journal, screen: Screen, options: ConsoleOptions): st
   });
 }
 
+/**
+ * How many of these `u` would actually put back.
+ *
+ * Pressing undo on a session with none of them appears to do nothing, which is
+ * exactly what it did: the run that was on screen was a client that had opened
+ * a connection and called nothing. Counting first is what lets the screen say
+ * so instead of asking for a confirmation and reverting zero.
+ */
+function revertible(actions: readonly ActionRow[]): number {
+  return actions.filter((action) => action.status === "applied" && action.inverse !== undefined).length;
+}
+
+/** The newest other session that does have something to put back. */
+function elsewhere(journal: Journal, exceptId: string): RunRow | undefined {
+  for (const run of [...journal.listRuns()].reverse()) {
+    if (run.id !== exceptId && revertible(journal.getActions(run.id)) > 0) {
+      return run;
+    }
+  }
+  return undefined;
+}
+
 function runView(journal: Journal, screen: Screen): string[] {
   const runId = screen.openRun;
   if (runId === undefined) {
@@ -211,7 +234,22 @@ function runView(journal: Journal, screen: Screen): string[] {
     "",
   ];
   if (actions.length === 0) {
-    out.push(`  ${style.quiet("nothing was recorded in this run")}`);
+    // Naming the session that did do something, because the reason somebody is
+    // looking at an empty one is almost always that it was simply the newest:
+    // a client that connected and called nothing still opens a session.
+    out.push(`  ${style.quiet("nothing was recorded in this run, so there is nothing here to undo")}`);
+    const other = elsewhere(journal, runId);
+    if (other !== undefined) {
+      out.push("");
+      out.push(
+        `  ${style.quiet("the session that did something:")} ` +
+          `${style.strong(other.label ?? "an agent")}  ${style.accent(other.id.slice(0, 8))}`,
+      );
+      out.push(
+        `  ${style.quiet("esc, then j/k onto it -- or run:")} ` +
+          style.strong(`${cliCommand()} undo ${other.id.slice(0, 8)}`),
+      );
+    }
     return out;
   }
   for (const action of actions) {
@@ -424,7 +462,10 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     if (ready === undefined) {
       return waitingForJournal(options, tick);
     }
-    const room = roomFor(options);
+    // The command line is part of the chrome, so the list gets what is left
+    // after it rather than pushing the top of the frame off the terminal.
+    const tail = command(ready);
+    const room = Math.max(3, roomFor(options) - tail.length);
     const body =
       screen.mode === "runs"
         ? windowed(runsView(ready, screen, options), screen.cursor, room)
@@ -438,6 +479,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
       ...header(options, screen, tick),
       ...body,
       ...notice,
+      ...tail,
       ...footer(screen, options),
       "",
     ].join("\n");
@@ -450,6 +492,51 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     }
     const runs = [...ready.listRuns()].reverse();
     return runs[Math.min(screen.cursor, runs.length - 1)];
+  };
+
+  /**
+   * The typed form of what `u` would do, for the session under the cursor.
+   *
+   * Undo works from in here, and people still went looking for a command --
+   * because a screen that only responds to keys gives you nothing to carry to
+   * a second terminal, and nothing to check when a keypress seemed to do
+   * nothing. Printing the exact id makes both possible, and makes it obvious
+   * when the session in front of you is not the one you meant.
+   */
+  /** Why that keypress did nothing, and where the undo they meant actually is. */
+  const nothingToUndo = (ready: Journal, run: RunRow): string => {
+    const actions = ready.getActions(run.id);
+    const why =
+      actions.length === 0
+        ? "nothing was recorded in this session"
+        : actions.some((action) => action.status === "rolled_back")
+          ? "this session has already been undone"
+          : "nothing in this session can be undone";
+    const other = elsewhere(ready, run.id);
+    return other === undefined
+      ? why
+      : `${why} ${DOT} try ${other.label ?? "an agent"} ${other.id.slice(0, 8)}`;
+  };
+
+  const command = (ready: Journal): string[] => {
+    if (!canPress(options) || screen.confirming !== undefined) {
+      return [];
+    }
+    if (screen.mode !== "runs" && screen.mode !== "run") {
+      return [];
+    }
+    const run = selectedRun(ready);
+    if (run === undefined) {
+      return [];
+    }
+    if (revertible(ready.getActions(run.id)) === 0) {
+      return ["", `  ${style.quiet("nothing to undo in this session")}`];
+    }
+    return [
+      "",
+      `  ${style.quiet("u undoes it here")}  ${style.quiet(DOT)}  ${style.quiet("or from any terminal:")}  ` +
+        style.strong(`${cliCommand()} undo ${run.id.slice(0, 8)}`),
+    ];
   };
 
   const decide = (approve: boolean): void => {
@@ -634,9 +721,14 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
       case "p": {
         const ready = open();
         const run = ready === undefined ? undefined : selectedRun(ready);
-        if (run !== undefined) {
-          void perform(run.id, true);
+        if (ready === undefined || run === undefined) {
+          return;
         }
+        if (revertible(ready.getActions(run.id)) === 0) {
+          say(nothingToUndo(ready, run));
+          return;
+        }
+        void perform(run.id, true);
         return;
       }
       case "u": {
@@ -646,12 +738,20 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         }
         const ready = open();
         const run = ready === undefined ? undefined : selectedRun(ready);
-        if (run !== undefined) {
-          // Undo is the one direction that cannot itself be taken back, so it
-          // is the one thing here that asks twice.
-          screen.confirming = run.id;
-          screen.confirmingLabel = `${run.label ?? "an agent"} ${shortTime(run.startedAt).trim()}`;
+        if (ready === undefined || run === undefined) {
+          return;
         }
+        // Asking to confirm an undo that would revert nothing is how a
+        // keypress comes to look broken: you answer yes, the file does not
+        // change, and nothing on screen says the session was empty.
+        if (revertible(ready.getActions(run.id)) === 0) {
+          say(nothingToUndo(ready, run));
+          return;
+        }
+        // Undo is the one direction that cannot itself be taken back, so it
+        // is the one thing here that asks twice.
+        screen.confirming = run.id;
+        screen.confirmingLabel = `${run.label ?? "an agent"} ${shortTime(run.startedAt).trim()}`;
         return;
       }
       default:

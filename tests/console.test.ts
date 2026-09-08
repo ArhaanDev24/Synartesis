@@ -159,20 +159,37 @@ describe("the console", () => {
 
   it("undoes the run under the cursor, but only after it is confirmed", async () => {
     const { path, runs } = fixture();
-    const { undone } = await drive(path, ["u", "y"]);
-    expect(undone).toEqual([{ runId: runs[1], dryRun: false }]);
+    // Down one first: the newest run here only ever held a call for approval,
+    // and there is nothing in it to put back.
+    const { undone } = await drive(path, ["j", "u", "y"]);
+    expect(undone).toEqual([{ runId: runs[0], dryRun: false }]);
+  });
+
+  it("says so rather than confirming an undo that would revert nothing", async () => {
+    const { path, runs } = fixture();
+    const { text, undone } = await drive(path, ["u", "y"]);
+    expect(undone).toEqual([]);
+    expect(text).toContain("nothing in this session can be undone");
+    // And points at the one that does have something, by id.
+    expect(text).toContain((runs[0] ?? "").slice(0, 8));
+  });
+
+  it("prints the command for the session under the cursor", async () => {
+    const { path, runs } = fixture();
+    const { text } = await drive(path, ["j"]);
+    expect(text).toContain(`undo ${(runs[0] ?? "").slice(0, 8)}`);
   });
 
   it("does not undo when the confirmation is declined", async () => {
     const { path } = fixture();
-    const { undone } = await drive(path, ["u", "n"]);
+    const { undone } = await drive(path, ["j", "u", "n"]);
     expect(undone).toEqual([]);
   });
 
   it("offers a dry run, which needs no confirming because it changes nothing", async () => {
     const { path, runs } = fixture();
-    const { undone } = await drive(path, ["p"]);
-    expect(undone).toEqual([{ runId: runs[1], dryRun: true }]);
+    const { undone } = await drive(path, ["j", "p"]);
+    expect(undone).toEqual([{ runId: runs[0], dryRun: true }]);
   });
 
   it("prints one still frame and leaves when it is not a terminal", async () => {
@@ -214,7 +231,7 @@ describe("the console under a heavy hand", () => {
 
     // Confirm one, then lean on the keys while it is still in flight. Two
     // rollbacks of the same run at once would send every inverse twice.
-    for (const key of ["u", "y", "u", "y", "p"]) {
+    for (const key of ["j", "u", "y", "u", "y", "p"]) {
       board.press(key);
       await new Promise((resolve) => setTimeout(resolve, 12));
     }

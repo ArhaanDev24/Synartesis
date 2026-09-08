@@ -1143,10 +1143,36 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
       // Every step would report "already rolled back" and the result would say
       // rolled_back, which reads as though something had just been undone.
       out("");
-      out(`  ${style.quiet("Nothing in it is still applied; it has already been undone.")}`);
       out(
-        `  ${style.quiet(`Name one to undo a different session: ${cliCommand()} undo <session>`)}`,
+        `  ${style.quiet(
+          actions.length === 0
+            ? "Nothing was recorded in it, so there is nothing to undo."
+            : "Nothing in it is still applied; it has already been undone.",
+        )}`,
       );
+      // A client that connects and calls nothing still opens a session, so the
+      // newest one is regularly empty while the one somebody means is a line
+      // below it. Naming that one is the whole answer to "why did nothing
+      // happen", and it is a command they can run rather than a search.
+      const other = [...journal.listRuns()]
+        .reverse()
+        .find(
+          (run) =>
+            run.id !== runId &&
+            journal.getActions(run.id).some((action) => action.status === "applied" && action.inverse !== undefined),
+        );
+      if (other !== undefined) {
+        out("");
+        out(
+          `  ${style.quiet("The session that did something:")} ${style.strong(other.id.slice(0, 8))} ` +
+            style.quiet(`${other.label ?? "an agent"}, ${shortTime(other.startedAt).trim()}`),
+        );
+        out(`  ${style.quiet(`${cliCommand()} undo ${other.id.slice(0, 8)}`)}`);
+      } else {
+        out(
+          `  ${style.quiet(`Name one to undo a different session: ${cliCommand()} undo <session>`)}`,
+        );
+      }
       out("");
       return 0;
     }
