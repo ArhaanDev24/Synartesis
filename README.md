@@ -526,11 +526,13 @@ was refused with the file untouched.
 | `init <server> -- <cmd>` | Introspect a server and draft a manifest |
 | `list` | Every recorded run |
 | `show <runId>` | One run's timeline, with the undo for each step |
+| `show <runId> --live` | The same, plus what has changed in the world since |
 | `gates` | What is waiting for a decision |
 | `approve <actionId>` | Allow a suspended call |
 | `deny <actionId>` | Refuse one |
 | `undo <runId>` | Reverse a run, newest action first |
 | `undo <runId> --replan` | Same, but rebuild each undo from the current manifest |
+| `undo <runId> --force` | Print every change it would write over; `--yes` goes ahead |
 | `check` | Load a manifest and verify it against the servers it names |
 | `prune` | Delete runs older than 30 days and reclaim the space |
 | `close [runId]` | End a run a killed proxy left open. Nothing guesses at this: several proxies can share one journal, so a run left active is indistinguishable from one still being worked on |
@@ -597,6 +599,39 @@ protocol traffic.
   resolved when the call happens, not when you undo, so a mistake in a manifest
   is baked into every run made under it. `undo --replan` rebuilds them from a
   corrected manifest using the state already captured, which is the way out.
+
+## Has anybody touched it since?
+
+Synartesis records what an agent does, not what happens to a file. Nothing you
+do by hand goes through the proxy, so an edit of your own is invisible to the
+journal — and that is what makes the drift check work: when undo reads a file
+and finds bytes it never recorded, it knows somebody else has been there.
+
+The cost used to be that you found out by walking into it. You ran the undo,
+and it refused. To ask first:
+
+```bash
+synartesis show <session> --live
+```
+
+It reads every resource the session touched, as it is now, and says which of
+them still match what the run left:
+
+```
+  1  ← reversible   applied   filesystem.write_file  changed since
+       at line 13:
+       + A HUMAN WAS HERE
+       0 removed, 1 added.
+
+  1 changed since this ran; undoing would write over it
+```
+
+Nothing is written, no reversing call is sent, and no row changes status.
+Unlike `undo --dry-run`, it does not stop at the first conflict — a session
+with five writes reports on all five. `l` in the screen does the same thing.
+
+If you decide the recorded value is the one worth keeping, `undo --force`
+prints every line it would write over and stops; `--force --yes` goes ahead.
 
 ## Watching it work
 
