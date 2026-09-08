@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 
 import { openJournal, wasRefused, type ActionRow, type Journal, type RunRow } from "./journal/journal.js";
 import type { RollbackReport } from "./rollback/rollback.js";
+import { verdict, type Inspection } from "./rollback/inspect.js";
 import { shortTime } from "./clock.js";
 import { plainly, subject, summariseArgs } from "./describe.js";
 import { needsConnecting, stateOf, type ClientGroup, type Connection } from "./install/connections.js";
@@ -68,6 +69,11 @@ export interface ConsoleOptions {
    * does has no business doing.
    */
   readonly undo?: Undo;
+  /**
+   * Read every resource this session touched, as it is now. Injected for the
+   * same reason undo is: it starts every server the manifest names.
+   */
+  readonly check?: (runId: string) => Promise<Inspection>;
   /** Every AI on this machine. Rebuilt on entering the view and on r. */
   readonly scan?: () => readonly ClientGroup[];
   /** Wrap the given servers. Returns the line to show when it is done. */
@@ -399,14 +405,15 @@ function footer(screen: Screen, options: ConsoleOptions): string[] {
       ? [keyHint("a", "approve"), keyHint("d", "deny"), keyHint("j/k", "move"), keyHint("r", "runs")]
       : screen.mode === "run"
         ? [
+            keyHint("l", "check now"),
             keyHint("p", "preview undo"),
             keyHint("u", "undo"),
+            keyHint("f", "expand"),
             keyHint("esc", "back"),
-            keyHint("g", "held"),
           ]
         : [
             keyHint("enter", "open"),
-            keyHint("p", "preview undo"),
+            keyHint("l", "check now"),
             keyHint("u", "undo"),
             keyHint("j/k", "move"),
             keyHint("g", "held"),
@@ -668,6 +675,32 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     }
   };
 
+  /** Ask the world about this session, and write nothing. */
+  const look = async (runId: string): Promise<void> => {
+    if (options.check === undefined) {
+      say("no way to read the current state was configured");
+      return;
+    }
+    screen.busy = "reading how things are now...";
+    try {
+      const found = await options.check(runId);
+      const changed = found.resources.filter((one) => one.condition === "changed");
+      say(
+        [
+          verdict(found),
+          ...(changed.length === 0
+            ? []
+            : ["", ...changed.flatMap((one) => [`${String(one.seq)}  ${one.server}.${one.tool}`, ...(one.diff ?? "").split("\n")])]),
+        ].join("\n"),
+        changed.length === 0 ? NOTICE_TICKS : READING_TICKS,
+      );
+    } catch (error: unknown) {
+      say(error instanceof Error ? error.message : "could not read the current state");
+    } finally {
+      screen.busy = undefined;
+    }
+  };
+
   const rescan = (): void => {
     screen.groups = options.scan?.() ?? [];
   };
@@ -789,6 +822,22 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
           decide(false);
         }
         return;
+      case "l": {
+        // What the journal cannot know: whether anybody has touched these
+        // since. Separate from p because it undoes nothing and stops at
+        // nothing -- a session with five writes reports on all five.
+        if (screen.busy !== undefined) {
+          say("still working on the last one");
+          return;
+        }
+        const ready = open();
+        const run = ready === undefined ? undefined : selectedRun(ready);
+        if (ready === undefined || run === undefined) {
+          return;
+        }
+        void look(run.id);
+        return;
+      }
       case "p": {
         const ready = open();
         const run = ready === undefined ? undefined : selectedRun(ready);

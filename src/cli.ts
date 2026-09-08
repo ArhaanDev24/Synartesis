@@ -19,11 +19,13 @@ import { fileURLToPath } from "node:url";
 import { ManifestError, SynartesisError, describe } from "./errors.js";
 import { draftManifest } from "./init/draft.js";
 import { loadManifest, parseManifest } from "./manifest/load.js";
+import type { Manifest } from "./manifest/types.js";
 import { labelFor, openJournal, wasRefused, type ActionClass, type ActionRow, type Journal } from "./journal/journal.js";
 import { verifyAgainstServers } from "./manifest/verify.js";
-import { createRouter } from "./proxy/routing.js";
+import { createRouter, type Router } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
+import { inspect, verdict, type Resource } from "./rollback/inspect.js";
 import { banner, NOTHING_RECORDED_YET, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
 import { watch } from "./watch.js";
@@ -47,7 +49,7 @@ const COMMANDS = `
   synartesis init <server> -- <command> [args...]  [--manifest <path>]
   synartesis check [--manifest <path>]
   synartesis list [--journal <path>]
-  synartesis show <runId> [--full] [--journal <path>]
+  synartesis show <runId> [--full] [--live] [--journal <path>]
   synartesis gates [--journal <path>]
   synartesis close [runId] [--journal <path>]
   synartesis prune [--older-than <days>] [--dry-run] [--journal <path>]
@@ -87,6 +89,7 @@ resource back as the run left it and --replan, or --force to overwrite.
   --client    claude-code, claude-desktop, cursor or codex; all by default
   --print     show the entries install would write, and write nothing
   --full      show every argument, snapshot and inverse in full, nothing elided
+  --live      read each resource as it is now and say what has changed since
   --server    serve one server from the manifest, keeping its tool names
   --manifest  synartesis.yaml, looked for here and upwards, then in the home
   --journal   beside the manifest, or the one in the home
@@ -625,14 +628,30 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
   return 0;
 }
 
-function runShow(argv: readonly string[], journal: Journal, asJson: boolean): number {
+async function runShow(argv: readonly string[], journal: Journal, asJson: boolean): Promise<number> {
   const full = argv.includes("--full");
   const runs = [...journal.listRuns()].reverse();
   const run = pick(runs, positional(argv)[1], RUN, true);
   const runId = run.id;
 
+  // The journal says what the agent did. It cannot say what has happened to
+  // those resources since, because nothing a person does by hand comes
+  // through the proxy -- and until this, the only way to find out was to
+  // attempt an undo and have it refuse.
+  const inspection = argv.includes("--live")
+    ? await withUpstreams(findManifest(flag(argv, "--manifest")), async (router) =>
+        await inspect({ journal, router, runId }),
+      )
+    : undefined;
+
   if (asJson) {
-    out(JSON.stringify({ run, actions: journal.getActions(runId) }));
+    out(
+      JSON.stringify({
+        run,
+        actions: journal.getActions(runId),
+        ...(inspection === undefined ? {} : { live: inspection.resources }),
+      }),
+    );
     return 0;
   }
 
@@ -659,11 +678,19 @@ function runShow(argv: readonly string[], journal: Journal, asJson: boolean): nu
   out(`  ${style.label("timeline")}`);
   out(`  ${rule(72)}`);
   out("");
+  const live = new Map((inspection?.resources ?? []).map((found) => [found.seq, found]));
   for (const action of actions) {
+    const now = live.get(action.seq);
     out(
       `  ${style.quiet(String(action.seq).padStart(3))}  ${badgeOf(action)} ` +
-        `${statusOf(action)}  ${style.strong(`${action.server}.${action.tool}`)}`,
+        `${statusOf(action)}  ${style.strong(`${action.server}.${action.tool}`)}` +
+        (now === undefined ? "" : `  ${conditionOf(now)}`),
     );
+    if (now?.diff !== undefined) {
+      for (const line of now.diff.split("\n")) {
+        out(`       ${style.quiet(line)}`);
+      }
+    }
     // Readable by default, complete on request. Truncated JSON was neither:
     // you could not see what the call did, nor what had been removed.
     if (full) {
@@ -703,8 +730,41 @@ function runShow(argv: readonly string[], journal: Journal, asJson: boolean): nu
 
   out("");
   out(`  ${summarise(actions)}`);
+  if (inspection !== undefined) {
+    out("");
+    const spoiled = inspection.resources.some((found) => found.condition === "changed");
+    out(`  ${spoiled ? style.accent(verdict(inspection)) : style.quiet(verdict(inspection))}`);
+    if (spoiled) {
+      out(
+        `  ${style.quiet("undo stops at the first of them; ")}${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force`)}${style.quiet(" shows what it would write")}`,
+      );
+    }
+  } else {
+    out("");
+    out(
+      `  ${style.quiet("has anything changed since? ")}${style.strong(`${cliCommand()} show ${runId.slice(0, 8)} --live`)}`,
+    );
+  }
   out("");
   return 0;
+}
+
+/** What the world says about this action now, as against what the journal says. */
+function conditionOf(found: Resource): string {
+  switch (found.condition) {
+    case "changed":
+      return style.accent("changed since");
+    case "unchanged":
+      return style.quiet("unchanged");
+    case "restored":
+      return style.quiet(found.note === undefined ? "back to before" : `back to before, ${found.note}`);
+    case "superseded":
+      return style.quiet("older write to the same thing");
+    case "not-applied":
+      return style.quiet(`never applied (${found.note ?? "settled"})`);
+    default:
+      return style.quiet(found.note ?? "cannot tell");
+  }
 }
 
 const CLASS_MARK: Record<ActionClass, string> = {
@@ -1112,19 +1172,15 @@ function report(result: RollbackReport, alreadyForcing = false): number {
  * again. Shared, because the console does exactly this when somebody presses
  * u and there must not be two answers to what undo means.
  */
-async function performUndo(
+/**
+ * Starting every server the manifest names, doing one thing with them, and
+ * shutting them down. Two commands need a live router now, and a second copy
+ * of this loop is a second place for a server to be left running.
+ */
+async function withUpstreams<T>(
   manifestPath: string,
-  journal: Journal,
-  runId: string,
-  options: {
-    dryRun: boolean;
-    toSeq?: number;
-    replan?: boolean;
-    force?: boolean;
-    /** Read what forcing would overwrite first, and stop if there is a conflict. */
-    preflight?: boolean;
-  },
-): Promise<RollbackReport> {
+  use: (router: Router, manifest: Manifest) => Promise<T>,
+): Promise<T> {
   const manifest = loadManifest(manifestPath);
   const upstreams: Upstream[] = [];
   try {
@@ -1139,9 +1195,31 @@ async function performUndo(
         }),
       );
     }
+    return await use(createRouter(upstreams, manifest), manifest);
+  } finally {
+    for (const upstream of upstreams) {
+      await upstream.close();
+    }
+  }
+}
+
+async function performUndo(
+  manifestPath: string,
+  journal: Journal,
+  runId: string,
+  options: {
+    dryRun: boolean;
+    toSeq?: number;
+    replan?: boolean;
+    force?: boolean;
+    /** Read what forcing would overwrite first, and stop if there is a conflict. */
+    preflight?: boolean;
+  },
+): Promise<RollbackReport> {
+  return await withUpstreams(manifestPath, async (router, manifest) => {
     const base = {
       journal,
-      router: createRouter(upstreams, manifest),
+      router,
       runId,
       ...(options.toSeq === undefined ? {} : { toSeq: options.toSeq }),
       ...(options.replan === true ? { replanWith: manifest } : {}),
@@ -1160,11 +1238,7 @@ async function performUndo(
       dryRun: options.dryRun,
       ...(options.force === true ? { force: true } : {}),
     });
-  } finally {
-    for (const upstream of upstreams) {
-      await upstream.close();
-    }
-  }
+  });
 }
 
 async function runUndo(argv: readonly string[], journal: Journal): Promise<number> {
@@ -1279,6 +1353,7 @@ const FLAGS = new Set([
   "--client",
   "--print",
   "--full",
+  "--live",
   "--manifest",
   "--journal",
   "--to",
@@ -1382,6 +1457,16 @@ async function main(argv: readonly string[]): Promise<number> {
       write: (text) => process.stdout.write(text),
       live: process.stdout.isTTY,
       decideAs: flag(argv, "--by") ?? process.env["USER"] ?? process.env["LOGNAME"] ?? "unknown",
+      check: async (runId) => {
+        const journal = openJournal(journalPath, { mustExist: true });
+        try {
+          return await withUpstreams(manifestPath, async (router) =>
+            await inspect({ journal, router, runId }),
+          );
+        } finally {
+          journal.close();
+        }
+      },
       undo: async (runId, dryRun, force) => {
         const journal = openJournal(journalPath, { mustExist: true });
         try {
@@ -1461,7 +1546,7 @@ async function main(argv: readonly string[]): Promise<number> {
       case "list":
         return runList(journal, asJson, journalPath);
       case "show":
-        return runShow(argv, journal, asJson);
+        return await runShow(argv, journal, asJson);
       case "close":
         return runClose(argv, journal);
       case "prune":
