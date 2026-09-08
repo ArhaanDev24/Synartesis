@@ -2,7 +2,7 @@
 
 What changed, and why it mattered. Dates are release dates.
 
-## 0.4.0 — 2026-09-06
+## 0.4.0 — 2026-09-08
 
 ### Added
 
@@ -65,6 +65,49 @@ What changed, and why it mattered. Dates are release dates.
 
 - Headings and names are a softer ink. Bold near-white smears at terminal
   sizes, and the palette only works if one thing is bright.
+
+- **A halt says what it refused, not only that it stopped.** `halted: halted
+  here on an earlier attempt` explains nothing; the sentence worth reading is
+  the one saying somebody edited the resource since. And a dry run now re-reads
+  the world rather than quoting the message from the last attempt — that halt
+  exists so a retry cannot silently repeat what a person stopped, and a dry run
+  writes nothing, so it is not a retry.
+
+- **Undo says which session, before acting on it.** Without an id it takes the
+  most recent, which is not necessarily the one on your screen — somebody undid
+  a session they were not looking at and read the result as the tool acting on
+  its own. It now names its pick first, and where that session is empty it says
+  so and names the one that did something.
+
+### Fixed (undo, from using it)
+
+- **`u` in the screen appeared to do nothing.** A client that connects and calls
+  nothing still opens a session, so the newest one is regularly empty while the
+  one you mean is a line below it. Pressing undo on it confirmed, reverted zero
+  and said nothing about why. `u` and `p` now count what could actually be put
+  back first, and answer with the reason and the id of the session that has
+  something.
+
+- **The screen prints the command for what `u` would do**, for the session under
+  the cursor: `synartesis undo <id>`. A screen that only answers keystrokes
+  gives you nothing to carry to another window and nothing to check when a key
+  seems to have done nothing.
+
+### Added (drift)
+
+- **`undo --force`**, for a resource somebody changed after the run. Asked for
+  twice: on its own it reads the world, prints the lines it would write over,
+  and writes nothing; `--force --yes` goes ahead. Two flags rather than a
+  prompt, so it reads the same in a terminal and in a script.
+
+  A refusal with no way past it is half an answer. The halt now carries what
+  undoing would overwrite — not only what changed since the run, which is
+  history, but which of *your* lines would go — and prints the three ways on as
+  three commands: leave it, put the resource back and `--replan`, or `--force`.
+
+  In the screen, a conflicted session says so and names the command. `u` shows
+  the overwrite diff, and only a second `u` will offer to do it, with `y` still
+  required after that.
 
 ## 0.3.4 — 2026-09-03
 
