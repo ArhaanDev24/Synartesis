@@ -273,7 +273,7 @@ describe("the cli", () => {
       CLI, "undo", runId, "--force", "--manifest", space.manifest, "--journal", space.journal,
     ]);
     expect(asked.code).toBe(1);
-    expect(asked.stdout).toContain("undoing anyway would write");
+    expect(asked.stdout).toContain("changed since this ran");
     expect(asked.stdout).toContain("a human corrected this");
     expect(asked.stdout).toContain("--force --yes");
     expect(readState(space.state).customers["c_001"]?.notes).toBe("a human corrected this");
@@ -285,6 +285,47 @@ describe("the cli", () => {
     expect(done.code).toBe(0);
     expect(done.stdout).toContain("rolled_back");
     expect(readState(space.state).customers["c_001"]?.notes).toBe("founding customer");
+  });
+
+  it("names every change --force would write over, not just the first", async () => {
+    const space = workspace();
+    // Two records the agent wrote and nothing deleted, so both survive to be
+    // edited underneath it.
+    const agent = await run(
+      "node",
+      [PROXY, "--manifest", space.manifest, "--journal", space.journal],
+      frames(
+        { name: "update_customer", arguments: { id: "c_001", plan: "free", notes: "WRONG" } },
+        { name: "update_customer", arguments: { id: "c_003", plan: "pro", notes: "ALSO WRONG" } },
+      ),
+    );
+    expect(problems(agent.stderr)).toEqual([]);
+
+    // Two people, two records. A dry-run rollback halts at the first, so the
+    // ask used to show one diff while --yes went on to overwrite both.
+    const state = readState(space.state);
+    const first = state.customers["c_001"];
+    const second = state.customers["c_003"];
+    if (first === undefined || second === undefined) {
+      throw new Error("fixture customers missing");
+    }
+    first.notes = "one human was here";
+    second.notes = "another human was here";
+    writeFileSync(space.state, JSON.stringify(state, null, 2));
+
+    const asked = await run("node", [
+      CLI, "undo", await onlyRunId(space.journal), "--force",
+      "--manifest", space.manifest, "--journal", space.journal,
+    ]);
+
+    expect(asked.code).toBe(1);
+    expect(asked.stdout).toContain("one human was here");
+    expect(asked.stdout).toContain("another human was here");
+    expect(asked.stdout).toContain("2 changed since this ran");
+    // And still nothing written.
+    const after = readState(space.state);
+    expect(after.customers["c_001"]?.notes).toBe("one human was here");
+    expect(after.customers["c_003"]?.notes).toBe("another human was here");
   });
 
   it("exits 2 on bad usage and on an unknown run", async () => {

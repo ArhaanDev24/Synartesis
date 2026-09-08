@@ -59,7 +59,11 @@ async function session(): Promise<Session> {
     await proxy.server.close();
   });
 
-  return { client, store, journal, router, runId: proxy.runId };
+  const runId = proxy.runId;
+  if (runId === undefined) {
+    throw new Error("the proxy did not open a run");
+  }
+  return { client, store, journal, router, runId };
 }
 
 describe("asking what has happened since, without undoing anything", () => {

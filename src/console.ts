@@ -534,6 +534,17 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     ].join("\n");
   };
 
+  /**
+   * The run the cursor is on, when the cursor is on a run at all.
+   *
+   * One cursor serves four lists, and in the held-calls and connections views
+   * its number counts something else entirely. Undo read it against the runs
+   * regardless, so `g`, `j`, `u`, `y` -- four keys pressed while looking at
+   * the list of held calls -- undid a session that was never on screen. That
+   * is the failure this whole tool exists to prevent, committed by the tool.
+   */
+  const onASession = (): boolean => screen.mode === "runs" || screen.mode === "run";
+
   /** The run the cursor is on, or the one already open. */
   const selectedRun = (ready: Journal): RunRow | undefined => {
     if (screen.mode === "run" && screen.openRun !== undefined) {
@@ -826,6 +837,9 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         // What the journal cannot know: whether anybody has touched these
         // since. Separate from p because it undoes nothing and stops at
         // nothing -- a session with five writes reports on all five.
+        if (!onASession()) {
+          return;
+        }
         if (screen.busy !== undefined) {
           say("still working on the last one");
           return;
@@ -839,6 +853,9 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         return;
       }
       case "p": {
+        if (!onASession()) {
+          return;
+        }
         const ready = open();
         const run = ready === undefined ? undefined : selectedRun(ready);
         if (ready === undefined || run === undefined) {
@@ -853,6 +870,10 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         return;
       }
       case "u": {
+        if (!onASession()) {
+          say("undo works on a session; r for the list");
+          return;
+        }
         if (screen.busy !== undefined) {
           say("still working on the last one");
           return;
@@ -937,6 +958,11 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     for (; !screen.stop; tick += 1) {
       if (screen.notice !== "" && tick >= screen.noticeUntil) {
         screen.notice = "";
+        // The second u offers to write over somebody's change, and it is only
+        // fair to ask that while the diff it would overwrite is still on
+        // screen. Once the notice has gone, so has the warning, and the next
+        // u starts again by showing it.
+        screen.warned = undefined;
       }
       options.write(clear + frame());
       if (options.maxTicks !== undefined && tick + 1 >= options.maxTicks) {

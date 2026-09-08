@@ -381,3 +381,15 @@ describe("a journal with more in it than fits", () => {
     expect(frame).toMatch(/more/);
   });
 });
+
+describe("keys that act on a session, pressed somewhere else", () => {
+  it("does not undo a run the cursor is not on because the mode moved", async () => {
+    const { path, runs } = fixture();
+    // Into the held-calls list, then down. The cursor now means "the second
+    // thing waiting", and there is only one -- but u reads the same number
+    // against the runs, where it means a session nobody is looking at.
+    const { undone } = await drive(path, ["g", "j", "u", "y"]);
+    expect(undone).toEqual([]);
+    expect(runs).toHaveLength(2);
+  });
+});

@@ -638,11 +638,14 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
   // those resources since, because nothing a person does by hand comes
   // through the proxy -- and until this, the only way to find out was to
   // attempt an undo and have it refuse.
-  const inspection = argv.includes("--live")
-    ? await withUpstreams(findManifest(flag(argv, "--manifest")), async (router) =>
-        await inspect({ journal, router, runId }),
-      )
-    : undefined;
+  // Nothing recorded means nothing to read, and starting every server the
+  // manifest names to discover that is a slow way to say so.
+  const inspection =
+    argv.includes("--live") && journal.getActions(runId).length > 0
+      ? await withUpstreams(findManifest(flag(argv, "--manifest")), async (router) =>
+          await inspect({ journal, router, runId }),
+        )
+      : undefined;
 
   if (asJson) {
     out(
@@ -1322,21 +1325,58 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   // same in a terminal and in a script.
   const forcing = argv.includes("--force");
   const said = argv.includes("--yes");
-  const result = await performUndo(findManifest(flag(argv, "--manifest")), journal, runId, {
-    dryRun: argv.includes("--dry-run"),
-    ...(toSeq === undefined ? {} : { toSeq }),
-    replan: argv.includes("--replan"),
-    ...(forcing ? { force: said, preflight: !said } : {}),
-  });
-  const code = report(result, forcing);
-  if (forcing && !said && result.halted?.conflict === true) {
-    out(`  ${style.quiet("nothing has been written. To go ahead and lose that change:")}`);
-    out(
-      `  ${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force --yes`)}`,
-    );
-    out("");
+  const manifestPath = findManifest(flag(argv, "--manifest"));
+
+  if (said && !forcing) {
+    // Silently doing nothing with a flag somebody typed is how they come to
+    // believe it did something.
+    process.stderr.write("synartesis: --yes only means anything with --force; ignoring it\n");
   }
-  return code;
+
+  if (forcing && !said) {
+    // Every conflict, not the first one. This was a dry-run rollback, which
+    // halts -- so somebody could approve after seeing one diff and have three
+    // resources written over. Reading them all without stopping is the one
+    // job inspect has.
+    const over = (
+      await withUpstreams(manifestPath, async (router) => await inspect({ journal, router, runId }))
+    ).resources.filter(
+      // Below --to nothing is undone, so a change down there is not something
+      // this command would write over and must not stand in its way.
+      (one) => one.condition === "changed" && (toSeq === undefined || one.seq >= toSeq),
+    );
+
+    if (over.length > 0) {
+      out("");
+      out(
+        `  ${style.accent(`${String(over.length)} changed since this ran`)}  ` +
+          style.quiet(`undoing would write over ${over.length === 1 ? "it" : "them"}`),
+      );
+      for (const one of over) {
+        out("");
+        out(`  ${style.quiet(String(one.seq).padStart(3))}  ${style.strong(`${one.server}.${one.tool}`)}`);
+        for (const line of (one.diff ?? "").split("\n")) {
+          out(`       ${style.quiet(line)}`);
+        }
+      }
+      out("");
+      out(`  ${style.quiet("nothing has been written. To go ahead and lose that:")}`);
+      out(`  ${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force --yes`)}`);
+      out("");
+      return 1;
+    }
+    // Nothing would be written over, so there is nothing to be asked about.
+  }
+
+  return report(
+    await performUndo(manifestPath, journal, runId, {
+      dryRun: argv.includes("--dry-run"),
+      ...(toSeq === undefined ? {} : { toSeq }),
+      replan: argv.includes("--replan"),
+      ...(forcing && said ? { force: true } : {}),
+    }),
+    forcing,
+  );
 }
 
 /**
