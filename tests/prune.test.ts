@@ -100,6 +100,50 @@ describe("prunableRuns", () => {
     expect(journal.prunableRuns(before(30))).toHaveLength(0);
   });
 
+  it("never offers a run holding an approval nobody has spent yet", () => {
+    const { journal, path } = journalAt();
+    const runId = journal.beginRun("approved");
+    const action = journal.recordPending({
+      runId,
+      server: "s",
+      tool: "send_email",
+      args: {},
+      class: "irreversible",
+    });
+    journal.markGated(action.actionId, "this action cannot be undone");
+    journal.approve(action.actionId, "arhaan");
+    journal.endRun(runId, "complete");
+    backdate(path, runId, ago(400));
+
+    // A person said yes and the agent has not come back yet. Deleting that is
+    // deleting somebody's decision, which is the one thing age does not earn.
+    expect(journal.prunableRuns(before(30))).toHaveLength(0);
+  });
+
+  it("never offers a run whose undo halted on somebody else's change", () => {
+    const { journal, path } = journalAt();
+    const runId = journal.beginRun("conflicted");
+    const action = journal.recordPending({
+      runId,
+      server: "s",
+      tool: "write_file",
+      args: { path: "/tmp/x" },
+      class: "reversible",
+    });
+    journal.markApplied(action.actionId, {
+      result: {},
+      inverse: { server: "s", tool: "write_file", args: { path: "/tmp/x" } },
+    });
+    journal.markUnrecoverable(action.actionId, "drift at sequence 1");
+    journal.endRun(runId, "partial");
+    backdate(path, runId, ago(400));
+
+    // The undo stopped because a person had edited the resource, and it is
+    // waiting for them to choose: leave it, replan, or force. Pruning throws
+    // away both the conflict and the undo they were choosing about.
+    expect(journal.prunableRuns(before(30))).toHaveLength(0);
+  });
+
   it("never offers a run holding a call whose outcome is unknown", () => {
     const { journal, path } = journalAt();
     const runId = journal.beginRun("in flight");

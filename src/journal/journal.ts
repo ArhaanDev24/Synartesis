@@ -203,7 +203,7 @@ export interface Journal {
    * call that moved it out of `applied`, which is how two undos running at
    * once are told apart from one resuming after a crash.
    */
-  markRollingBack(actionId: string): boolean;
+  markRollingBack(actionId: string, from?: readonly ActionStatus[]): boolean;
   markRolledBack(actionId: string): void;
   markUnrecoverable(actionId: string, error: string): void;
   markInverseRejected(actionId: string, error: string): void;
@@ -552,15 +552,28 @@ class SqliteJournal implements Journal {
     });
   }
 
-  markRollingBack(actionId: string): boolean {
+  /**
+   * Claim an action to send its inverse, or report that somebody else has.
+   *
+   * Conditional, so the transition is a claim rather than an announcement. Two
+   * rollbacks of one run both read the action as applied and both sent its
+   * inverse; for a compensating call rather than a restore, that is a second
+   * real change to the world.
+   *
+   * `from` is which statuses may be claimed. It exists because `undo --force`
+   * acts on rows left `unrecoverable` by an earlier refusal, and a claim that
+   * only knew `applied` never claimed those at all -- so the guard above was
+   * simply absent on the one path where a person had already been told the
+   * resource is contested.
+   */
+  markRollingBack(actionId: string, from: readonly ActionStatus[] = ["applied"]): boolean {
     return this.#run("markRollingBack", () => {
-      // Conditional, so the transition is a claim rather than an announcement.
-      // Two rollbacks of one run both read the action as applied and both sent
-      // its inverse; for a compensating call rather than a restore, that is a
-      // second real change to the world.
+      const slots = from.map(() => "?").join(",");
       const result = this.#db
-        .prepare("UPDATE actions SET status = 'rolling_back' WHERE id = ? AND status = 'applied'")
-        .run(actionId);
+        .prepare(
+          `UPDATE actions SET status = 'rolling_back' WHERE id = ? AND status IN (${slots})`,
+        )
+        .run(actionId, ...from);
       return result.changes === 1;
     });
   }
@@ -795,10 +808,18 @@ class SqliteJournal implements Journal {
              FROM runs r
             WHERE r.status != 'active'
               AND COALESCE(r.ended_at, r.started_at) < ?
+              -- Everything a person still has business with. approved is
+              -- somebody's yes that the agent has not spent yet, and
+              -- unrecoverable is an undo that stopped because somebody had
+              -- changed the resource, waiting for them to choose. Both were
+              -- missing, so the promise made in --help and the README -- that
+              -- nothing waiting on a person is ever pruned -- was not one this
+              -- query kept.
               AND NOT EXISTS (
                     SELECT 1 FROM actions a
                      WHERE a.run_id = r.id
-                       AND a.status IN ('pending','gated','rolling_back'))
+                       AND a.status IN
+                           ('pending','gated','approved','rolling_back','unrecoverable'))
             ORDER BY at, r.rowid`,
         )
         .all(before)

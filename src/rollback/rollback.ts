@@ -376,8 +376,17 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     // working on it and sending the inverse again would apply it twice. An
     // action already in `rolling_back` is the other case -- a resume, which
     // has been checked for drift above -- and goes ahead.
-    const claimed = journal.markRollingBack(action.id);
-    if (!claimed && action.status === "applied") {
+    // Forcing acts on rows an earlier refusal left `unrecoverable`, so those
+    // have to be claimable too or the claim is not made at all.
+    const claimed = journal.markRollingBack(
+      action.id,
+      force ? ["applied", "unrecoverable"] : ["applied"],
+    );
+    // The one honest reason to proceed without the claim is a resume: the row
+    // is already `rolling_back` because we were interrupted mid-inverse, and
+    // the drift check above has just decided what that means. Anything else
+    // failing to claim is another undo holding it.
+    if (!claimed && action.status !== "rolling_back") {
       const reason = "another undo is already working on this action";
       halted = { seq: action.seq, reason, detail: "" };
       steps[steps.length - 1] = {

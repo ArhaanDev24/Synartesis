@@ -625,3 +625,36 @@ describe("planning with --to", () => {
     expect(report.steps.filter((step) => step.kind === "revert").map((s) => s.seq)).toEqual([3]);
   });
 });
+
+describe("two people forcing the same undo at once", () => {
+  it("sends the inverse once, not once per caller", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    active.store.updateCustomer("c_001", { notes: "a human wrote this" });
+
+    // The refusal, which is what leaves the row unrecoverable.
+    await rollback({ journal: active.journal, router: active.router, runId: active.runId });
+
+    // Count what actually reaches the store rather than what the reports say:
+    // a double-apply is invisible for an idempotent write and ruinous for a
+    // compensable one, and the reports would look identical either way.
+    let writes = 0;
+    const store = active.store;
+    const real = store.updateCustomer.bind(store);
+    store.updateCustomer = (id: string, patch: Record<string, unknown>) => {
+      writes += 1;
+      return real(id, patch);
+    };
+
+    const both = await Promise.all([
+      rollback({ journal: active.journal, router: active.router, runId: active.runId, force: true }),
+      rollback({ journal: active.journal, router: active.router, runId: active.runId, force: true }),
+    ]);
+
+    expect(writes).toBe(1);
+    expect(both.filter((report) => report.status === "rolled_back")).toHaveLength(1);
+  });
+});
