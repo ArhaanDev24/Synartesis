@@ -2,6 +2,43 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.4.2 — 2026-09-09
+
+Three bugs, found by auditing the paths the last pass did not touch. Each is
+pinned by a test that fails against 0.4.1.
+
+### Fixed
+
+- **One approval could authorise two irreversible calls.** Spending a standing
+  approval was an announcement rather than a claim: `markInFlight` and
+  `adoptApproval` both wrote unconditionally, so two proxies — which share one
+  journal, the reason `close` is never automatic — could read the same approved
+  row before either had used it, and both proceed. One person's yes, two emails
+  sent, which is the single thing this is here to prevent.
+
+  Both are now conditional on the row still being `approved` and report whether
+  they won it. `adoptApproval` spends first and only carries the approval across
+  if it did. The proxy treats losing the race as never having had an approval:
+  it asks. The guard already existed for inverses, and its comment describes
+  this exact failure; the approval path never got one.
+
+- **`prune` deleted sessions still waiting on a person.** `--help` and the
+  README both promise that nothing waiting on a person is ever pruned. The query
+  enforced it for `pending`, `gated` and `rolling_back`, and not for the two
+  other statuses that mean the same thing: `approved`, somebody's yes the agent
+  has not spent, and `unrecoverable`, an undo that stopped because somebody had
+  changed the resource and is waiting for them to choose. Pruning the first threw
+  away a human decision; the second threw away both the conflict and the undo
+  they were deciding about.
+
+- **Forcing an undo walked around the double-apply guard.** `markRollingBack`
+  claims an action by moving it out of `applied`, so two rollbacks cannot both
+  send one inverse. `undo --force`, added in 0.4.1, acts on rows an earlier
+  refusal left `unrecoverable` — which the claim did not know about, so it never
+  claimed them and never reported that it had not. Two concurrent forced undos
+  both sent the inverse: harmless for an idempotent write, a second real change
+  to the world for a compensable one.
+
 ## 0.4.1 — 2026-09-09
 
 ### Added
