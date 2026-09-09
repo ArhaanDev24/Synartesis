@@ -369,3 +369,77 @@ describe("opening something that is not a journal", () => {
     expect(message.indexOf("new file")).toBeLessThan(message.indexOf("Delete"));
   });
 });
+
+describe("one approval, two proxies", () => {
+  /**
+   * Several proxies can share one journal -- the reason `close` is never
+   * automatic. So two of them can read the same standing approval before
+   * either has spent it, and the question is whether the second one is told.
+   */
+  const made: string[] = [];
+  afterEach(() => {
+    for (const dir of made) rmSync(dir, { recursive: true, force: true });
+    made.length = 0;
+  });
+
+  function approvedAction(): { journal: ReturnType<typeof openJournal>; id: string; runId: string } {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-approval-"));
+    made.push(dir);
+    const journal = openJournal(join(dir, "journal.db"));
+    const runId = journal.beginRun("first");
+    const action = journal.recordPending({
+      runId,
+      server: "crm",
+      tool: "send_email",
+      args: { to: "a@b.c" },
+      class: "irreversible",
+    });
+    journal.markGated(action.actionId, "this action cannot be undone");
+    journal.approve(action.actionId, "arhaan");
+    return { journal, id: action.actionId, runId };
+  }
+
+  it("spends a standing approval once, in the run that raised it", () => {
+    const { journal, id } = approvedAction();
+    // Both read it before either writes, which is the whole race.
+    const first = journal.markInFlight(id);
+    const second = journal.markInFlight(id);
+    journal.close();
+
+    // One yes must authorise one send. The second caller has to be refused,
+    // or a single approval sends two emails.
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+  });
+
+  it("spends a standing approval once when another run adopts it", () => {
+    const { journal, id } = approvedAction();
+    const granted = journal.getAction(id);
+    if (granted === undefined) {
+      throw new Error("the approved action went missing");
+    }
+
+    const later = journal.beginRun("second");
+    const mine = journal.recordPending({
+      runId: later,
+      server: "crm",
+      tool: "send_email",
+      args: { to: "a@b.c" },
+      class: "irreversible",
+    });
+    const yours = journal.recordPending({
+      runId: later,
+      server: "crm",
+      tool: "send_email",
+      args: { to: "a@b.c" },
+      class: "irreversible",
+    });
+
+    const first = journal.adoptApproval(mine.actionId, granted);
+    const second = journal.adoptApproval(yours.actionId, granted);
+    journal.close();
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+  });
+});

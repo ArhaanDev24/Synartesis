@@ -215,7 +215,7 @@ export interface Journal {
    */
   markGated(actionId: string, why?: string): void;
   /** About to go out: from here on its outcome is genuinely unknown. */
-  markInFlight(actionId: string): void;
+  markInFlight(actionId: string): boolean;
   /** Returns false when the action is no longer awaiting a decision. */
   approve(actionId: string, by: string): boolean;
   deny(actionId: string, by: string | undefined, reason: string): boolean;
@@ -230,7 +230,7 @@ export interface Journal {
    * Moves an approval granted in an earlier session onto the action that is
    * about to run, and spends the original so it cannot be used twice.
    */
-  adoptApproval(actionId: string, granted: ActionRow): void;
+  adoptApproval(actionId: string, granted: ActionRow): boolean;
   listGated(): readonly ActionRow[];
   /**
    * An approval that was granted but never carried out, for this exact call.
@@ -619,9 +619,21 @@ class SqliteJournal implements Journal {
     });
   }
 
-  markInFlight(actionId: string): void {
-    this.#run("markInFlight", () => {
-      this.#db.prepare("UPDATE actions SET status = 'pending' WHERE id = ?").run(actionId);
+  /**
+   * Spend a standing approval, or report that somebody else already has.
+   *
+   * Conditional for the same reason markRollingBack is. Several proxies share
+   * one journal, so two can read the same approved row before either has used
+   * it, and an unconditional write let both proceed -- one person's yes
+   * authorising two irreversible calls, which is the single thing this is here
+   * to prevent.
+   */
+  markInFlight(actionId: string): boolean {
+    return this.#run("markInFlight", () => {
+      const result = this.#db
+        .prepare("UPDATE actions SET status = 'pending' WHERE id = ? AND status = 'approved'")
+        .run(actionId);
+      return result.changes === 1;
     });
   }
 
@@ -663,18 +675,27 @@ class SqliteJournal implements Journal {
     });
   }
 
-  adoptApproval(actionId: string, granted: ActionRow): void {
-    this.#run("adoptApproval", () => {
+  adoptApproval(actionId: string, granted: ActionRow): boolean {
+    return this.#run("adoptApproval", () => {
       // Also immediate: adopting an approval reads one row and writes two.
-      const move = this.#db.transaction((): void => {
+      const move = this.#db.transaction((): boolean => {
+        // Spend first, and only carry the approval across if this is the
+        // caller that won it. Both writes landed unconditionally before, so
+        // two runs adopting the same standing yes each believed they had it.
+        const spent = this.#db
+          .prepare(
+            "UPDATE actions SET status = 'denied', error = ? WHERE id = ? AND status = 'approved'",
+          )
+          .run(`${SPENT_APPROVAL} ${actionId}`, granted.id);
+        if (spent.changes !== 1) {
+          return false;
+        }
         this.#db
           .prepare("UPDATE actions SET approved_by = ?, approved_at = ? WHERE id = ?")
           .run(granted.approvedBy ?? null, granted.approvedAt ?? null, actionId);
-        this.#db
-          .prepare("UPDATE actions SET status = 'denied', error = ? WHERE id = ?")
-          .run(`${SPENT_APPROVAL} ${actionId}`, granted.id);
+        return true;
       });
-      move.immediate();
+      return move.immediate();
     });
   }
 

@@ -535,12 +535,17 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
                 idempotencyKey: reusable.idempotencyKey,
               };
 
+        // Spending an approval is a claim, not an announcement. Several
+        // proxies share one journal, so two can read the same standing yes
+        // before either has used it; whoever loses has no approval and must
+        // ask, or one person's yes authorises two irreversible calls.
+        let spent = true;
         if (inherited !== undefined) {
-          journal.adoptApproval(pending.actionId, inherited);
+          spent = journal.adoptApproval(pending.actionId, inherited);
         } else if (granted !== undefined && waiting === undefined) {
           // Reusing the approved row itself: from here its outcome stops being
           // known, so it stops being `approved`.
-          journal.markInFlight(granted.id);
+          spent = journal.markInFlight(granted.id);
         }
         if (granted !== undefined) {
           log?.info(
@@ -614,7 +619,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         // a gated action never even looks at the resource.
         // decide() throws on refusal, so getting past this means approved.
         const askedAlready = wantsGate;
-        if (wantsGate && granted === undefined) {
+        // `!spent` is an approval that existed a moment ago and belongs to
+        // somebody else's call now. That is the same position as never having
+        // had one.
+        if (wantsGate && (granted === undefined || !spent)) {
           await decide("this action cannot be undone");
         }
 
