@@ -352,14 +352,33 @@ function openDatabase(path: string): Database.Database {
     // at least two commits, and undoing one costs two more, so that fsync is
     // the largest single cost in a long run.
     //
-    // NORMAL is the documented pairing for WAL. The difference is narrow and
-    // worth stating exactly: a crash of this process, or of the CLI mid-undo,
-    // still loses nothing, because the WAL is already written and the next
-    // open recovers it. Only the operating system going down or the power
-    // failing can cost the tail of the WAL -- and what is at that tail is the
-    // record of a call, never the call itself, which either reached the server
-    // or did not regardless of what this file says.
-    db.pragma("synchronous = NORMAL");
+    // FULL, not the NORMAL usually paired with WAL. The difference is narrow
+    // and worth stating exactly: under either, a crash of this process or of
+    // the CLI mid-undo loses nothing, because the WAL is already written and
+    // the next open recovers it. Only the operating system going down or the
+    // power failing can cost the tail of the WAL.
+    //
+    // The old reasoning was that what sits at that tail is the record of a
+    // call and never the call itself. True, and it is the wrong way round:
+    // the call reached the server or it did not, regardless of this file, so
+    // losing the record means the world changed and the journal does not know
+    // it. Undo cannot reverse what it has no record of, and `show --live`
+    // would report that nothing was recorded -- the reassuring answer, on no
+    // evidence. For a journal that is the only undo evidence there is, that
+    // is the one direction not to fail in.
+    //
+    // Measured on this machine, 2,000 inserts of a 2 kB payload: NORMAL
+    // 0.0246 ms per write, FULL 0.0594 ms. Durability costs 0.035 ms per
+    // action -- about eight per cent of the proxy's own 0.43 ms overhead, and
+    // invisible beside any real call to an upstream server.
+    //
+    // SYNARTESIS_SYNC=normal takes the old behaviour for anyone who has
+    // measured their own workload and wants it back.
+    db.pragma(
+      process.env["SYNARTESIS_SYNC"]?.toLowerCase() === "normal"
+        ? "synchronous = NORMAL"
+        : "synchronous = FULL",
+    );
     // Again, because turning WAL on is what creates the sidecars, and they
     // hold the same content as the database they belong to.
     if (path !== ":memory:") {
