@@ -1103,17 +1103,26 @@
   <span class="hit">&#10095;</span> <span class="hit">claude-code</span>          <span class="dim">2026-08-22 05:00:31  complete    3 actions</span>  <span class="hit">1 awaiting approval</span>
     <span class="dim">claude-code           2026-08-22 04:41:09  rolled_back 2 actions</span>
 
-  <span class="hit">[enter]</span> <span class="dim">open</span>   <span class="hit">[p]</span> <span class="dim">preview undo</span>   <span class="hit">[u]</span> <span class="dim">undo</span>   <span class="hit">[j/k]</span> <span class="dim">move</span>   <span class="hit">[g]</span> <span class="dim">held</span>   <span class="hit">[q]</span> <span class="dim">quit</span></pre>
+  <span class="hit">[enter]</span> <span class="dim">open</span>   <span class="hit">[l]</span> <span class="dim">check now</span>   <span class="hit">[u]</span> <span class="dim">undo</span>   <span class="hit">[j/k]</span> <span class="dim">move</span>   <span class="hit">[g]</span> <span class="dim">held</span>   <span class="hit">[q]</span> <span class="dim">quit</span></pre>
     </div>
 
     <p class="lede reveal">
       Everything acts on whatever the cursor is on, so no id is ever carried from one
       command to the next by hand. <b>g</b> shows what is held, where <b>a</b> and <b>d</b>
-      answer it. <b>u</b> asks once more before it goes, because undo is the one direction
-      that cannot itself be undone.
+      answer it. <b>l</b> reads every resource a session touched as it is now, without
+      sending anything. <b>u</b> asks once more before it goes, because undo is the one
+      direction that cannot itself be undone.
     </p>
 
     <div class="commands">
+      <div class="command">
+        <code>synartesis install</code>
+        <span>Find what Claude Code, Claude Desktop, Cursor and Codex already list, write one policy covering it, and put this behind every entry. Your config is copied aside first.</span>
+      </div>
+      <div class="command">
+        <code>synartesis status</code>
+        <span>Which AI on this machine is covered, which is not, and when anything last came through.</span>
+      </div>
       <div class="command">
         <code>synartesis init</code>
         <span>Ask a server what it can do, and draft a policy with everything guarded.</span>
@@ -1143,8 +1152,16 @@
         <span>Let it through. The agent makes the same call again and it goes.</span>
       </div>
       <div class="command">
+        <code>synartesis show --live</code>
+        <span>Read every resource a session touched as it is now, and say which still match. Writes nothing, sends nothing, and does not stop at the first conflict.</span>
+      </div>
+      <div class="command">
         <code>synartesis undo</code>
         <span>Walk a run backwards, newest first, stopping at anything it cannot honestly reverse.</span>
+      </div>
+      <div class="command">
+        <code>synartesis undo --force</code>
+        <span>Somebody changed the resource since. This prints every line it would write over and stops; <code class="inline">--yes</code> goes ahead.</span>
       </div>
       <div class="command">
         <code>synartesis deny</code>
