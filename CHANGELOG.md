@@ -2,6 +2,73 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.5.0 — 2026-09-10
+
+A safety release. Two more races of the same family as 0.4.2's, one structural
+change so that family cannot be written again, the first proof that a shipped
+policy actually restores anything, and durability by default.
+
+Minor rather than patch: two behaviours change in ways you will notice.
+
+### Changed
+
+- **The journal is durable by default.** It ran with `synchronous = NORMAL`, on
+  the reasoning that the tail of the write-ahead log holds the record of a call
+  and never the call itself. True, and the wrong way round: the call reached the
+  server or it did not regardless of this file, so losing the record means the
+  world changed and the journal does not know. Undo cannot reverse what it has
+  no record of, and `show --live` would report that nothing was recorded — the
+  reassuring answer, on no evidence.
+
+  Measured here on 2,000 inserts of a 2 kB payload: NORMAL 0.0246 ms per write,
+  FULL 0.0594. Durability costs **0.035 ms per action**, about eight per cent of
+  the proxy's own 0.43 ms overhead. `SYNARTESIS_SYNC=normal` restores the old
+  behaviour.
+
+- **An interrupted inverse no longer resumes itself.** An action in
+  `rolling_back` was let through without a claim, on the reasoning that it must
+  be a crash. It is also what a live undo looks like between claiming an action
+  and finishing its inverse, and nothing here can tell those apart, so a second
+  undo starting in that window sent the same inverse again. It now halts and
+  names the evidence to look at. Finishing such an inverse needs a lease that
+  distinguishes a live owner from an abandoned attempt, which needs a schema
+  and a migration path this build does not have; that limit is now stated
+  rather than silently crossed.
+
+### Added
+
+- **Adapter contract tests for the shipped filesystem policy**, run against the
+  real server. Policies were checked only for tool *existence* — that
+  `fs.read_text_file` is a real tool — and never for whether the declared
+  inverse puts the file back. That is the failure mode that looks fine: a real
+  tool, a clean resolution, a report saying `rolled_back`, and the file still
+  wrong. Drift detection cannot catch it, because nothing is wrong with the
+  drift.
+
+  The tests make the mutation, undo it and compare bytes: exact restoration
+  including trailing whitespace and non-ascii, repeated writes to one file, a
+  colleague's edit refused, absence told apart from a read that failed, and
+  inspection distinguishing a touched file from an untouched one. Changing the
+  inverse to restore `$.content` instead of `$snapshot.content` fails them.
+
+  The tested server version is named in the file. **memory, git and github ship
+  policies with no such proof**; those servers are not installed in this
+  repository and their guarantees remain assumed.
+
+### Fixed
+
+- **Every status change now goes through one door.** Three of thirteen
+  transitions were conditional; the other ten wrote whatever they were told and
+  were safe only by convention. The convention failed three times in two days.
+  There are now two ways to change a status and no third: one reports whether it
+  won the race, the other names the statuses the caller must be holding and
+  throws when the row is not in one of them. Turning it on found three states
+  nothing can produce, all of them in tests that had been setting end states
+  directly.
+
+- **A second place one approval could authorise two calls.** The
+  missing-prior-state branch ignored the result of spending the approval.
+
 ## 0.4.3 — 2026-09-10
 
 A correctness release. Seven reproduced defects in how effects are accounted
