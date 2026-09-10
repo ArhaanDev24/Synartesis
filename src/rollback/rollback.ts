@@ -443,16 +443,37 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     // a status the code simply forgot to permit. Replanning authorises the
     // attempt; it does not authorise overwriting drift, which is checked
     // above and halts on its own.
+    // `rolling_back` only under force. It means an inverse was sent and not
+    // finished -- and nothing here can tell a process still working on it
+    // from one that died holding it. Proceeding used to be automatic, so a
+    // second undo starting while the first was mid-inverse sent the same
+    // inverse again: harmless for a restore, a second real change to the
+    // world for anything compensable. There is no lease to consult and
+    // inventing a schema for one is a separate piece of work, so the honest
+    // protocol is the one used everywhere else here: stop, and ask the only
+    // party who can know.
+    // Not `rolling_back`, under force or otherwise. Forcing past drift and
+    // resuming an interrupted inverse are different intents that happen to
+    // share a flag, and letting force claim a row already in `rolling_back`
+    // would let two forced undos each claim it and each send -- the very
+    // double-send the claim exists to stop.
     const claimable: readonly ActionStatus[] =
       force || policies !== undefined ? ["applied", "unrecoverable"] : ["applied"];
     const claimed = journal.markRollingBack(action.id, claimable);
-    // The one honest reason to proceed without the claim is a resume: the row
-    // is already `rolling_back` because we were interrupted mid-inverse, and
-    // the drift check above has just decided what that means. Anything else
-    // failing to claim is another undo holding it.
-    if (!claimed && action.status !== "rolling_back") {
-      const reason = "another undo is already working on this action";
-      halted = { seq: action.seq, reason, detail: "" };
+    if (!claimed) {
+      const reason =
+        action.status === "rolling_back"
+          ? "an inverse for this action was already sent and never finished; whether another undo still holds it cannot be told from here"
+          : "another undo is already working on this action";
+      halted = {
+        seq: action.seq,
+        reason,
+        detail:
+          action.status === "rolling_back"
+            ? "Nothing here can tell a live owner from a dead one, and this build has no lease to consult. " +
+              "Read the action with `show --live`: if the resource still shows the agent's write, the inverse never landed."
+            : "",
+      };
       steps[steps.length - 1] = {
         ...describeStep(action),
         kind: "halt",

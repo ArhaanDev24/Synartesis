@@ -782,3 +782,37 @@ describe("previewing several writes to one record", () => {
     expect(active.store.getCustomer("c_001").plan).toBe("pro");
   });
 });
+
+describe("two undos where the first is still mid-inverse", () => {
+  it("does not send the inverse twice", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    const [action] = active.journal.getActions(active.runId);
+    if (action === undefined) {
+      throw new Error("nothing recorded");
+    }
+
+    // The first undo has claimed the action and its inverse is in flight. The
+    // row says `rolling_back`, which is also what a process that died mid
+    // inverse leaves behind -- and those two need telling apart, because one
+    // of them means somebody else is about to write.
+    expect(active.journal.markRollingBack(action.id)).toBe(true);
+
+    let writes = 0;
+    const store = active.store;
+    const real = store.updateCustomer.bind(store);
+    store.updateCustomer = (id: string, patch: Record<string, unknown>) => {
+      writes += 1;
+      return real(id, patch);
+    };
+
+    await rollback({ journal: active.journal, router: active.router, runId: active.runId });
+
+    // The first undo will send its own inverse when it finishes. A second one
+    // is a second real change to the world for anything compensable.
+    expect(writes).toBe(0);
+  });
+});
