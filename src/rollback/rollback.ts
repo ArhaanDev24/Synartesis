@@ -341,6 +341,29 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       }
     }
 
+    // A reversible action promises evidence: a declared pre-read, and the
+    // post-state captured with it. Without both there is no way to tell this
+    // resource from one somebody has since edited, and writing the old value
+    // back over their work is exactly the outcome every other check here
+    // exists to prevent. Reverting anyway was the default; it is now a
+    // decision, and `--force` is how a person makes it.
+    //
+    // A compensable action is a different case and must not be caught by this:
+    // its policy declares no pre-read at all, so nothing was promised.
+    if (!verified && action.class === "reversible" && !force) {
+      const reason = unverifiedBecause(action);
+      halted = {
+        seq: action.seq,
+        reason,
+        detail:
+          "Without it there is no way to tell this resource from one somebody has edited since, " +
+          "so the recorded value was not written.",
+        conflict: true,
+      };
+      steps.push({ ...describeStep(action), kind: "halt", reason, verified: false, plan });
+      break;
+    }
+
     if (!verified && action.status === "rolling_back") {
       // An inverse was already sent for this action before something
       // interrupted us, and there is no declared read to tell us whether it

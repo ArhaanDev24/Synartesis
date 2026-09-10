@@ -7,6 +7,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import Database from "better-sqlite3";
 
 import { createToyCrmServer } from "../fixtures/toy-crm/server.js";
 import { ToyCrmStore } from "../fixtures/toy-crm/store.js";
@@ -35,11 +36,15 @@ interface Session {
   readonly journal: Journal;
   readonly router: Router;
   readonly runId: string;
+  readonly store: ToyCrmStore;
+  /** So a test can take evidence away the way a failed post-read does. */
+  readonly journalPath: string;
 }
 
 async function session(): Promise<Session> {
   const dir = mkdtempSync(join(tmpdir(), "synartesis-robust-"));
-  const journal = openJournal(join(dir, "journal.db"));
+  const journalPath = join(dir, "journal.db");
+  const journal = openJournal(journalPath);
   cleanups.push(() => {
     journal.close();
     rmSync(dir, { recursive: true, force: true });
@@ -63,7 +68,7 @@ async function session(): Promise<Session> {
     await client.close();
   });
 
-  return { client, journal, router, runId };
+  return { client, journal, router, runId, store, journalPath };
 }
 
 describe("a dry run", () => {
@@ -160,8 +165,12 @@ describe("an unverified revert", () => {
 
     const report = await rollback({ journal, router, runId, dryRun: true });
 
+    // Was: a revert, unverified. That is not a safe default. A reversible
+    // action promises evidence -- a pre-read and the post-state it captured --
+    // and reverting without it writes the old value over whatever is there
+    // now, which may be somebody's work. Missing evidence stops.
     const [step] = report.steps;
-    expect(step?.kind).toBe("revert");
+    expect(step?.kind).toBe("halt");
     expect(step?.verified).toBe(false);
     expect(step?.reason).not.toMatch(/no pre-read declared/);
     expect(step?.reason).toMatch(/post-state/);
@@ -239,5 +248,69 @@ describe("a call the upstream refuses", () => {
     expect(action?.status).toBe("failed");
     // An inverse here would cancel an order that was never placed.
     expect(action?.inverse).toBeUndefined();
+  });
+});
+
+describe("a reversible action whose post-state was never captured", () => {
+  it("does not write the old value over somebody else's edit", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+
+    // The post-read failed at capture time, which is the whole case: the
+    // promised evidence is not there. Removed directly, because no api should
+    // offer to forget what it saw.
+    const [recorded] = active.journal.getActions(active.runId);
+    if (recorded === undefined) {
+      throw new Error("nothing was recorded");
+    }
+    const db = new Database(active.journalPath);
+    db.prepare("UPDATE actions SET post_snapshot_json = NULL WHERE id = ?").run(recorded.id);
+    db.close();
+
+    // And then a person edits the record.
+    active.store.updateCustomer("c_001", { notes: "a human wrote this" });
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+
+    // Their work is still there, and the report says why it stopped.
+    expect(active.store.getCustomer("c_001").notes).toBe("a human wrote this");
+    expect(report.status).toBe("partial");
+    expect(report.halted?.reason ?? "").toMatch(/post-state|evidence/i);
+  });
+
+  it("lets an operator override it, without calling the result verified", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    const [recorded] = active.journal.getActions(active.runId);
+    if (recorded === undefined) {
+      throw new Error("nothing was recorded");
+    }
+    const db = new Database(active.journalPath);
+    db.prepare("UPDATE actions SET post_snapshot_json = NULL WHERE id = ?").run(recorded.id);
+    db.close();
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      force: true,
+    });
+
+    expect(active.store.getCustomer("c_001").notes).toBe("founding customer");
+    // The uncertainty survives into the report. A recovery made without the
+    // evidence is not the same thing as one made with it.
+    const [step] = report.steps;
+    expect(step?.kind).toBe("revert");
+    expect(step?.verified).toBe(false);
   });
 });
