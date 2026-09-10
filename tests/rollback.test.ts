@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import Database from "better-sqlite3";
 
 import { createToyCrmServer } from "../fixtures/toy-crm/server.js";
 import { ToyCrmStore, type ToyCrmState } from "../fixtures/toy-crm/store.js";
@@ -33,13 +34,16 @@ interface Session {
   readonly router: Router;
   readonly runId: string;
   readonly before: ToyCrmState;
+  /** So a test can construct history no api should offer to construct. */
+  readonly journalPath: string;
 }
 
 async function session(
   options: { beforeWrite?: () => void; realGate?: boolean } = {},
 ): Promise<Session> {
   const dir = mkdtempSync(join(tmpdir(), "synartesis-rollback-"));
-  const journal = openJournal(join(dir, "journal.db"));
+  const journalPath = join(dir, "journal.db");
+  const journal = openJournal(journalPath);
   cleanups.push(() => {
     journal.close();
     rmSync(dir, { recursive: true, force: true });
@@ -70,7 +74,7 @@ async function session(
     await upstream.close();
   });
 
-  return { client, store, journal, router, runId, before };
+  return { client, store, journal, router, runId, before, journalPath };
 }
 
 /** Twenty mutations of every reversible and compensable shape the fixture has. */
@@ -432,8 +436,17 @@ describe("actions that cannot be undone", () => {
     await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
     await active.client.callTool({ name: "update_customer", arguments: { id: "c_003", plan: "pro" } });
 
+    // A process that dies mid-call leaves the row where recordPending put it:
+    // pending, outcome unknown. Marking an applied row unknown afterwards
+    // describes a state nothing can produce, so it is written directly here
+    // rather than through an api that should refuse it.
     const first = active.journal.getActions(active.runId)[0];
-    active.journal.markUnknown(first?.id ?? "", "process died mid-call");
+    const db = new Database(active.journalPath);
+    db.prepare("UPDATE actions SET status = 'pending', error = ? WHERE id = ?").run(
+      "process died mid-call",
+      first?.id ?? "",
+    );
+    db.close();
 
     const report = await rollback({
       journal: active.journal,

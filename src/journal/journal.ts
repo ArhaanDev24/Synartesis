@@ -530,12 +530,69 @@ class SqliteJournal implements Journal {
     });
   }
 
-  markFailed(actionId: string, error: string): void {
-    this.#run("markFailed", () => {
-      this.#db
-        .prepare("UPDATE actions SET status = 'failed', error = ? WHERE id = ?")
-        .run(error, actionId);
+  /**
+   * Every status change, in one place, and none of them silent.
+   *
+   * Three of thirteen transitions used to be conditional; the other ten wrote
+   * whatever they were told. That was safe only by convention -- each caller
+   * happened to hold a claim first -- and the convention failed three times:
+   * a forced undo, a spent approval, and an adopted one all wrote a status
+   * they did not own, and two irreversible calls went out on one person's yes.
+   *
+   * `from` is the set of statuses the caller must be holding. #settle throws
+   * when the row is not in one of them, because a caller that has lost its
+   * claim has lost the right to say what happened; #claim reports it instead,
+   * for the callers whose job is to race. Neither can be bypassed by writing
+   * status directly, because nothing else in this class does.
+   */
+  #settle(
+    operation: string,
+    actionId: string,
+    to: ActionStatus,
+    from: readonly ActionStatus[],
+    error?: string | null,
+  ): void {
+    this.#run(operation, () => {
+      const slots = from.map(() => "?").join(",");
+      const sql =
+        error === undefined
+          ? `UPDATE actions SET status = ? WHERE id = ? AND status IN (${slots})`
+          : `UPDATE actions SET status = ?, error = ? WHERE id = ? AND status IN (${slots})`;
+      const args =
+        error === undefined ? [to, actionId, ...from] : [to, error, actionId, ...from];
+      const result = this.#db.prepare(sql).run(...args);
+      if (result.changes !== 1) {
+        // Loud, not silent. A journal that quietly failed to record what
+        // happened is the one failure this whole thing cannot survive.
+        const now = this.getAction(actionId)?.status ?? "gone";
+        throw new Error(
+          `cannot move ${actionId} to ${to}: it is ${now}, not one of ${from.join(", ")}`,
+        );
+      }
     });
+  }
+
+  #claim(
+    operation: string,
+    actionId: string,
+    to: ActionStatus,
+    from: readonly ActionStatus[],
+    error?: string | null,
+  ): boolean {
+    return this.#run(operation, () => {
+      const slots = from.map(() => "?").join(",");
+      const sql =
+        error === undefined
+          ? `UPDATE actions SET status = ? WHERE id = ? AND status IN (${slots})`
+          : `UPDATE actions SET status = ?, error = ? WHERE id = ? AND status IN (${slots})`;
+      const args =
+        error === undefined ? [to, actionId, ...from] : [to, error, actionId, ...from];
+      return this.#db.prepare(sql).run(...args).changes === 1;
+    });
+  }
+
+  markFailed(actionId: string, error: string): void {
+    this.#settle("markFailed", actionId, "failed", ["pending", "gated", "approved"], error);
   }
 
   /**
@@ -545,11 +602,7 @@ class SqliteJournal implements Journal {
    * case surfaced rather than resolved by guesswork.
    */
   markUnknown(actionId: string, error: string): void {
-    this.#run("markUnknown", () => {
-      this.#db
-        .prepare("UPDATE actions SET status = 'pending', error = ? WHERE id = ?")
-        .run(error, actionId);
-    });
+    this.#settle("markUnknown", actionId, "pending", ["pending", "gated", "approved"], error);
   }
 
   /**
@@ -579,9 +632,14 @@ class SqliteJournal implements Journal {
   }
 
   markRolledBack(actionId: string): void {
-    this.#run("markRolledBack", () => {
-      this.#db.prepare("UPDATE actions SET status = 'rolled_back' WHERE id = ?").run(actionId);
-    });
+    // Only the holder of the claim gets here. Where the resource turned out to
+    // be already in the state the inverse would produce, the row is still
+    // applied and nothing was sent -- both are the caller's to settle.
+    this.#settle("markRolledBack", actionId, "rolled_back", [
+      "rolling_back",
+      "applied",
+      "unrecoverable",
+    ]);
   }
 
   /**
@@ -591,11 +649,7 @@ class SqliteJournal implements Journal {
    * was briefly unwell, and rollback is expected to be retried (D7).
    */
   markInverseRejected(actionId: string, error: string): void {
-    this.#run("markInverseRejected", () => {
-      this.#db
-        .prepare("UPDATE actions SET status = 'applied', error = ? WHERE id = ?")
-        .run(error, actionId);
-    });
+    this.#settle("markInverseRejected", actionId, "applied", ["rolling_back"], error);
   }
 
   /**
@@ -604,19 +658,13 @@ class SqliteJournal implements Journal {
    * current state rather than assuming either way.
    */
   markUnknownInverse(actionId: string, error: string): void {
-    this.#run("markUnknownInverse", () => {
-      this.#db
-        .prepare("UPDATE actions SET status = 'rolling_back', error = ? WHERE id = ?")
-        .run(error, actionId);
-    });
+    this.#settle("markUnknownInverse", actionId, "rolling_back", ["rolling_back"], error);
   }
 
   markGated(actionId: string, why?: string): void {
-    this.#run("markGated", () => {
-      this.#db
-        .prepare("UPDATE actions SET status = 'gated', error = ? WHERE id = ?")
-        .run(why ?? null, actionId);
-    });
+    // Also from `gated`: the retry gate re-gates the row an agent is already
+    // waiting on, which is how one call keeps one decision.
+    this.#settle("markGated", actionId, "gated", ["pending", "gated"], why ?? null);
   }
 
   /**
@@ -766,11 +814,13 @@ class SqliteJournal implements Journal {
   }
 
   markUnrecoverable(actionId: string, error: string): void {
-    this.#run("markUnrecoverable", () => {
-      this.#db
-        .prepare("UPDATE actions SET status = 'unrecoverable', error = ? WHERE id = ?")
-        .run(error, actionId);
-    });
+    // Reached from a drift check, which runs before the claim, and from a
+    // failed inverse, which runs after it.
+    this.#settle("markUnrecoverable", actionId, "unrecoverable", [
+      "applied",
+      "rolling_back",
+      "unrecoverable",
+    ], error);
   }
 
   listRuns(): readonly RunRow[] {

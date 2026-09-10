@@ -82,6 +82,10 @@ describe("a dry run", () => {
     if (action === undefined) {
       throw new Error("expected an action");
     }
+    // A real one claims the action first -- that is what makes it this
+    // rollback's to send -- and then dies. Setting the end state without the
+    // claim describes a crash that cannot happen.
+    journal.markRollingBack(action.id);
     journal.markUnknownInverse(action.id, "the process died mid-inverse");
 
     const report = await rollback({ journal, router, runId, dryRun: true });
