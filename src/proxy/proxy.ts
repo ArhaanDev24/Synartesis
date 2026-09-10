@@ -21,6 +21,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
+import { canonical } from "../canonical.js";
 import { SnapshotError, UpstreamError, describe } from "../errors.js";
 import { createRetryGate, type ApproveHint, type Gate } from "../gate/gate.js";
 import { shouldGateOnWrite } from "../gate/heuristic.js";
@@ -36,12 +37,12 @@ import {
   observeState,
   planInverse,
   isDisconnected,
-  mayHaveArrived,
   planRead,
   refusal,
   runRead,
   toPayload,
   type ResolvedRead,
+  type StateObservation,
 } from "./snapshot.js";
 import type { Upstream } from "./upstream.js";
 
@@ -150,6 +151,65 @@ function identityFor(router: Router): Implementation {
   }
   // With several servers behind it there is no single identity to mirror.
   return { name: "synartesis", version: "0.0.0" };
+}
+
+/**
+ * What actually happened, when the answer did not say.
+ *
+ * An error is not evidence that nothing changed. A tool-level `isError` covers
+ * business-logic failures that happen *after* a write, and the protocol gives
+ * the flag no transactional meaning; a timeout says only that no reply came
+ * back. Both were being recorded as `failed`, which is a claim about the world
+ * -- and rollback steps over a failed action without looking at it. A write
+ * that had really landed was therefore invisible to recovery.
+ *
+ * Rather than guess, ask: where the policy declared a pre-read, that same read
+ * says what is true now. Comparing it against what was there before the call
+ * turns a guess into evidence, and answers with what it found.
+ */
+type Outcome = "applied" | "none" | "unknown";
+
+async function whatHappened(
+  router: Router,
+  verify: ResolvedRead | undefined,
+  before: StateObservation,
+  signal: AbortSignal,
+): Promise<Outcome> {
+  if (verify === undefined) {
+    // No declared read, so nothing to ask. Uncertainty is the honest answer,
+    // not the convenient one.
+    return "unknown";
+  }
+  try {
+    const now = await observeState(router, verify, signal);
+    return canonical(now) === canonical(before) ? "none" : "applied";
+  } catch {
+    // The resource cannot be read, so what happened to it is unknown. That is
+    // the whole point of this function having three answers.
+    return "unknown";
+  }
+}
+
+/**
+ * Errors that are evidence the call never reached the tool.
+ *
+ * "Not connected" means there was no transport to write to. The JSON-RPC
+ * rejections mean the far end refused the envelope before any handler ran.
+ * Everything else -- a timeout, an internal error, a closed connection -- says
+ * nothing about whether the tool acted, and must not be read as if it did.
+ */
+function neverDispatched(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes("Not connected")) {
+    return true;
+  }
+  const code: unknown = isRecord(error) ? error["code"] : undefined;
+  return (
+    code === ErrorCode.MethodNotFound ||
+    code === ErrorCode.InvalidParams ||
+    code === ErrorCode.InvalidRequest ||
+    code === ErrorCode.ParseError
+  );
 }
 
 /**
@@ -631,10 +691,16 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         // silently irreversible, which is worse than the action not happening.
         let snapshot: unknown;
         let verify: ResolvedRead | undefined;
+        // The same read, kept even where `verify` is cleared. `verify` is what
+        // gets stored for drift checking later; this one exists only to answer
+        // "did anything happen" when the call's own answer does not say, and a
+        // creation needs that answer as much as a replacement does.
+        let probe: ResolvedRead | undefined;
         let missingPriorState: string | undefined;
         if (policy.snapshot !== undefined) {
           try {
             verify = planRead(policy.snapshot, { args });
+            probe = verify;
             snapshot = await runRead(router, verify, extra.signal);
             journal.attachSnapshot(pending.actionId, snapshot);
           } catch (error: unknown) {
@@ -660,6 +726,15 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             }
           }
         }
+
+        // What the resource looked like before the call, in the same shape the
+        // post-read returns, so the two can be compared when the answer to the
+        // call turns out not to say what happened. Absent where no pre-read
+        // ran, in which case nothing is comparable and nothing is claimed.
+        const priorState: StateObservation =
+          probe === undefined || missingPriorState !== undefined
+            ? { present: false }
+            : { present: true, value: snapshot };
 
         if (missingPriorState !== undefined && !askedAlready) {
           // An approval granted out of band counts here too. It was only ever
@@ -712,12 +787,40 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           // out. The agent still sees the refusal exactly as sent.
           const refused = refusal(result);
           if (refused !== undefined) {
-            journal.markFailed(pending.actionId, `the upstream refused the call: ${refused}`);
-            log?.debug(
+            // isError is not a promise that nothing happened: the protocol
+            // gives it no transactional meaning, and a server that updates a
+            // record and then fails a later step reports exactly this. So the
+            // world is read rather than assumed, and only a resource that is
+            // demonstrably unchanged is recorded as never applied.
+            // `refusal: clean` is an adapter stating, on tested evidence,
+            // that this tool changes nothing on its way to reporting an error.
+            // Absent that, the world is read rather than assumed.
+            const settled =
+              policy.refusal === "clean"
+                ? "none"
+                : await whatHappened(router, probe, priorState, extra.signal);
+            if (settled !== "applied") {
+              const why = `the upstream refused the call: ${refused}`;
+              if (settled === "none") {
+                journal.markFailed(pending.actionId, why);
+              } else {
+                journal.markUnknown(
+                  pending.actionId,
+                  `${why} -- and whether anything changed could not be established`,
+                );
+              }
+              log?.debug(
+                { seq: pending.seq, tool: route.tool, reason: refused, settled },
+                "refused by the upstream",
+              );
+              return result;
+            }
+            // It changed something on its way to failing. Recording it as
+            // applied is what makes that change recoverable at all.
+            log?.warn(
               { seq: pending.seq, tool: route.tool, reason: refused },
-              "refused by the upstream",
+              "the upstream reported an error after changing the resource",
             );
-            return result;
           }
 
           const context = { args, snapshot, result: toPayload(result) };
@@ -768,15 +871,38 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           return result;
         } catch (error: unknown) {
           const disconnected = isDisconnected(error);
-          if (extra.signal.aborted || mayHaveArrived(error)) {
-            // A transport that closed while a reply was still owed says
-            // nothing about whether the call arrived. Recording that as failed
-            // asserts it did not, and undo would then step over an action that
-            // may well have applied. Having had no connection to write to at
-            // all is the other case, and that one really did not happen.
-            journal.markUnknown(pending.actionId, describe(error));
-          } else {
+          if (neverDispatched(error)) {
+            // Evidence, not absence of it: there was no transport to write to,
+            // or the far end rejected the envelope before any handler ran.
             journal.markFailed(pending.actionId, describe(error));
+          } else {
+            // Everything else is ambiguous -- a timeout, an internal error, a
+            // transport that closed while a reply was owed. Ask the resource
+            // what is true rather than asserting that nothing happened, and
+            // keep the uncertainty when it cannot say.
+            const settled = await whatHappened(router, probe, priorState, extra.signal);
+            if (settled === "none") {
+              journal.markFailed(pending.actionId, describe(error));
+            } else if (settled === "unknown") {
+              journal.markUnknown(pending.actionId, describe(error));
+            } else {
+              // It landed and the answer was lost. That is a recoverable
+              // change, and the inverse for it was resolvable all along.
+              let recovered: unknown;
+              if (policy.inverse !== undefined && missingPriorState === undefined) {
+                try {
+                  recovered = planInverse(policy.inverse, { args, snapshot, result: undefined });
+                } catch {
+                  recovered = undefined;
+                }
+              }
+              journal.markApplied(pending.actionId, {
+                result: undefined,
+                ...(recovered === undefined ? {} : { inverse: recovered }),
+                ...(verify === undefined ? {} : { verify }),
+                warning: `the call applied but its answer never arrived: ${describe(error)}`,
+              });
+            }
           }
           if (disconnected && route.upstream.reconnect !== undefined) {
             // Not to retry this call -- a write must never be sent twice on a

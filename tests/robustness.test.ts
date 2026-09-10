@@ -204,6 +204,11 @@ describe("a call the upstream refuses", () => {
           "tools:",
           '  - match: "orders.place_order"',
           "    class: compensable",
+          // This adapter has been tested against the real server: a declined
+          // payment never places the order. Without that statement isError
+          // proves nothing, and the outcome is recorded as unknown -- see
+          // tests/outcome.test.ts.
+          "    refusal: clean",
           "    inverse:",
           '      tool: "orders.cancel_order"',
           "      args:",

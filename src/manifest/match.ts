@@ -35,7 +35,7 @@ interface CompiledPolicy {
  * an unknown destructive tool is worse than having no product at all.
  */
 function failClosed(qualifiedName: string): ToolPolicy {
-  return { match: qualifiedName, class: "irreversible", gate: "always" };
+  return { match: qualifiedName, class: "irreversible", gate: "always", refusal: "uncertain" };
 }
 
 export function createPolicyResolver(manifest: Manifest): PolicyResolver {

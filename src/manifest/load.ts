@@ -30,6 +30,7 @@ const toolPolicy = z.strictObject({
   match: z.string().min(1),
   class: z.enum(["readonly", "reversible", "compensable", "irreversible"]),
   gate: z.enum(["always", "on_write", "never"]).optional(),
+  refusal: z.enum(["uncertain", "clean"]).optional(),
   snapshot: callTemplate.optional(),
   inverse: callTemplate.optional(),
 });
@@ -255,6 +256,7 @@ function withGate(policy: z.infer<typeof toolPolicy>): ToolPolicy {
     match: policy.match,
     class: policy.class,
     gate,
+    refusal: policy.refusal ?? "uncertain",
     ...(policy.snapshot === undefined ? {} : { snapshot: toCall(policy.snapshot) }),
     ...(policy.inverse === undefined ? {} : { inverse: toCall(policy.inverse) }),
   };

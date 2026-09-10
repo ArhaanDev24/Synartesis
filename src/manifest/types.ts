@@ -39,10 +39,20 @@ export interface CallTemplate {
   readonly absentWhen?: readonly string[];
 }
 
+export type RefusalMeaning = "uncertain" | "clean";
+
 export interface ToolPolicy {
   readonly match: string;
   readonly class: ToolClass;
   readonly gate: GateMode;
+  /**
+   * What this server's `isError` proves. The protocol gives the flag no
+   * transactional meaning -- it covers business-logic failures that happen
+   * after a write as readily as a refusal before one -- so the default is that
+   * it proves nothing. `clean` is an adapter saying, on evidence, that this
+   * tool never changes anything on the way to reporting an error.
+   */
+  readonly refusal: RefusalMeaning;
   readonly snapshot?: CallTemplate;
   readonly inverse?: CallTemplate;
 }
