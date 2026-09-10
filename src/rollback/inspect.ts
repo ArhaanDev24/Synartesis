@@ -4,7 +4,13 @@ import { canonical } from "../canonical.js";
 import { changedLines, describe } from "../errors.js";
 import type { ActionRow, Journal } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
-import { observeState, type InversePlan, type StateObservation } from "../proxy/snapshot.js";
+import {
+  observeState,
+  resolvedRead,
+  toResolvedRead,
+  type ResolvedRead,
+  type StateObservation,
+} from "../proxy/snapshot.js";
 
 /**
  * Whether a session can still be undone, asked without undoing anything.
@@ -59,12 +65,6 @@ export interface InspectOptions {
   readonly signal?: AbortSignal;
 }
 
-const inversePlan = z.object({
-  server: z.string(),
-  tool: z.string(),
-  args: z.record(z.string(), z.unknown()),
-});
-
 const observation = z.union([
   z.object({ present: z.literal(true), value: z.unknown() }),
   z.object({ present: z.literal(false) }),
@@ -88,7 +88,7 @@ function intended(action: ActionRow): StateObservation | undefined {
  * against the world as it is now would call every write but the last one
  * "changed", which is the opposite of true.
  */
-function resourceKey(plan: InversePlan): string {
+function resourceKey(plan: ResolvedRead): string {
   return canonical({ server: plan.server, tool: plan.tool, args: plan.args });
 }
 
@@ -119,7 +119,10 @@ export async function inspect(options: InspectOptions): Promise<Inspection> {
       continue;
     }
 
-    const verify = inversePlan.safeParse(action.verify);
+    // The whole read, absence rules included. Parsing it through a schema
+    // that named only server, tool and args stripped them, and inspection
+    // then reported a resource it could not read as unchanged.
+    const verify = resolvedRead.safeParse(action.verify);
     const post = observation.safeParse(action.postSnapshot);
     if (!verify.success || !post.success) {
       resources.push({
@@ -130,7 +133,7 @@ export async function inspect(options: InspectOptions): Promise<Inspection> {
       continue;
     }
 
-    const key = resourceKey(verify.data);
+    const key = resourceKey(toResolvedRead(verify.data));
     if (seen.has(key)) {
       resources.push({ ...at, condition: "superseded" });
       continue;
@@ -139,7 +142,7 @@ export async function inspect(options: InspectOptions): Promise<Inspection> {
 
     let current: StateObservation;
     try {
-      current = await observeState(router, verify.data, signal);
+      current = await observeState(router, toResolvedRead(verify.data), signal);
     } catch (error: unknown) {
       // A resource that cannot be read is not a resource that has changed.
       // Saying so is the whole point of a command that only looks.

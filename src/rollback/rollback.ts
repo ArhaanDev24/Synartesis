@@ -9,6 +9,8 @@ import {
   planInverse,
   planRead,
   toPayload,
+  resolvedRead,
+  toResolvedRead,
   type InversePlan,
   type StateObservation,
 } from "../proxy/snapshot.js";
@@ -279,14 +281,17 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
 
     // Drift check. Only possible where a pre-read was declared, which is what
     // produced both the stored verify call and the post-state.
-    const verifyRead = inversePlan.safeParse(rebuilt.verify ?? action.verify);
+    // resolvedRead, not inversePlan: the latter names only server, tool and
+    // args, so parsing a stored read through it silently dropped absentWhen
+    // and turned every read failure into "the resource is gone".
+    const verifyRead = resolvedRead.safeParse(rebuilt.verify ?? action.verify);
     const recordedPost = observation.safeParse(action.postSnapshot);
     let verified = false;
 
     if (recordedPost.success && verifyRead.success) {
       let current: StateObservation;
       try {
-        current = await observeState(router, verifyRead.data, signal);
+        current = await observeState(router, toResolvedRead(verifyRead.data), signal);
       } catch (error: unknown) {
         const reason = `could not read current state to check for drift: ${describe(error)}`;
         halted = { seq: action.seq, reason, detail: "" };

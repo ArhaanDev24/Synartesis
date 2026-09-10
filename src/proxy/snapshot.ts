@@ -101,6 +101,38 @@ export function planInverse(call: CallTemplate, context: TemplateContext): Inver
 }
 
 /** The snapshot read with its arguments already reduced to literals. */
+/**
+ * One definition of a stored read, shared by everything that reads one back.
+ *
+ * `absentWhen` is the part that matters and the part that kept getting lost:
+ * rollback and inspection each parsed a stored verify read through a schema
+ * naming only server, tool and args, so Zod stripped the absence rules on the
+ * way in. `runRead` then had no rules to consult, and every tool error --
+ * permission denied, rate limited, a server having a bad day -- read as "the
+ * resource is not there". An undo sent on that reading is an undo sent on a
+ * misunderstanding.
+ */
+export const resolvedRead = z.object({
+  server: z.string(),
+  tool: z.string(),
+  args: z.record(z.string(), z.unknown()),
+  absentWhen: z.array(z.string()).optional(),
+});
+
+/**
+ * The parsed shape as a ResolvedRead. Zod's `.optional()` yields `T |
+ * undefined`, which under exactOptionalPropertyTypes is not the same as the
+ * property being absent, so the rules are carried across explicitly.
+ */
+export function toResolvedRead(parsed: z.infer<typeof resolvedRead>): ResolvedRead {
+  return {
+    server: parsed.server,
+    tool: parsed.tool,
+    args: parsed.args,
+    ...(parsed.absentWhen === undefined ? {} : { absentWhen: parsed.absentWhen }),
+  };
+}
+
 export interface ResolvedRead {
   readonly server: string;
   readonly tool: string;
