@@ -713,3 +713,59 @@ describe("recovering from drift that has since been resolved", () => {
     expect(active.store.getCustomer("c_001").notes).toBe("a human wrote this");
   });
 });
+
+describe("previewing several writes to one record", () => {
+  it("does not invent drift that a real undo would never hit", async () => {
+    const active = await session();
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "enterprise" } });
+
+    const preview = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      dryRun: true,
+    });
+
+    // Nobody touched anything. Undo walks backwards, so by the time the first
+    // write is checked the second inverse has already put `free` back -- but a
+    // preview applies nothing, so the earlier action was compared against the
+    // untouched `enterprise` and called drift.
+    expect(preview.halted).toBeUndefined();
+    expect(preview.steps.filter((step) => step.kind === "revert")).toHaveLength(2);
+
+    // And the preview is still a preview.
+    expect(active.store.getCustomer("c_001").plan).toBe("enterprise");
+  });
+
+  it("still sees drift somebody really caused", async () => {
+    const active = await session();
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "enterprise" } });
+    active.store.updateCustomer("c_001", { notes: "a human wrote this" });
+
+    const preview = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      dryRun: true,
+    });
+    expect(preview.halted).toBeDefined();
+  });
+
+  it("agrees with what the real undo then does", async () => {
+    const active = await session();
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "enterprise" } });
+
+    const preview = await rollback({
+      journal: active.journal, router: active.router, runId: active.runId, dryRun: true,
+    });
+    const real = await rollback({
+      journal: active.journal, router: active.router, runId: active.runId,
+    });
+
+    expect(preview.steps.map((s) => s.kind)).toEqual(real.steps.map((s) => s.kind));
+    expect(active.store.getCustomer("c_001").plan).toBe("pro");
+  });
+});

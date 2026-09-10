@@ -226,6 +226,13 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
   /** Something permanent was stepped over, so the run is not fully reverted. */
   let leftInPlace = false;
 
+  /**
+   * Where a preview believes each resource will be by the time the plan
+   * reaches it. Only ever consulted on a dry run: a real rollback reads the
+   * world, because the world is what it is about to change.
+   */
+  const projected = new Map<string, StateObservation | typeof UNFORESEEABLE>();
+
   for (const action of inScope) {
     // Reset per action: forcing past one conflict says nothing about the next.
     let forcedOver: string | undefined;
@@ -289,9 +296,21 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     let verified = false;
 
     if (recordedPost.success && verifyRead.success) {
+      // In a preview the inverses above this one have not been sent, so the
+      // world still shows the newest write. Comparing an older action's
+      // post-state against that reported drift a real undo never meets -- it
+      // puts the intervening states back on its way down. So the preview
+      // carries the state each planned inverse would leave, and checks against
+      // that wherever it has one.
+      const foreseen = dryRun
+        ? projected.get(resourceKey(toResolvedRead(verifyRead.data)))
+        : undefined;
       let current: StateObservation;
       try {
-        current = await observeState(router, toResolvedRead(verifyRead.data), signal);
+        current =
+          foreseen !== undefined && foreseen !== UNFORESEEABLE
+            ? foreseen
+            : await observeState(router, toResolvedRead(verifyRead.data), signal);
       } catch (error: unknown) {
         const reason = `could not read current state to check for drift: ${describe(error)}`;
         halted = { seq: action.seq, reason, detail: "" };
@@ -381,6 +400,16 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
         journal.markUnrecoverable(action.id, reason);
       }
       break;
+    }
+
+    if (dryRun && verifyRead.success) {
+      // What this inverse would leave behind, for the action below it to be
+      // checked against. Only where that is actually knowable: an exact
+      // restoration says its result is the state captured before the write.
+      // A compensation says nothing about the resulting value, so the chain
+      // stops rather than guessing.
+      const after = intendedAfterInverse(action);
+      projected.set(resourceKey(toResolvedRead(verifyRead.data)), after ?? UNFORESEEABLE);
     }
 
     steps.push({
@@ -501,6 +530,17 @@ function unverifiedBecause(action: ActionRow): string {
 function describeStep(action: ActionRow): { seq: number; server: string; tool: string } {
   return { seq: action.seq, server: action.server, tool: action.tool };
 }
+
+/**
+ * A resource, as the read that looks at it. Two writes to one record share a
+ * verify read, which is exactly what makes them the same resource.
+ */
+function resourceKey(read: { server: string; tool: string; args: Record<string, unknown> }): string {
+  return canonical({ server: read.server, tool: read.tool, args: read.args });
+}
+
+/** A resource whose next state cannot be worked out without sending anything. */
+const UNFORESEEABLE = Symbol("unforeseeable");
 
 /** The state the recorded inverse is expected to leave behind. */
 /**
