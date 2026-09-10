@@ -2,6 +2,37 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.5.1 — 2026-09-10
+
+### Changed
+
+- **The journal is back to `synchronous = NORMAL`, reverting 0.5.0.** The
+  argument for FULL was right and the measurement behind it was taken on the
+  wrong machine.
+
+  This proxy commits three times per tool call — the pending row, the snapshot,
+  and the outcome — and under FULL each commit is an fsync that has to reach the
+  platter. On the NVMe it was benchmarked on, that is microseconds, and the
+  change looked free: 0.0246 ms per write against 0.0594. On a CI runner, a
+  container, or anything with networked storage an fsync is tens of
+  milliseconds, and three of them put the proxy's p95 overhead at **132 ms
+  against a 10 ms budget**. CI caught it on the release that shipped it, having
+  been green on every commit before.
+
+  The three commits cannot be collapsed into one: the snapshot has to be durable
+  *before* the call goes out, which is the entire point of taking it. So the
+  cost is structural, and the default returns to the setting whose cost is
+  predictable. `SYNARTESIS_SYNC=full` asks for the fsync where it is cheap or
+  where the tail of the log matters more than latency.
+
+  What is given up is stated plainly: under NORMAL, a crash of the process or of
+  the CLI mid-undo still loses nothing, but the machine losing power can cost
+  the tail of the write-ahead log — and what is at that tail is the record of
+  calls that really happened.
+
+  The performance thresholds that caught this were left exactly where they were.
+  A 10 ms budget that fails at 132 ms is a budget doing its job.
+
 ## 0.5.0 — 2026-09-10
 
 A safety release. Two more races of the same family as 0.4.2's, one structural

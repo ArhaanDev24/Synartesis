@@ -352,32 +352,36 @@ function openDatabase(path: string): Database.Database {
     // at least two commits, and undoing one costs two more, so that fsync is
     // the largest single cost in a long run.
     //
-    // FULL, not the NORMAL usually paired with WAL. The difference is narrow
-    // and worth stating exactly: under either, a crash of this process or of
-    // the CLI mid-undo loses nothing, because the WAL is already written and
-    // the next open recovers it. Only the operating system going down or the
-    // power failing can cost the tail of the WAL.
+    // NORMAL, the documented pairing for WAL. Under either setting a crash of
+    // this process or of the CLI mid-undo loses nothing: the WAL is written
+    // and the next open recovers it. Only the machine going down or the power
+    // failing can cost the tail of the log.
     //
-    // The old reasoning was that what sits at that tail is the record of a
-    // call and never the call itself. True, and it is the wrong way round:
-    // the call reached the server or it did not, regardless of this file, so
-    // losing the record means the world changed and the journal does not know
-    // it. Undo cannot reverse what it has no record of, and `show --live`
-    // would report that nothing was recorded -- the reassuring answer, on no
-    // evidence. For a journal that is the only undo evidence there is, that
-    // is the one direction not to fail in.
+    // 0.5.0 made FULL the default, on the argument that losing that tail means
+    // the world changed and the journal does not know it -- which is still the
+    // right argument, and was measured on the wrong machine. Here, 2,000
+    // inserts of a 2 kB payload: NORMAL 0.0246 ms per write, FULL 0.0594. That
+    // reads as a rounding error and made the change look free.
     //
-    // Measured on this machine, 2,000 inserts of a 2 kB payload: NORMAL
-    // 0.0246 ms per write, FULL 0.0594 ms. Durability costs 0.035 ms per
-    // action -- about eight per cent of the proxy's own 0.43 ms overhead, and
-    // invisible beside any real call to an upstream server.
+    // It is not free anywhere fsync is not nearly free. This proxy commits
+    // three times per tool call -- the pending row, the snapshot, and the
+    // outcome -- and each commit under FULL is an fsync that has to reach the
+    // platter. On an NVMe that is microseconds; on a CI runner, a container,
+    // or anything with networked storage it is tens of milliseconds, and three
+    // of them put the p95 overhead at 132 ms against a 10 ms budget. CI caught
+    // it on the release that shipped it.
     //
-    // SYNARTESIS_SYNC=normal takes the old behaviour for anyone who has
-    // measured their own workload and wants it back.
+    // The three commits cannot be collapsed into one: the snapshot has to be
+    // durable *before* the call goes out, which is the entire point of taking
+    // it. So the cost is structural, and the default goes back to the setting
+    // whose cost is predictable.
+    //
+    // SYNARTESIS_SYNC=full asks for the fsync, for a journal on hardware where
+    // it is cheap or a workload where the tail matters more than the latency.
     db.pragma(
-      process.env["SYNARTESIS_SYNC"]?.toLowerCase() === "normal"
-        ? "synchronous = NORMAL"
-        : "synchronous = FULL",
+      process.env["SYNARTESIS_SYNC"]?.toLowerCase() === "full"
+        ? "synchronous = FULL"
+        : "synchronous = NORMAL",
     );
     // Again, because turning WAL on is what creates the sidecars, and they
     // hold the same content as the database they belong to.
