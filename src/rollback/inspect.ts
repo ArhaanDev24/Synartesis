@@ -125,10 +125,23 @@ export async function inspect(options: InspectOptions): Promise<Inspection> {
     const verify = resolvedRead.safeParse(action.verify);
     const post = observation.safeParse(action.postSnapshot);
     if (!verify.success || !post.success) {
+      // Four different absences were being reported as one, and the commonest
+      // of them under the wrong name: a failed post-read was announced as "no
+      // pre-read was declared" even where the pre-read plainly existed.
+      const note = !verify.success
+        ? action.verify === undefined
+          ? "no pre-read was declared, so there is nothing to compare against"
+          : "the recorded pre-read could not be read back"
+        : action.postSnapshot === undefined
+          ? "the post-state was never captured, so there is nothing to compare against"
+          : "the recorded post-state could not be read back";
       resources.push({
         ...at,
         condition: "unknowable",
-        note: action.inverse === undefined ? "nothing was captured to restore" : "no pre-read was declared",
+        note:
+          action.inverse === undefined
+            ? `${note}; and nothing was captured to restore`
+            : note,
       });
       continue;
     }
@@ -169,15 +182,58 @@ export async function inspect(options: InspectOptions): Promise<Inspection> {
   return { runId, resources: resources.reverse() };
 }
 
-/** The one-line verdict for a whole session, in the words somebody would use. */
+/** How many of each, so a summary can be checked rather than taken on trust. */
+export function tally(inspection: Inspection): Readonly<Record<Condition, number>> {
+  const counts: Record<Condition, number> = {
+    unchanged: 0,
+    changed: 0,
+    restored: 0,
+    superseded: 0,
+    "not-applied": 0,
+    unknowable: 0,
+  };
+  for (const resource of inspection.resources) {
+    counts[resource.condition] += 1;
+  }
+  return counts;
+}
+
+/**
+ * The one-line verdict for a whole session.
+ *
+ * Absence of evidence is not evidence that nothing is left. A session whose
+ * only resource could not be read was summarised as "nothing here is still
+ * applied", which is the most reassuring sentence available and one nothing
+ * had established; a mix of known-safe and unreadable said the same. Anything
+ * unknown is now said first and never absorbed into a clean answer.
+ */
 export function verdict(inspection: Inspection): string {
-  const changed = inspection.resources.filter((r) => r.condition === "changed").length;
-  const undoable = inspection.resources.filter((r) => r.condition === "unchanged").length;
-  if (changed > 0) {
-    return `${String(changed)} changed since this ran; undoing would write over ${changed === 1 ? "it" : "them"}`;
+  const counts = tally(inspection);
+  const said: string[] = [];
+  if (counts.changed > 0) {
+    said.push(
+      `${String(counts.changed)} changed since this ran; undoing would write over ${counts.changed === 1 ? "it" : "them"}`,
+    );
   }
-  if (undoable > 0) {
-    return `nothing has been touched since; all ${String(undoable)} would undo cleanly`;
+  if (counts.unknowable > 0) {
+    said.push(
+      `${String(counts.unknowable)} could not be checked, so whether ${counts.unknowable === 1 ? "it is" : "they are"} still applied is unknown`,
+    );
   }
-  return "nothing here is still applied";
+  if (said.length > 0) {
+    if (counts.unchanged > 0) {
+      said.push(`${String(counts.unchanged)} unchanged`);
+    }
+    return said.join(" \u00b7 ");
+  }
+  if (counts.unchanged > 0) {
+    return `nothing has been touched since; all ${String(counts.unchanged)} would undo cleanly`;
+  }
+  if (counts.restored > 0 || counts.superseded > 0) {
+    return "everything here has already been put back";
+  }
+  if (counts["not-applied"] > 0) {
+    return "nothing here was ever applied";
+  }
+  return "nothing was recorded in this session";
 }

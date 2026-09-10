@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { canonical } from "../canonical.js";
 import { DriftConflict, RollbackHalted, changedLines, describe } from "../errors.js";
-import type { ActionRow, Journal } from "../journal/journal.js";
+import type { ActionRow, ActionStatus, Journal } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
 import {
   observeState,
@@ -406,10 +406,17 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     // has been checked for drift above -- and goes ahead.
     // Forcing acts on rows an earlier refusal left `unrecoverable`, so those
     // have to be claimable too or the claim is not made at all.
-    const claimed = journal.markRollingBack(
-      action.id,
-      force ? ["applied", "unrecoverable"] : ["applied"],
-    );
+    // A replan is a person saying they corrected the policy and want it tried
+    // again, and every check above still ran -- so an action an earlier
+    // refusal left `unrecoverable` has to be claimable, or a resolved conflict
+    // could never be recovered. The claim is still a claim: losing it means
+    // another undo holds the action, which is a different thing entirely from
+    // a status the code simply forgot to permit. Replanning authorises the
+    // attempt; it does not authorise overwriting drift, which is checked
+    // above and halts on its own.
+    const claimable: readonly ActionStatus[] =
+      force || policies !== undefined ? ["applied", "unrecoverable"] : ["applied"];
+    const claimed = journal.markRollingBack(action.id, claimable);
     // The one honest reason to proceed without the claim is a resume: the row
     // is already `rolling_back` because we were interrupted mid-inverse, and
     // the drift check above has just decided what that means. Anything else

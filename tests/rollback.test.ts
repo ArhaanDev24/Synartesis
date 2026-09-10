@@ -658,3 +658,58 @@ describe("two people forcing the same undo at once", () => {
     expect(both.filter((report) => report.status === "rolled_back")).toHaveLength(1);
   });
 });
+
+describe("recovering from drift that has since been resolved", () => {
+  it("lets an explicit replan claim the action a refusal marked unrecoverable", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+
+    // Somebody edits it, undo refuses, and the row is left unrecoverable.
+    active.store.updateCustomer("c_001", { notes: "a human wrote this" });
+    const refused = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+    expect(refused.halted?.reason).toMatch(/drift/i);
+
+    // Then they put it back the way the run left it, which is one of the
+    // three ways out the halt itself offers.
+    active.store.updateCustomer("c_001", { notes: "agent edit" });
+
+    const again = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      replanWith: MANIFEST,
+    });
+
+    // The drift check passes now, so there is nothing left to stop it. The
+    // claim allowed only `applied`, so this used to report that another undo
+    // held the action -- which was never true.
+    expect(again.status).toBe("rolled_back");
+    expect(active.store.getCustomer("c_001").notes).toBe("founding customer");
+  });
+
+  it("still halts a replan when the drift has not been resolved", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    active.store.updateCustomer("c_001", { notes: "a human wrote this" });
+    await rollback({ journal: active.journal, router: active.router, runId: active.runId });
+
+    const again = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      replanWith: MANIFEST,
+    });
+    expect(again.halted).toBeDefined();
+    expect(active.store.getCustomer("c_001").notes).toBe("a human wrote this");
+  });
+});

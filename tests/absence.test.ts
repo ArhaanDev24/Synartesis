@@ -9,7 +9,7 @@ import { openJournal, type Journal } from "../src/journal/journal.js";
 import { parseManifest } from "../src/manifest/load.js";
 import { createRouter, type Router } from "../src/proxy/routing.js";
 import { rollback } from "../src/rollback/rollback.js";
-import { inspect } from "../src/rollback/inspect.js";
+import { inspect, tally, verdict } from "../src/rollback/inspect.js";
 import { inMemoryUpstream } from "./helpers/harness.js";
 
 /**
@@ -83,7 +83,6 @@ async function withDeniedRead(): Promise<{
   });
   journal.markApplied(action.actionId, {
     result: {},
-    snapshot: undefined,
     inverse: { server: "vault", tool: "put", args: { key: "k", value: "old" } },
     // Recorded with its absence rule, exactly as the proxy stores it.
     verify: { server: "vault", tool: "get", args: { key: "k" }, absentWhen: ["not found"] },
@@ -108,5 +107,51 @@ describe("a read that fails for a reason other than absence", () => {
     // inverse go out over a resource nobody could see.
     expect(report.steps.some((step) => step.kind === "revert" && step.verified)).toBe(false);
     expect(report.status).toBe("partial");
+  });
+});
+
+describe("what a summary is allowed to claim", () => {
+  it("does not call a session it could not read one with nothing left applied", async () => {
+    const { journal, router, runId } = await withDeniedRead();
+    const found = await inspect({ journal, router, runId });
+    const said = verdict(found);
+
+    expect(tally(found).unknowable).toBe(1);
+    // The most reassuring sentence available, about a resource nobody could
+    // look at. Absence of evidence is not evidence of absence.
+    expect(said).not.toMatch(/nothing here is still applied/);
+    expect(said).toMatch(/could not be checked|unknown/i);
+  });
+
+  it("says the post-state is missing rather than blaming a pre-read that exists", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-absence-"));
+    const journal = openJournal(join(dir, "journal.db"));
+    cleanups.push(() => {
+      journal.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const server = new McpServer({ name: "vault", version: "1.0.0" }, { capabilities: { tools: {} } });
+    server.registerTool("get", { description: "Read.", inputSchema: { key: z.string() } }, () => ({
+      content: [{ type: "text", text: "ok" }],
+    }));
+    const upstream = await inMemoryUpstream(server, "vault");
+    const router = createRouter([upstream], parseManifest(POLICY, "m.yaml"));
+
+    const runId = journal.beginRun("agent");
+    const action = journal.recordPending({
+      runId, server: "vault", tool: "put", args: { key: "k" }, class: "reversible",
+    });
+    // A declared pre-read, and a post-read that failed. Reported as "no
+    // pre-read was declared", which is a different problem with a different
+    // fix and sends people looking at their policy for nothing.
+    journal.markApplied(action.actionId, {
+      result: {},
+      inverse: { server: "vault", tool: "put", args: { key: "k" } },
+      verify: { server: "vault", tool: "get", args: { key: "k" }, absentWhen: ["not found"] },
+    });
+
+    const found = await inspect({ journal, router, runId });
+    expect(found.resources[0]?.note ?? "").toMatch(/post-state/);
+    expect(found.resources[0]?.note ?? "").not.toMatch(/no pre-read was declared/);
   });
 });
