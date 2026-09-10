@@ -2,6 +2,25 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.5.2 — 2026-09-10
+
+### Changed
+
+- **The README is a third of its former length** — 714 lines to 210. It had
+  grown a full walkthrough and a manifest-authoring guide, both of which already
+  exist in the user guide, so it was three documents pretending to be one and
+  the first screen was a long way from `npm install`. What is left is the
+  argument, the two real terminal shots, install, the four classes, the commands,
+  and the limits; the walkthrough and manifest authoring are one link away.
+
+  It also documents what has shipped since it was last written: `show --live`,
+  `show --full`, `undo --force [--yes]`, `undo --replan`, the `l` key and the
+  rest of the screen's keys, `SYNARTESIS_SYNC`, and which policies are actually
+  proven against a real server rather than merely checked for tool existence.
+
+  No code changed. npm cannot refresh a package page without a version, and this
+  also carries 0.5.1's latency fix to anyone installing from npm.
+
 ## 0.5.1 — 2026-09-10
 
 ### Changed
