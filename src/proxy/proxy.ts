@@ -759,13 +759,20 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             await decide(
               `nothing was captured to restore, so this cannot be undone — the read said: ${missingPriorState}`,
             );
-          } else {
+          } else if (journal.adoptApproval(pending.actionId, standing)) {
             // Moved onto the row that actually runs, which also spends it: an
             // approval answers one call, not every call that looks like it.
-            journal.adoptApproval(pending.actionId, standing);
             log?.info(
               { action: pending.actionId, by: standing.approvedBy, from: standing.runId },
               "proceeding on a standing approval",
+            );
+          } else {
+            // Somebody else spent it between the lookup and here. The gate
+            // path already treats that as having no approval; this branch
+            // dropped the answer on the floor and went ahead regardless,
+            // which is the same one-yes-two-calls hole in a second place.
+            await decide(
+              `nothing was captured to restore, so this cannot be undone — the read said: ${missingPriorState}`,
             );
           }
         }

@@ -2,6 +2,77 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.4.3 — 2026-09-10
+
+A correctness release. Seven reproduced defects in how effects are accounted
+for and how recovery is planned. Each is pinned by a test that fails against
+0.4.2 on real state and inverse-call counts, not on messages.
+
+The theme is one mistake made in seven places: treating absence of evidence as
+evidence. An error was read as proof nothing happened, a missing post-state as
+permission to write anyway, a stripped rule as proof of absence, and an
+unreadable resource as one with nothing left applied.
+
+### Fixed
+
+- **A timeout after the write was recorded as never applied.** The uncertainty
+  check knew only "Connection closed" and a downstream abort, so an upstream
+  that mutates a record and then times out fell through to `failed` — and
+  rollback steps over a failed action without looking at it. The change was
+  invisible to recovery.
+
+- **`isError` was treated as proof of a refusal.** The protocol gives the flag
+  no transactional meaning: it covers business-logic failures that happen after
+  a write as readily as a refusal before one.
+
+  Both now ask instead of assuming. Where a pre-read was declared, that same
+  read says what is true now, and comparing it against what was there before
+  turns a guess into evidence: unchanged is recorded as never applied, changed
+  is recorded as applied so it can be undone, and a read that cannot answer
+  leaves the outcome unknown. Only evidence of no dispatch — no transport, or a
+  JSON-RPC rejection of the envelope — is now recorded as definitely not
+  applied. Where there is no pre-read to ask, an adapter can state the
+  guarantee itself with `refusal: clean` on a tool policy; the default is
+  `uncertain`.
+
+- **Undo overwrote human edits when the post-state was missing.** A reversible
+  action promises evidence. Where the post-read failed at capture, rollback
+  reverted anyway, labelled it unverified and reported success — writing the
+  old value over whatever was there, with no `--force` required. It now halts
+  and says which half of the evidence is missing. `--force` is how a person
+  decides to proceed; the step stays unverified in the report. Compensable
+  actions, whose policies declare no pre-read at all, are deliberately not
+  caught by this.
+
+- **`absentWhen` was stripped on the way back in.** Rollback and inspection
+  each parsed a stored verify read through a schema naming only server, tool
+  and args, so the absence rules were dropped and every read failure became
+  "the resource is gone". A "permission denied" was reported as a definite
+  change and could send an inverse. There is now one shared schema for a stored
+  read.
+
+- **`--replan` could not recover a resolved conflict.** Taking the halt's own
+  advice — put the resource back, then replan — passed every check and then
+  failed to claim the row, reporting that another undo held it, which was never
+  true. Unresolved drift still halts.
+
+- **Preview invented drift it would never meet.** Undo puts intervening states
+  back as it walks down; a preview sends nothing, so an older write to a
+  twice-written record was compared against the newest value and called drift.
+  The preview now carries the state each planned inverse would leave, and only
+  where that is knowable — a compensation stops the chain rather than guessing.
+
+- **Inspection claimed nothing was left applied about resources it could not
+  read.** The summary counted only changed and unchanged, so an unreadable
+  resource fell through to the most reassuring sentence available. Unknowns are
+  now said first and never absorbed into a clean answer; `tally()` exposes the
+  counts. A failed post-read is also no longer reported as "no pre-read was
+  declared".
+
+- **A second place where one approval could authorise two calls.** The
+  missing-prior-state branch ignored the boolean from `adoptApproval`, so a
+  caller that lost the claim proceeded anyway. It now asks, like the gate path.
+
 ## 0.4.2 — 2026-09-09
 
 Three bugs, found by auditing the paths the last pass did not touch. Each is
