@@ -35,6 +35,18 @@ const SCRIPT = [
       "so say “put that back” whenever you like.",
     calls: [],
   },
+  // Creating a file has no prior state to restore and this server cannot
+  // delete, so the policy holds it. Ask a second time to see an approval.
+  {
+    say: "I will start a summary file for it.",
+    calls: [
+      {
+        name: "fs__write_file",
+        args: { path: FILE.replace("report.txt", "summary.md"), content: "# Summary\n\nNorth is zero.\n" },
+      },
+    ],
+  },
+  { say: "That one is waiting for you — it cannot be undone, so you decide.", calls: [] },
 ];
 
 let turn = 0;

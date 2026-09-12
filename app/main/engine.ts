@@ -226,6 +226,22 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
       for (const upstream of upstreams) {
         await upstream.close();
       }
+      /*
+       * A session in which nothing happened is not history, it is litter.
+       *
+       * Opening the window starts a run whether or not anybody says anything,
+       * and every launch was leaving a row behind -- twelve of them in one
+       * afternoon of testing, which is twelve lines of `synartesis list`
+       * standing between somebody and the run they are looking for. This is
+       * our own run and it recorded nothing, so it is safe to take back.
+       */
+      try {
+        if (journal.getActions(runId).length === 0) {
+          journal.deleteRuns([runId]);
+        }
+      } catch {
+        // A journal that cannot be tidied is not a reason to fail a shutdown.
+      }
       journal.close();
     },
   };

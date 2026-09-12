@@ -53,8 +53,8 @@
     "app:icon": "electron app/build/make-icon.mjs",
     "app:logo": "python3 app/build/make-logo.py && pnpm app:icon",
     "app:sandbox": "pnpm app:build && node app/dev/sandbox.mjs",
-    "app:pack": "pnpm app:build && electron-builder --dir --projectDir app",
-    "app:dist": "pnpm app:build && electron-builder --projectDir app",
+    "app:pack": "pnpm app:build && node app/build/pack.mjs --dir",
+    "app:dist": "pnpm app:build && node app/build/pack.mjs",
     "demo": "tsup --silent && ./demo/filesystem-demo.sh",
     "demo:memory": "tsup --silent && ./demo/memory-demo.sh",
     "prepublishOnly": "tsup"

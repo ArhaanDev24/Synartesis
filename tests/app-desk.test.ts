@@ -343,6 +343,46 @@ describe("the chat list", () => {
   });
 });
 
+describe("what the journal is left with", () => {
+  it("leaves no trace of a window that was opened and closed", async () => {
+    const { desk, root } = await bench();
+    await desk.start();
+    await desk.close();
+    desks.length = 0;
+
+    const journal = openJournal(join(root, "journal.db"));
+    try {
+      // Opening the window starts a session whether or not anything is said.
+      // One row per launch is one line of `synartesis list` between somebody
+      // and the run they are actually looking for.
+      expect(journal.listRuns()).toHaveLength(0);
+    } finally {
+      journal.close();
+    }
+  });
+
+  it("keeps a session the moment anything is recorded in it", async () => {
+    const { desk, files, script, root } = await bench();
+    const path = join(files, "kept.txt");
+    writeFileSync(path, "before\n");
+
+    const opened = await desk.start();
+    script.calls = [{ name: WRITE, args: { path, content: "after\n" } }];
+    await desk.send(opened.id, "change it");
+    await desk.close();
+    desks.length = 0;
+
+    const journal = openJournal(join(root, "journal.db"));
+    try {
+      expect(journal.listRuns()).toHaveLength(1);
+      const run = journal.listRuns()[0];
+      expect(run === undefined ? [] : journal.getActions(run.id)).not.toHaveLength(0);
+    } finally {
+      journal.close();
+    }
+  });
+});
+
 describe("coming back to it", () => {
   it("still has the conversation, and can still undo the older session", async () => {
     const first = await bench();
