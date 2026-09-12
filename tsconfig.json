@@ -21,5 +21,9 @@
     "forceConsistentCasingInFileNames": true,
     "noEmit": true
   },
-  "include": ["src", "app", "fixtures", "tests", "demo", "*.config.ts"]
+  "include": ["src", "app", "fixtures", "tests", "demo", "*.config.ts"],
+  // The renderer is a browser program: it needs DOM types and JSX, which the
+  // rest of this repository must not have. It is checked by its own tsconfig,
+  // which `pnpm typecheck` also runs.
+  "exclude": ["app/renderer"]
 }
