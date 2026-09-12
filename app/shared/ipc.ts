@@ -11,6 +11,9 @@ import type { ProviderConfig, Reasoning } from "../providers/index.js";
 
 export type { ProviderConfig, Reasoning };
 
+/** Which ground the document area is painted on. The rail is oxblood either way. */
+export type Theme = "light" | "dark";
+
 /** One tool call, as the window draws it. */
 export interface CallCard {
   readonly id: string;
@@ -107,6 +110,7 @@ export interface Settings {
   readonly models: readonly ModelChoice[];
   readonly chosen?: string;
   readonly reasoning: Reasoning;
+  readonly theme: Theme;
   /** False when the OS has no keychain, so the window can say why. */
   readonly canKeepSecrets: boolean;
   readonly account?: Account;
@@ -137,6 +141,7 @@ export interface Bridge {
   settings(): Promise<Settings>;
   chooseModel(id: string): Promise<Settings>;
   setReasoning(reasoning: Reasoning): Promise<Settings>;
+  setTheme(theme: Theme): Promise<Settings>;
   /** The key goes straight to the OS keychain and is never read back out. */
   saveKey(id: string, key: string): Promise<Settings>;
   forgetKey(id: string): Promise<Settings>;

@@ -1,4 +1,4 @@
-import { ARROWHEAD, BOX, STROKES } from "./logo-art.js";
+import { ARROWHEAD, BOX, FRINGE, KEY, SQUARE, STROKES, TILE, TILES } from "./logo-art.js";
 
 /**
  * The mark: a circle that does not quite close, and an arrow going back round.
@@ -55,7 +55,13 @@ export function Mark({
  * and the fan is generated rather than traced so it cannot drift from the
  * application icon, which is drawn from the same numbers.
  */
-export function Logo({ size = 200 }: { size?: number }): React.JSX.Element {
+export function Logo({
+  size = 200,
+  framed = false,
+}: {
+  size?: number;
+  framed?: boolean;
+}): React.JSX.Element {
   return (
     <svg
       className="logo"
@@ -65,12 +71,40 @@ export function Logo({ size = 200 }: { size?: number }): React.JSX.Element {
       aria-hidden="true"
       focusable="false"
     >
-      <g stroke="currentColor" strokeWidth="2.4" fill="none" strokeLinecap="round" opacity="0.5">
-        {STROKES.map(([x1, y1, x2, y2], at) => (
-          <line key={at} x1={x1} y1={y1} x2={x2} y2={y2} />
-        ))}
+      {framed ? (
+        <g fill="none" stroke="currentColor" opacity="0.45">
+          <rect
+            x={SQUARE.at}
+            y={SQUARE.at}
+            width={SQUARE.side}
+            height={SQUARE.side}
+            strokeWidth="4"
+          />
+          {TILES.map(([x, y], at) => (
+            <path
+              key={at}
+              d={KEY}
+              transform={`translate(${String(x)} ${String(y)}) scale(${String(TILE)})`}
+              strokeWidth={5 / TILE}
+            />
+          ))}
+        </g>
+      ) : null}
+      <g transform={framed ? "translate(512 512) scale(0.62) translate(-512 -512)" : ""}>
+        {/* The hairs first and lighter, so the crescent sits on top of them
+            rather than being lost in them. */}
+        <g stroke="currentColor" strokeWidth="1.4" fill="none" opacity="0.3">
+          {FRINGE.map(([x1, y1, x2, y2], at) => (
+            <line key={at} x1={x1} y1={y1} x2={x2} y2={y2} />
+          ))}
+        </g>
+        <g stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.5">
+          {STROKES.map(([x1, y1, x2, y2], at) => (
+            <line key={at} x1={x1} y1={y1} x2={x2} y2={y2} />
+          ))}
+        </g>
+        <polygon points={ARROWHEAD} fill="currentColor" />
       </g>
-      <polygon points={ARROWHEAD} fill="currentColor" />
     </svg>
   );
 }
@@ -83,6 +117,6 @@ export function Logo({ size = 200 }: { size?: number }): React.JSX.Element {
  * palette is allowed to go properly pale, because a page that is oxblood from
  * edge to edge has nothing for the eye to rest against.
  */
-export function Fret({ tall = false }: { tall?: boolean }): React.JSX.Element {
-  return <div className="fret" data-tall={tall} aria-hidden="true" />;
+export function Fret(): React.JSX.Element {
+  return <div className="fret" aria-hidden="true" />;
 }

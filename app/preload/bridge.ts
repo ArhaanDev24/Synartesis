@@ -38,6 +38,7 @@ const bridge = {
   settings: () => call("settings:get"),
   chooseModel: (id: string) => call("settings:choose", id),
   setReasoning: (reasoning: string) => call("settings:reasoning", reasoning),
+  setTheme: (theme: string) => call("settings:theme", theme),
   saveKey: (id: string, key: string) => call("settings:save-key", id, key),
   forgetKey: (id: string) => call("settings:forget-key", id),
   signIn: () => call("account:sign-in"),

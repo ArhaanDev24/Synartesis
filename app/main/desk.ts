@@ -15,6 +15,7 @@ import type {
   Reasoning,
   SessionEvent,
   Settings,
+  Theme,
 } from "../shared/ipc.js";
 
 /**
@@ -166,6 +167,16 @@ export class Desk {
   setReasoning(reasoning: Reasoning): Settings {
     this.library.setReasoning(reasoning);
     return this.settings();
+  }
+
+  setTheme(theme: Theme): Settings {
+    this.library.setTheme(theme);
+    return this.settings();
+  }
+
+  /** Asked before the window is made, so it opens on the right ground. */
+  theme(): Theme {
+    return this.library.theme();
   }
 
   saveKey(id: string, key: string): Settings {

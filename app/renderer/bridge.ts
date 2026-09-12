@@ -4,6 +4,7 @@ import type {
   Reasoning,
   SessionEvent,
   Settings,
+  Theme,
 } from "../shared/ipc.js";
 
 /**
@@ -19,6 +20,7 @@ export interface Bridge {
   settings(): Promise<Settings>;
   chooseModel(id: string): Promise<Settings>;
   setReasoning(reasoning: Reasoning): Promise<Settings>;
+  setTheme(theme: Theme): Promise<Settings>;
   saveKey(id: string, key: string): Promise<Settings>;
   forgetKey(id: string): Promise<Settings>;
   signIn(): Promise<Settings>;

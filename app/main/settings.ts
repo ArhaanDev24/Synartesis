@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { createProvider, PRESETS, type ProviderConfig, type Provider } from "../providers/index.js";
-import type { ModelChoice, Reasoning, Settings } from "../shared/ipc.js";
+import type { ModelChoice, Reasoning, Settings, Theme } from "../shared/ipc.js";
 
 type ModelSettings = Omit<Settings, "account" | "canSignIn">;
 
@@ -42,6 +42,7 @@ interface Stored {
   readonly models: readonly StoredModel[];
   readonly chosen?: string;
   readonly reasoning: Reasoning;
+  readonly theme: Theme;
 }
 
 function slug(name: string): string {
@@ -62,6 +63,10 @@ function seed(): Stored {
     // will do anything is a first run nobody finishes.
     chosen: "ollama",
     reasoning: "balanced",
+    // Parchment by default. The reading area is where the eye spends all its
+    // time, and oxblood behind two thousand words is exhausting whatever the
+    // words say. The dark one is a click away and keeps the whole identity.
+    theme: "light",
   };
 }
 
@@ -144,6 +149,7 @@ function read(path: string): Stored {
     return seed();
   }
   const reasoning = parsed["reasoning"];
+  const theme = parsed["theme"];
   return {
     models,
     ...(typeof parsed["chosen"] === "string" ? { chosen: parsed["chosen"] } : {}),
@@ -151,6 +157,7 @@ function read(path: string): Stored {
       reasoning === "brief" || reasoning === "balanced" || reasoning === "thorough"
         ? reasoning
         : "balanced",
+    theme: theme === "dark" ? "dark" : "light",
   };
 }
 
@@ -200,6 +207,7 @@ export class Library {
       ),
       ...(this.#state.chosen === undefined ? {} : { chosen: this.#state.chosen }),
       reasoning: this.#state.reasoning,
+      theme: this.#state.theme,
       canKeepSecrets: this.secrets.available(),
     };
   }
@@ -227,6 +235,16 @@ export class Library {
   setReasoning(reasoning: Reasoning): void {
     this.#state = { ...this.#state, reasoning };
     this.#save();
+  }
+
+  setTheme(theme: Theme): void {
+    this.#state = { ...this.#state, theme };
+    this.#save();
+  }
+
+  /** Read before the window exists, so it opens on the right ground. */
+  theme(): Theme {
+    return this.#state.theme;
   }
 
   saveKey(id: string, key: string): void {

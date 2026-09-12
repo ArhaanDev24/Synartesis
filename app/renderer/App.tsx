@@ -30,6 +30,7 @@ import type {
 
 const EMPTY: ChangeSummary = { sessionId: "", touched: 0, recoverable: 0, held: 0 };
 const STEPS = ["brief", "balanced", "thorough"] as const;
+const THEMES = ["light", "dark"] as const;
 
 function split(name: string): [string, string] {
   const at = name.indexOf("__");
@@ -199,6 +200,17 @@ export function App(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
+    // On the root element, where the stylesheet looks for it. Light is the
+    // default and needs no attribute, so it is removed rather than set.
+    const theme = settings?.theme;
+    if (theme === "dark") {
+      document.documentElement.dataset["theme"] = "dark";
+    } else {
+      delete document.documentElement.dataset["theme"];
+    }
+  }, [settings?.theme]);
+
+  useEffect(() => {
     const stopListening = engine.onEvent((id, event) => {
       if (id === openRef.current) {
         apply(event);
@@ -355,7 +367,7 @@ export function App(): React.JSX.Element {
       <div className="app" style={{ gridTemplateColumns: "1fr" }}>
         <div className="scroll">
           <div className="empty">
-            <Logo size={140} />
+            <Logo size={190} framed />
             <h2>No policy yet</h2>
             <p>
               Synartesis will not guess which of your tools are safe to let an agent use
@@ -403,46 +415,27 @@ export function App(): React.JSX.Element {
         </div>
 
         <div className="rail-foot">
-          {account === undefined ? (
-            <button
-              className="account"
-              disabled={settings?.canSignIn !== true}
-              title={
-                settings?.canSignIn === true
-                  ? "So the journal can record who approved what"
-                  : "This build has no Google client id"
-              }
-              onClick={() => {
-                engine.signIn().then(took, complain);
-              }}
-            >
+          <button
+            className="account"
+            onClick={() => {
+              setPane(pane === "account" ? undefined : "account");
+            }}
+          >
+            {account === undefined ? (
               <span className="face" />
-              <span className="account-who">
-                <b>Sign in with Google</b>
-                <span className="account-sub">
-                  {settings?.canSignIn === true ? "Optional" : "Not available in this build"}
-                </span>
-              </span>
-            </button>
-          ) : (
-            <button
-              className="account"
-              onClick={() => {
-                setPane(pane === "account" ? undefined : "account");
-              }}
-            >
+            ) : (
               <Face
                 name={account.name}
                 {...(account.picture === undefined ? {} : { picture: account.picture })}
               />
-              <span className="account-who">
-                <b>{account.name}</b>
-                <span className="account-sub">{account.email}</span>
-              </span>
-            </button>
-          )}
+            )}
+            <span className="account-who">
+              <b>{account?.name ?? "Not signed in"}</b>
+              <span className="account-sub">{account?.email ?? "Appearance and account"}</span>
+            </span>
+          </button>
 
-          {pane === "account" && account !== undefined ? (
+          {pane === "account" ? (
             <>
               <div
                 className="scrim"
@@ -451,18 +444,55 @@ export function App(): React.JSX.Element {
                 }}
               />
               <div className="pop" data-at="account">
-                <p className="pop-note">
-                  Approvals are recorded in the journal as {account.email}. That is all signing
-                  in does — nothing is sent anywhere and nothing syncs.
-                </p>
-                <button
-                  className="pop-row"
-                  onClick={() => {
-                    engine.signOut().then(took, complain);
-                  }}
-                >
-                  <span className="pop-name">Sign out</span>
-                </button>
+                <p className="pop-label">Appearance</p>
+                <div className="steps" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
+                  {THEMES.map((theme) => (
+                    <button
+                      key={theme}
+                      aria-pressed={(settings?.theme ?? "light") === theme}
+                      onClick={() => {
+                        engine.setTheme(theme).then(setSettings, complain);
+                      }}
+                    >
+                      {theme}
+                    </button>
+                  ))}
+                </div>
+
+                <p className="pop-label">Account</p>
+                {account === undefined ? (
+                  <>
+                    <button
+                      className="pop-row"
+                      disabled={settings?.canSignIn !== true}
+                      onClick={() => {
+                        engine.signIn().then(took, complain);
+                      }}
+                    >
+                      <span className="pop-name">Sign in with Google</span>
+                    </button>
+                    <p className="pop-note">
+                      {settings?.canSignIn === true
+                        ? "Optional. It only makes the journal record who approved a call, by name, instead of “you”. Nothing is sent anywhere and nothing syncs."
+                        : "This build has no Google client id, so signing in is unavailable. Everything else works unchanged."}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      className="pop-row"
+                      onClick={() => {
+                        engine.signOut().then(took, complain);
+                      }}
+                    >
+                      <span className="pop-name">Sign out</span>
+                    </button>
+                    <p className="pop-note">
+                      Approvals are recorded in the journal as {account.email}. That is all
+                      signing in does.
+                    </p>
+                  </>
+                )}
               </div>
             </>
           ) : null}
@@ -500,7 +530,7 @@ export function App(): React.JSX.Element {
           <div className="thread">
             {messages.length === 0 ? (
               <div className="empty">
-                <Logo size={150} />
+                <Logo size={200} framed />
                 <h2>Ready when you are.</h2>
                 <p>
                   Whatever the model touches is recorded with the state it replaced, so you can

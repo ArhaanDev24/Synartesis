@@ -7,7 +7,7 @@ import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
 import { Desk } from "./desk.js";
 import type { SecretStore } from "./settings.js";
 import { home, JOURNAL_NAME, MANIFEST_NAME } from "../../src/locate.js";
-import type { Reasoning, SessionEvent } from "../shared/ipc.js";
+import type { Reasoning, SessionEvent, Theme } from "../shared/ipc.js";
 
 /**
  * The window, and nothing else.
@@ -42,15 +42,22 @@ function tell(id: string, event: SessionEvent): void {
   }
 }
 
-function makeWindow(): BrowserWindow {
+/**
+ * The ground the frame paints before the page has drawn anything.
+ *
+ * Read from the stored preference rather than fixed, because a window that
+ * flashes oxblood and then turns parchment is a window that looks broken for
+ * a third of a second on every launch.
+ */
+const GROUND: Record<Theme, string> = { light: "#f4ece5", dark: "#5e1420" };
+
+function makeWindow(theme: Theme = "light"): BrowserWindow {
   const window = new BrowserWindow({
     width: 1180,
     height: 820,
     minWidth: 720,
     minHeight: 540,
-    // The page paints its own ground; without this the frame flashes white
-    // before the first paint, which on this palette is a slap.
-    backgroundColor: "#5e1420",
+    backgroundColor: GROUND[theme],
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     show: false,
     webPreferences: {
@@ -92,6 +99,7 @@ function wire(desk: Desk): void {
     "settings:get": () => desk.settings(),
     "settings:choose": (id) => desk.chooseModel(asString(id)),
     "settings:reasoning": (reasoning) => desk.setReasoning(asReasoning(reasoning)),
+    "settings:theme": (theme) => desk.setTheme(asTheme(theme)),
     "settings:save-key": (id, key) => desk.saveKey(asString(id), asString(key)),
     "settings:forget-key": (id) => desk.forgetKey(asString(id)),
     "account:sign-in": () => desk.signIn(),
@@ -136,6 +144,13 @@ function asString(value: unknown): string {
     throw new Error("expected text");
   }
   return value;
+}
+
+function asTheme(value: unknown): Theme {
+  if (value === "light" || value === "dark") {
+    return value;
+  }
+  throw new Error("expected light or dark");
 }
 
 function asReasoning(value: unknown): Reasoning {
@@ -208,11 +223,11 @@ async function main(): Promise<void> {
         }),
   });
   wire(desk);
-  makeWindow();
+  makeWindow(desk.theme());
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      makeWindow();
+      makeWindow(desk.theme());
     }
   });
 
