@@ -118,6 +118,16 @@ can find it. After that, either the icon or `synartesis desktop` opens it; the
 command looks where each platform actually installs things rather than asking
 you to remember a path.
 
+**The builds are not signed yet, and the first launch says so.** macOS refuses
+an application it cannot check with Apple: open System Settings → Privacy &
+Security and press *Open Anyway*, or `xattr -dr com.apple.quarantine
+/Applications/Synartesis.app` to say the same thing in one line. Windows shows
+a SmartScreen warning, behind *More info*. Both of those are the operating
+system telling you the truth — nobody has vouched for this binary — and the
+honest fix is a Developer ID certificate rather than a page telling you to
+click past it. Building from the clone below avoids the question entirely,
+since an application you built is one you have already vouched for.
+
 To build it yourself instead:
 
 ```bash
