@@ -2,6 +2,24 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.2 — 2026-09-12
+
+### Fixed
+
+- **The application could not be built on Windows or Linux at all**, which the
+  first release build found out the hard way. On Windows, pnpm compiles
+  better-sqlite3 from source -- ignoring the `gypfile: false` that tells npm
+  not to bother -- and a runner whose Visual Studio is newer than node-gyp
+  knows about simply fails. It never needed compiling: the package ships a
+  prebuilt binary for every platform it supports, and its loader prefers one
+  over anything built locally, so what node-gyp produced here was never
+  loaded. On Linux, dpkg refuses to build a `.deb` without a maintainer, and
+  nothing named one.
+
+- **The release workflow can be rehearsed.** Run with the tag box empty, it
+  builds the branch on all three platforms and publishes nothing. Finding out
+  whether a build works should not cost a version number each time.
+
 ## 0.6.1 — 2026-09-12
 
 ### Added
