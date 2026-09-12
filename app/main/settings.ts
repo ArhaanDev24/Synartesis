@@ -34,6 +34,7 @@ interface StoredModel {
   readonly config: ProviderConfig;
   readonly needsKey: boolean;
   readonly note: string;
+  readonly keyUrl?: string;
   /** Encrypted by the OS. Unreadable without this machine and this user. */
   readonly sealedKey?: string;
 }
@@ -57,6 +58,7 @@ function seed(): Stored {
       config: preset.config,
       needsKey: preset.needsKey,
       note: preset.note,
+      ...(preset.keyUrl === undefined ? {} : { keyUrl: preset.keyUrl }),
     })),
     // Ollama: the only one that works the moment the app opens, with no
     // account and no key. A first run that demands a credit card before it
@@ -142,6 +144,7 @@ function read(path: string): Stored {
       config: settled,
       needsKey: needsKey === true,
       note: typeof note === "string" ? note : "",
+      ...(typeof one["keyUrl"] === "string" ? { keyUrl: one["keyUrl"] } : {}),
       ...(typeof sealedKey === "string" ? { sealedKey } : {}),
     });
   }
@@ -199,6 +202,7 @@ export class Library {
           config: model.config,
           needsKey: model.needsKey,
           note: model.note,
+          ...(model.keyUrl === undefined ? {} : { keyUrl: model.keyUrl }),
           hasKey: model.sealedKey !== undefined,
           // Asked of the adapter rather than guessed, so the window's answer
           // and the request's behaviour cannot drift apart.
@@ -275,6 +279,7 @@ export class Library {
           config: model.config,
           needsKey: model.needsKey,
           note: model.note,
+          ...(model.keyUrl === undefined ? {} : { keyUrl: model.keyUrl }),
         };
       }),
     };

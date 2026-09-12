@@ -41,6 +41,7 @@ const bridge = {
   setTheme: (theme: string) => call("settings:theme", theme),
   saveKey: (id: string, key: string) => call("settings:save-key", id, key),
   forgetKey: (id: string) => call("settings:forget-key", id),
+  openKeyPage: (url: string) => call("open:key-page", url),
   signIn: () => call("account:sign-in"),
   signOut: () => call("account:sign-out"),
 

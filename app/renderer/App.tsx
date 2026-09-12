@@ -177,6 +177,7 @@ export function App(): React.JSX.Element {
   const [activity, setActivity] = useState<"checking" | "planning" | "undoing" | undefined>(undefined);
   const [sheet, setSheet] = useState<Sheet | undefined>(undefined);
   const [folder, setFolder] = useState<FolderReport | undefined>(undefined);
+  const [keys, setKeys] = useState(false);
   const sheetTrigger = useRef<HTMLElement | null>(null);
   const [missing, setMissing] = useState<string | undefined>(undefined);
   const [key, setKey] = useState("");
@@ -858,79 +859,36 @@ export function App(): React.JSX.Element {
               <FocusPanel className="pop" at="models" id="model-options" label="Model and thinking effort" onClose={() => { setPane(undefined); setKey(""); setKeying(undefined); }}>
                 <p className="pop-label">Model</p>
                 {(settings?.models ?? []).map((model) => (
-                  <div className="model" key={model.id}>
-                    <button
-                      className="pop-row"
-                      aria-current={model.id === settings?.chosen}
-                      onClick={() => {
-                        engine.chooseModel(model.id).then(setSettings, complain);
-                      }}
-                    >
-                      <span className="pop-name">
-                        {model.name}
-                        {model.needsKey && !model.hasKey ? <em> needs a key</em> : null}
-                      </span>
-                      <span className="pop-note">{model.note}</span>
-                    </button>
-                    {/* Every model that wants a key can be given one here,
-                        not only whichever is selected -- otherwise setting up
-                        a second model means switching to it first. */}
-                    {model.needsKey ? (
-                      <div className="model-key">
-                        {model.hasKey ? (
-                          <>
-                            <span className="key-state">Key saved in this machine's keychain</span>
-                            <button
-                              className="act"
-                              onClick={() => {
-                                engine.forgetKey(model.id).then(setSettings, complain);
-                              }}
-                            >
-                              Remove
-                            </button>
-                          </>
-                        ) : keying === model.id ? (
-                          <input
-                            type="password"
-                            autoFocus
-                            aria-label={`API key for ${model.name}`}
-                            autoComplete="off"
-                            value={key}
-                            placeholder="Paste it and press Enter"
-                            onChange={(event) => {
-                              setKey(event.target.value);
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" && key !== "") {
-                                engine.saveKey(model.id, key).then((next) => {
-                                  setKey("");
-                                  setKeying(undefined);
-                                  setSettings(next);
-                                }, complain);
-                              }
-                            }}
-                          />
-                        ) : (
-                          <button
-                            className="act"
-                            disabled={settings?.canKeepSecrets !== true}
-                            onClick={() => {
-                              setKey("");
-                              setKeying(model.id);
-                            }}
-                          >
-                            Add key
-                          </button>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
+                  <button
+                    key={model.id}
+                    className="pop-row"
+                    aria-current={model.id === settings?.chosen}
+                    onClick={() => {
+                      engine.chooseModel(model.id).then(setSettings, complain);
+                    }}
+                  >
+                    <span className="pop-name">
+                      {model.name}
+                      {model.needsKey ? (
+                        <em data-ready={model.hasKey}>{model.hasKey ? "key saved" : "needs a key"}</em>
+                      ) : null}
+                    </span>
+                    <span className="pop-note">{model.note}</span>
+                  </button>
                 ))}
-                <p className="pop-note">
-                  {settings?.canKeepSecrets === true
-                    ? "Keys go to this machine's keychain. They are never written to the journal, a log, or this window."
-                    : "This machine has no keychain available, so a key cannot be stored safely. The local models need none."}
-                </p>
+                {/* Setting a key up is not choosing a model, and squeezing it
+                    in here made both cramped. It gets a sheet. */}
+                <button
+                  className="pop-row pop-more"
+                  onClick={() => {
+                    sheetTrigger.current =
+                      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                    setPane(undefined);
+                    setKeys(true);
+                  }}
+                >
+                  <span className="pop-name">API keys…</span>
+                </button>
 
                 <p className="pop-label">Thinking</p>
                 <div className="steps" data-inert={chosen?.thinks === false}>
@@ -958,6 +916,134 @@ export function App(): React.JSX.Element {
           ) : null}
         </div>
       </main>
+
+      {!keys ? null : (
+        <div className="sheet">
+          <FocusPanel
+            className="sheet-card wide"
+            id="api-keys"
+            label="API keys"
+            returnTo={sheetTrigger.current}
+            onClose={() => {
+              setKeys(false);
+              setKey("");
+              setKeying(undefined);
+            }}
+          >
+            <h2>API keys</h2>
+            <p className="pop-note">
+              {settings?.canKeepSecrets === true
+                ? "Kept in this machine's keychain. Never written to the journal, a log, or this window — not even to show you a masked version."
+                : "This machine has no keychain available, so a key cannot be stored safely here. The local models need none."}
+            </p>
+
+            <div className="keys">
+              {(settings?.models ?? [])
+                .filter((model) => model.needsKey)
+                .map((model) => (
+                  <div className="key-row" key={model.id} data-ready={model.hasKey}>
+                    <div className="key-who">
+                      <b>{model.name}</b>
+                      <span>{model.note}</span>
+                      {model.keyUrl === undefined ? null : (
+                        <button
+                          className="key-link"
+                          onClick={() => {
+                            if (model.keyUrl !== undefined) {
+                              engine.openKeyPage(model.keyUrl).catch(complain);
+                            }
+                          }}
+                        >
+                          Get a key ↗
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="key-do">
+                      {model.hasKey ? (
+                        <>
+                          <span className="key-state">Saved ✓</span>
+                          <button
+                            className="act"
+                            onClick={() => {
+                              engine.forgetKey(model.id).then(setSettings, complain);
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </>
+                      ) : keying === model.id ? (
+                        <>
+                          <input
+                            type="password"
+                            autoFocus
+                            aria-label={`API key for ${model.name}`}
+                            autoComplete="off"
+                            value={key}
+                            placeholder="Paste the key"
+                            onChange={(event) => {
+                              setKey(event.target.value);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" && key !== "") {
+                                engine.saveKey(model.id, key).then((next) => {
+                                  setKey("");
+                                  setKeying(undefined);
+                                  setSettings(next);
+                                }, complain);
+                              }
+                            }}
+                          />
+                          <button
+                            className="act"
+                            data-weight="heavy"
+                            disabled={key === ""}
+                            onClick={() => {
+                              engine.saveKey(model.id, key).then((next) => {
+                                setKey("");
+                                setKeying(undefined);
+                                setSettings(next);
+                              }, complain);
+                            }}
+                          >
+                            Save
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="act"
+                          disabled={settings?.canKeepSecrets !== true}
+                          onClick={() => {
+                            setKey("");
+                            setKeying(model.id);
+                          }}
+                        >
+                          Add key
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+            </div>
+
+            <p className="pop-note">
+              The models that run on this machine — Ollama, LM Studio, vLLM — need no key at all.
+            </p>
+            <div className="sheet-row">
+              <button
+                className="act"
+                onClick={() => {
+                  setKeys(false);
+                  setKey("");
+                  setKeying(undefined);
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </FocusPanel>
+        </div>
+      )}
 
       {folder === undefined ? null : (
         <div className="sheet">

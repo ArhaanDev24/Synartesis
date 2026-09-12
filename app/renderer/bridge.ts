@@ -24,6 +24,7 @@ export interface Bridge {
   setTheme(theme: Theme): Promise<Settings>;
   saveKey(id: string, key: string): Promise<Settings>;
   forgetKey(id: string): Promise<Settings>;
+  openKeyPage(url: string): Promise<void>;
   signIn(): Promise<Settings>;
   signOut(): Promise<Settings>;
 

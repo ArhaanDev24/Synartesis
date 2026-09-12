@@ -77,6 +77,12 @@ export interface Preset {
   readonly needsKey: boolean;
   /** One line under the name, telling the truth about what this costs. */
   readonly note: string;
+  /**
+   * Where a key comes from, for the ones that need one. Shown as a link the
+   * window can open, so nobody has to go and find out which of four consoles
+   * this particular provider uses.
+   */
+  readonly keyUrl?: string;
 }
 
 /**
@@ -89,12 +95,14 @@ export interface Preset {
 export const PRESETS: readonly Preset[] = [
   {
     name: "Claude",
+    keyUrl: "https://console.anthropic.com/settings/keys",
     config: { kind: "anthropic", model: "claude-opus-5" },
     needsKey: true,
     note: "Anthropic. Charged per token. Thinking effort applies.",
   },
   {
     name: "Gemini",
+    keyUrl: "https://aistudio.google.com/apikey",
     config: { kind: "gemini", model: "gemini-3-pro-preview" },
     needsKey: true,
     note: "Google. Charged per token. Thinking level applies.",
@@ -134,6 +142,7 @@ export const PRESETS: readonly Preset[] = [
   },
   {
     name: "Mistral",
+    keyUrl: "https://console.mistral.ai/api-keys",
     config: {
       kind: "openai-compatible",
       model: "mistral-large-latest",
@@ -145,6 +154,7 @@ export const PRESETS: readonly Preset[] = [
   },
   {
     name: "OpenAI",
+    keyUrl: "https://platform.openai.com/api-keys",
     config: {
       kind: "openai-compatible",
       model: "gpt-5",

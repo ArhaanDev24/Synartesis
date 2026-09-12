@@ -93,6 +93,8 @@ export interface ModelChoice {
   readonly config: ProviderConfig;
   readonly needsKey: boolean;
   readonly note: string;
+  /** Where to get a key, for the ones that need one. */
+  readonly keyUrl?: string;
   /** Whether a key is on file. Never the key itself. */
   readonly hasKey: boolean;
   /** Whether the thinking control reaches anything on this one. */
@@ -172,6 +174,14 @@ export interface Bridge {
   /** The key goes straight to the OS keychain and is never read back out. */
   saveKey(id: string, key: string): Promise<Settings>;
   forgetKey(id: string): Promise<Settings>;
+  /**
+   * Open one of the providers' key pages in the person's browser.
+   *
+   * Only those: the main process checks the address against the ones the
+   * models themselves name. A bridge that opened whatever the page asked for
+   * would be a way to make this window launch anything.
+   */
+  openKeyPage(url: string): Promise<void>;
   signIn(): Promise<Settings>;
   signOut(): Promise<Settings>;
 

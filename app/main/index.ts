@@ -102,6 +102,25 @@ function wire(desk: Desk): void {
     "settings:theme": (theme) => desk.setTheme(asTheme(theme)),
     "settings:save-key": (id, key) => desk.saveKey(asString(id), asString(key)),
     "settings:forget-key": (id) => desk.forgetKey(asString(id)),
+    /**
+     * Open a provider's key page in the person's browser.
+     *
+     * Checked against the addresses the models themselves name, not taken on
+     * trust. A bridge that opened whatever the page asked for would be a way
+     * to make this window launch anything, and this is a window that renders
+     * text somebody else wrote.
+     */
+    "open:key-page": (url) => {
+      const asked = asString(url);
+      const allowed = desk
+        .settings()
+        .models.map((model) => model.keyUrl)
+        .filter((known): known is string => known !== undefined);
+      if (!allowed.includes(asked)) {
+        throw new Error("That is not one of the providers' key pages.");
+      }
+      void shell.openExternal(asked);
+    },
     "account:sign-in": () => desk.signIn(),
     "account:sign-out": () => desk.signOut(),
 

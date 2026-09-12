@@ -65,12 +65,23 @@ writeFileSync(
             label: "Ollama",
           },
         },
+        // Two hosted models, so the keys sheet has more than one row to lay
+        // out and the "get a key" link has somewhere to point.
         {
           id: "claude",
           name: "Claude",
           needsKey: true,
+          keyUrl: "https://console.anthropic.com/settings/keys",
           note: "Anthropic. Charged per token. Thinking effort applies.",
           config: { kind: "anthropic", model: "claude-opus-5" },
+        },
+        {
+          id: "gemini",
+          name: "Gemini",
+          needsKey: true,
+          keyUrl: "https://aistudio.google.com/apikey",
+          note: "Google. Charged per token. Thinking level applies.",
+          config: { kind: "gemini", model: "gemini-3-pro-preview" },
         },
       ],
       chosen: "ollama",
