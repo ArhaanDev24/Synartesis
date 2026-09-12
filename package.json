@@ -51,6 +51,8 @@
     "app": "pnpm app:build && electron app/dist/main/index.js",
     "app:build": "tsup --config app/tsup.config.ts && vite build --config app/vite.config.ts",
     "app:icon": "electron app/build/make-icon.mjs",
+    "app:logo": "python3 app/build/make-logo.py && pnpm app:icon",
+    "app:sandbox": "pnpm app:build && node app/dev/sandbox.mjs",
     "app:pack": "pnpm app:build && electron-builder --dir --projectDir app",
     "app:dist": "pnpm app:build && electron-builder --projectDir app",
     "demo": "tsup --silent && ./demo/filesystem-demo.sh",

@@ -9,3 +9,4 @@ prep/
 app/dist
 app/release
 app/build/icon.iconset
+app/dev/.sandbox

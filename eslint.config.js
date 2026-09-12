@@ -7,7 +7,7 @@ export default tseslint.config(
   // app/build holds packaging tooling -- an icon renderer and a notarisation
   // hook -- which run under Electron and electron-builder rather than as
   // project source, and are outside the tsconfig the type-aware rules need.
-  { ignores: ["dist/**", "app/dist/**", "app/build/**", "app/release/**", "node_modules/**", "docs/**", "brand/**"] },
+  { ignores: ["dist/**", "app/dist/**", "app/build/**", "app/dev/**", "app/release/**", "node_modules/**", "docs/**", "brand/**"] },
   ...tseslint.configs.strictTypeChecked,
   {
     languageOptions: {
