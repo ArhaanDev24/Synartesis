@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { engine } from "./bridge.js";
 import { Fret, Logo, Mark } from "./Mark.js";
+import { Copy } from "./Copy.js";
+import { Markdown } from "./Markdown.js";
+import { FocusPanel } from "./FocusPanel.js";
+import { draftIsSaved, readDraft, saveDraft } from "./drafts.js";
 import { fold, leads } from "../shared/transcript.js";
 import type {
   ApprovalCard,
@@ -53,7 +57,9 @@ function Call({ call }: { call: CallCard }): React.JSX.Element {
           {server === "" ? null : <span className="server">{server} · </span>}
           {tool}
         </span>
-        {call.state === "running" ? <span className="tag">running</span> : null}
+        <span className="call-state">{call.state === "running" ? "Running" : recorded?.status ?? (call.state === "failed" ? "Failed" : "Finished")}</span>
+      </div>
+      <div className="call-safety" aria-live="polite">
         {recorded === undefined ? null : (
           <>
             <span className="tag" data-kind={recorded.class}>
@@ -61,7 +67,7 @@ function Call({ call }: { call: CallCard }): React.JSX.Element {
             </span>
             {recorded.class === "readonly" ? null : (
               <span className="tag" data-kind={recorded.reversible ? "ok" : "bad"}>
-                {recorded.reversible ? "can be put back" : "no way back recorded"}
+                {recorded.reversible ? "↶ Can be put back" : "No way back recorded"}
               </span>
             )}
           </>
@@ -73,13 +79,19 @@ function Call({ call }: { call: CallCard }): React.JSX.Element {
             not recorded
           </span>
         ) : null}
+        {recorded === undefined && call.state === "running" ? (
+          <span className="tag" data-kind="pending">Undo not confirmed yet</span>
+        ) : null}
+        <span className="capture">
+          {recorded === undefined ? call.state === "running" ? "Waiting for journal evidence" : "No journal evidence for this call" : recorded.reversible ? "Prior state captured" : recorded.class === "readonly" ? "Read only · no change to restore" : "Prior state not captured"}
+        </span>
       </div>
       <pre className="call-args">{brief(call.args)}</pre>
-      {call.result === undefined || call.result === "" ? null : (
-        <pre className="call-result" data-failed={call.state === "failed"}>
-          {call.result.length > 1200 ? `${call.result.slice(0, 1199)}…` : call.result}
-        </pre>
-      )}
+      <details className="call-details" open={call.state === "failed"}>
+        <summary>Arguments{call.result === undefined ? "" : " & result"}</summary>
+        <pre tabIndex={0} className="call-args" aria-label="Full tool arguments">{JSON.stringify(call.args, null, 2)}</pre>
+        {call.result === undefined || call.result === "" ? null : <pre tabIndex={0} aria-label="Full tool result" className="call-result" data-failed={call.state === "failed"}>{call.result}</pre>}
+      </details>
     </div>
   );
 }
@@ -89,35 +101,43 @@ function Ask({
   onAnswer,
 }: {
   ask: ApprovalCard;
-  onAnswer: (yes: boolean) => void;
+  onAnswer: (yes: boolean) => Promise<void>;
 }): React.JSX.Element {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const answer = (yes: boolean): void => {
+    setPending(true);
+    setError("");
+    onAnswer(yes).catch((reason: unknown) => {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      setPending(false);
+    });
+  };
   return (
-    <div className="ask">
+    <section className="ask" aria-label={`Approval for ${ask.server}.${ask.tool}`}>
+      <span className="approval-label">Decision needed · call held</span>
       <h2>
-        {ask.server} · {ask.tool} is waiting for you
+        Allow {ask.server} · {ask.tool}?
       </h2>
       <p>{ask.reason}</p>
       <pre className="call-args">{brief(ask.args)}</pre>
+      <details className="call-details"><summary>Full arguments</summary><pre tabIndex={0} className="call-args">{JSON.stringify(ask.args, null, 2)}</pre></details>
+      <p className="approval-note">Nothing happens until you decide. Approval does not make this undoable.</p>
+      {error === "" ? null : <p role="alert">{error}</p>}
       <div className="ask-row">
+        <button className="act" disabled={pending} onClick={() => { answer(false); }}>Deny call</button>
         <button
           className="act"
           data-weight="heavy"
+          disabled={pending}
           onClick={() => {
-            onAnswer(true);
+            answer(true);
           }}
         >
-          Allow it
-        </button>
-        <button
-          className="act"
-          onClick={() => {
-            onAnswer(false);
-          }}
-        >
-          No
+          {pending ? "Sending decision…" : "Allow this call"}
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -146,7 +166,16 @@ export function App(): React.JSX.Element {
   const [asks, setAsks] = useState<ApprovalCard[]>([]);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
+  const [saved, setSaved] = useState(true);
+  const [historyAt, setHistoryAt] = useState<number | undefined>(undefined);
+  const scratch = useRef("");
+  const input = useRef<HTMLTextAreaElement>(null);
+  const following = useRef(true);
+  const [away, setAway] = useState(false);
+  const sending = useRef(false);
+  const [activity, setActivity] = useState<"checking" | "planning" | "undoing" | undefined>(undefined);
   const [sheet, setSheet] = useState<Sheet | undefined>(undefined);
+  const sheetTrigger = useRef<HTMLElement | null>(null);
   const [missing, setMissing] = useState<string | undefined>(undefined);
   const [key, setKey] = useState("");
   /** Which popover is open, if any. */
@@ -157,6 +186,12 @@ export function App(): React.JSX.Element {
   // tell whether an event belongs to the conversation currently on screen.
   const openRef = useRef<string | undefined>(undefined);
   openRef.current = openId;
+  const history = useMemo(() => messages.filter((message) => message.role === "you").map((message) => message.text), [messages]);
+
+  const editDraft = useCallback((text: string) => {
+    setDraft(text);
+    if (openRef.current !== undefined) setSaved(saveDraft(openRef.current, text));
+  }, []);
 
   const chosen = useMemo(
     () => settings?.models.find((model) => model.id === settings.chosen),
@@ -236,6 +271,12 @@ export function App(): React.JSX.Element {
       setMessages([...opened.messages]);
       setSummary(opened.summary);
       setAsks([]);
+      setDraft(readDraft(opened.id));
+      setSaved(draftIsSaved(opened.id));
+      setHistoryAt(undefined);
+      following.current = true;
+      setAway(false);
+      input.current?.focus();
     },
     [],
   );
@@ -278,15 +319,19 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     // Instant while text is streaming. A smooth scroll restarted on every
     // chunk is a scroll that never finishes, and it lands as a judder.
-    bottom.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth", block: "end" });
+    if (following.current) bottom.current?.scrollIntoView({ behavior: "auto", block: "end" });
   }, [messages, asks, busy]);
 
   const send = useCallback(() => {
     const text = draft.trim();
-    if (text === "" || openId === undefined || busy) {
+    if (text === "" || openId === undefined || busy || sending.current || activity !== undefined) {
       return;
     }
-    setDraft("");
+    sending.current = true;
+    editDraft("");
+    setHistoryAt(undefined);
+    following.current = true;
+    setAway(false);
     setMessages((was) => [
       ...was,
       { id: `you-${String(was.length)}`, role: "you", text, calls: [] },
@@ -294,22 +339,30 @@ export function App(): React.JSX.Element {
     setBusy(true);
     engine
       .send(openId, text)
-      .catch(complain)
+      .catch((error: unknown) => {
+        complain(error);
+        // A rejected send should not cost the prompt, or overwrite a new draft.
+        if (readDraft(openId) === "" && openRef.current === openId) editDraft(text);
+      })
       .finally(() => {
+        sending.current = false;
         setBusy(false);
         refreshList();
       });
-  }, [busy, complain, draft, openId, refreshList]);
+    input.current?.focus();
+  }, [activity, busy, complain, draft, editDraft, openId, refreshList]);
 
   const answer = useCallback(
     (actionId: string, yes: boolean) => {
       const request = yes
         ? engine.approve(actionId)
         : engine.deny(actionId, "you said no in the window");
-      request.catch(complain);
-      setAsks((was) => was.filter((one) => one.actionId !== actionId));
+      return request.then(() => {
+        setAsks((was) => was.filter((one) => one.actionId !== actionId));
+        input.current?.focus();
+      });
     },
-    [complain],
+    [],
   );
 
   /**
@@ -321,18 +374,20 @@ export function App(): React.JSX.Element {
    * who has read the plan should still get to stop.
    */
   const putBack = useCallback(() => {
-    if (openId === undefined) {
+    if (openId === undefined || busy || activity !== undefined) {
       return;
     }
+    sheetTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : input.current;
+    setActivity("planning");
     engine.previewUndo(openId).then((plan) => {
       setSheet({
-        title: "This is what putting it back would do",
+        title: "1 / 2 · Review the undo plan",
         body: plan,
         confirm: {
-          label: "Go on",
+          label: "Continue to confirmation",
           go: () => {
             setSheet({
-              title: "Sure?",
+              title: "2 / 2 · Put these changes back?",
               body:
                 "This changes files again, now, and this second change is not itself recorded " +
                 "for undo. If anybody has edited something since, it stops there rather than " +
@@ -341,26 +396,48 @@ export function App(): React.JSX.Element {
                 label: "Put it back",
                 go: () => {
                   setSheet(undefined);
+                  setActivity("undoing");
                   engine.undo(openId).then((report) => {
-                    setSheet({ title: "Done", body: report });
-                  }, complain);
+                    setSheet({ title: "Undo report", body: report });
+                    engine.open(openId).then(show, complain);
+                  }, complain).finally(() => { setActivity(undefined); });
                 },
               },
             });
           },
         },
       });
-    }, complain);
-  }, [complain, openId]);
+    }, complain).finally(() => { setActivity(undefined); });
+  }, [activity, busy, complain, openId, show]);
 
   const check = useCallback(() => {
-    if (openId === undefined) {
+    if (openId === undefined || busy || activity !== undefined) {
       return;
     }
+    sheetTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : input.current;
+    setActivity("checking");
     engine.verify(openId).then((found) => {
       setSheet({ title: "How things stand now", body: found });
-    }, complain);
-  }, [complain, openId]);
+    }, complain).finally(() => { setActivity(undefined); });
+  }, [activity, busy, complain, openId]);
+
+  const shortcuts = useCallback(() => {
+    sheetTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : input.current;
+    setSheet({ title: "Make yourself at home", body: "Enter                 Send message\nShift + Enter         New line\n⌘ / Ctrl + L          Focus the composer\n⌘ / Ctrl + Shift + O  New chat\nAlt + ↑ / ↓           Browse your prompts in this chat\n⌘ / Ctrl + /          This shortcut guide\nEscape                Close a popover or sheet\nTab / Shift + Tab     Move between controls\n\nDrafts stay on this device, separately for each chat.\nPrompt history keeps your current draft while you browse.\nCopy preserves the original Markdown. Links copy their address;\nimages never load from model output." });
+  }, []);
+
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || sheet !== undefined || pane !== undefined || event.isComposing) return;
+      if (event.metaKey || event.ctrlKey) {
+        if (event.key.toLowerCase() === "l") { event.preventDefault(); input.current?.focus(); }
+        if (event.key === "/") { event.preventDefault(); shortcuts(); }
+        if (event.shiftKey && event.key.toLowerCase() === "o" && !busy && activity === undefined) { event.preventDefault(); begin(); }
+      }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => { document.removeEventListener("keydown", keydown); };
+  }, [activity, begin, busy, pane, sheet, shortcuts]);
 
   if (missing !== undefined) {
     return (
@@ -387,7 +464,7 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app">
-      <aside className="rail">
+      <aside className="rail" aria-label="Conversations" inert={sheet !== undefined}>
         <div className="rail-top">
           {/* It turns while a turn is running, which is the only place in the
               window that says "still working" without taking up a row. */}
@@ -395,16 +472,17 @@ export function App(): React.JSX.Element {
           <p className="wordmark">Synartesis</p>
         </div>
         <Fret />
-        <button className="rail-new" onClick={begin} disabled={busy}>
-          New chat
+        <button className="rail-new" onClick={begin} disabled={busy || activity !== undefined} aria-keyshortcuts="Meta+Shift+O Control+Shift+O">
+          <span>＋ New chat</span><span aria-hidden="true">⌘ ⇧ O</span>
         </button>
-        <div className="rail-list">
+        <div className="rail-list" aria-label="Chat history">
           {list.map((one) => (
             <button
               key={one.id}
               className="rail-item"
               aria-current={one.id === openId}
-              disabled={busy}
+              disabled={busy || activity !== undefined}
+              title={one.title}
               onClick={() => {
                 engine.open(one.id).then(show, complain);
               }}
@@ -417,6 +495,9 @@ export function App(): React.JSX.Element {
         <div className="rail-foot">
           <button
             className="account"
+            aria-haspopup="dialog"
+            aria-expanded={pane === "account"}
+            aria-controls="account-options"
             onClick={() => {
               setPane(pane === "account" ? undefined : "account");
             }}
@@ -443,7 +524,7 @@ export function App(): React.JSX.Element {
                   setPane(undefined);
                 }}
               />
-              <div className="pop" data-at="account">
+              <FocusPanel className="pop" at="account" id="account-options" label="Appearance and account" onClose={() => { setPane(undefined); }}>
                 <p className="pop-label">Appearance</p>
                 <div className="steps" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
                   {THEMES.map((theme) => (
@@ -493,52 +574,62 @@ export function App(): React.JSX.Element {
                     </p>
                   </>
                 )}
-              </div>
+              </FocusPanel>
             </>
           ) : null}
         </div>
       </aside>
 
-      <main className="main">
+      <main className="main" inert={sheet !== undefined}>
         <header className="topbar">
           <h1>{title === "" ? "New chat" : title}</h1>
           <div className="ledger">
+            <div className="ledger-facts" role="status" aria-label="Change ledger">
+            <span className="ledger-label">{activity === "undoing" ? "Undo in progress" : busy ? "Recorded before this turn" : "Change ledger"}</span>
             <span className="ledger-count">
               <b>{summary.touched}</b> changed · <b>{summary.recoverable}</b> can be put back
               {summary.held > 0 ? (
                 <>
                   {" · "}
-                  <span className="warn">{summary.held} held</span>
+                  <span className="warn">{summary.held} held / refused</span>
                 </>
               ) : null}
             </span>
-            <button className="act" onClick={check} disabled={summary.touched === 0}>
-              Check
+            </div>
+            <button className="act" onClick={check} disabled={summary.touched === 0 || busy || activity !== undefined} title="Read current state and check for changes">
+              {activity === "checking" ? "Checking…" : "Check"}
             </button>
             <button
               className="act"
               data-weight="heavy"
               onClick={putBack}
-              disabled={summary.touched === 0}
+              disabled={summary.touched === 0 || busy || activity !== undefined}
+              title="Review the real undo plan before confirming"
             >
-              Put it back
+              {activity === "planning" ? "Planning…" : activity === "undoing" ? "Restoring…" : "↶ Put it back"}
             </button>
           </div>
         </header>
 
-        <div className="scroll" data-streaming={busy}>
+        {busy ? <div className="turn-status" role="status">{asks.length > 0 ? `${String(asks.length)} call held · waiting for your decision` : "Turn in progress · each tool card shows its recovery status"}</div> : null}
+        <div className="scroll" data-streaming={busy} tabIndex={0} role="region" aria-label="Conversation transcript" onScroll={(event) => {
+          const element = event.currentTarget;
+          following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+          setAway(!following.current);
+        }}>
           <div className="thread">
             {messages.length === 0 ? (
               <div className="empty">
-                <Logo size={200} framed />
-                <h2>Ready when you are.</h2>
+                <Logo size={144} framed />
+                <span className="eyebrow">A little room to change your mind</span>
+                <h2>Make a change.<br />Keep a way back.</h2>
                 <p>
-                  Whatever the model touches is recorded with the state it replaced, so you can
-                  put it back. Anything that cannot be undone waits for you first.
+                  Ask for what you need. Each tool card shows whether its change can be put back. Calls that need approval wait for you.
                 </p>
-                <p className="note">
-                  Try “what did you change?” or “put that back” — it has the same tools you do.
-                </p>
+                <div className="starters">
+                  {["What files can you work with?", "What did you change?", "Show me what can be put back."].map((prompt) => <button key={prompt} onClick={() => { editDraft(prompt); setHistoryAt(undefined); input.current?.focus(); }}>{prompt}<span aria-hidden="true">↗</span></button>)}
+                </div>
+                <p className="note">You review the real plan before an undo. Then you confirm.</p>
               </div>
             ) : null}
 
@@ -567,9 +658,10 @@ export function App(): React.JSX.Element {
                         : "said"
                     }
                   >
-                    {message.text}
+                    {message.role === "model" ? <Markdown text={message.text} /> : message.text}
                   </div>
                 )}
+                {message.text === "" ? null : <div className="message-actions"><Copy text={message.text} title={message.role === "you" ? "Copy your message" : "Copy message"} /></div>}
               </div>
             ))}
 
@@ -578,7 +670,7 @@ export function App(): React.JSX.Element {
                 key={ask.actionId}
                 ask={ask}
                 onAnswer={(yes) => {
-                  answer(ask.actionId, yes);
+                  return answer(ask.actionId, yes);
                 }}
               />
             ))}
@@ -587,19 +679,38 @@ export function App(): React.JSX.Element {
         </div>
 
         <div className="composer">
+          {away ? <button className="latest" onClick={() => {
+            following.current = true; setAway(false); bottom.current?.scrollIntoView({ behavior: "auto" });
+          }}>↓ Latest message</button> : null}
           <Fret />
           <div className="box">
             <textarea
+              ref={input}
+              aria-label="Message"
+              aria-describedby="composer-help"
+              aria-keyshortcuts="Meta+L Control+L Alt+ArrowUp Alt+ArrowDown"
               value={draft}
+              disabled={openId === undefined}
               rows={1}
               placeholder="Say what you want done"
               onChange={(event) => {
-                setDraft(event.target.value);
+                editDraft(event.target.value);
+                setHistoryAt(undefined);
               }}
               onKeyDown={(event) => {
                 // Enter sends, shift-enter breaks the line. The other way round
                 // costs a keystroke on every message and surprises everybody.
-                if (event.key === "Enter" && !event.shiftKey) {
+                if (event.nativeEvent.isComposing) return;
+                if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown") && history.length > 0) {
+                  event.preventDefault();
+                  if (historyAt === undefined && event.key === "ArrowDown") return;
+                  if (historyAt === undefined) scratch.current = draft;
+                  const next = event.key === "ArrowUp" ? Math.max(0, (historyAt ?? history.length) - 1) : (historyAt ?? history.length) + 1;
+                  if (next >= history.length) { editDraft(scratch.current); setHistoryAt(undefined); }
+                  else { editDraft(history[next] ?? ""); setHistoryAt(next); }
+                  return;
+                }
+                if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
                   event.preventDefault();
                   send();
                 }
@@ -610,6 +721,11 @@ export function App(): React.JSX.Element {
                   rather than in a panel somewhere else. */}
               <button
                 className="picker"
+                aria-label="Choose model and thinking effort"
+                aria-haspopup="dialog"
+                aria-expanded={pane === "models"}
+                aria-controls="model-options"
+                disabled={busy || activity !== undefined}
                 onClick={() => {
                   setPane(pane === "models" ? undefined : "models");
                 }}
@@ -618,7 +734,7 @@ export function App(): React.JSX.Element {
                 {chosen?.thinks === true ? ` · ${settings?.reasoning ?? ""}` : ""}
                 <span className="chev">⌄</span>
               </button>
-              <span className="hint">{busy ? "Working…" : ""}</span>
+              <span className="hint" role="status">{busy ? "Working…" : historyAt === undefined ? draft === "" ? "" : saved ? "Draft saved on this device" : "Draft kept in this window" : `History ${String(historyAt + 1)} / ${String(history.length)}`}</span>
               {busy ? (
                 <button
                   className="round"
@@ -634,13 +750,14 @@ export function App(): React.JSX.Element {
                   className="round"
                   aria-label="Send"
                   onClick={send}
-                  disabled={draft.trim() === ""}
+                  disabled={draft.trim() === "" || openId === undefined || activity !== undefined}
                 >
                   ↑
                 </button>
               )}
             </div>
           </div>
+          <div className="composer-help" id="composer-help"><span>Enter to send <span aria-hidden="true">·</span> Shift + Enter for a new line</span><button onClick={shortcuts} aria-keyshortcuts="Meta+/ Control+/">Keyboard shortcuts <kbd>⌘ /</kbd></button></div>
 
           {pane === "models" ? (
             <>
@@ -650,7 +767,7 @@ export function App(): React.JSX.Element {
                   setPane(undefined);
                 }}
               />
-              <div className="pop" data-at="models">
+              <FocusPanel className="pop" at="models" id="model-options" label="Model and thinking effort" onClose={() => { setPane(undefined); setKey(""); }}>
                 <p className="pop-label">Model</p>
                 {(settings?.models ?? []).map((model) => (
                   <button
@@ -695,6 +812,8 @@ export function App(): React.JSX.Element {
                     <p className="pop-label">API key</p>
                     <input
                       type="password"
+                      aria-label="API key"
+                      autoComplete="off"
                       value={key}
                       placeholder="Paste it and press Enter"
                       onChange={(event) => {
@@ -716,7 +835,7 @@ export function App(): React.JSX.Element {
                     </p>
                   </>
                 ) : null}
-              </div>
+              </FocusPanel>
             </>
           ) : null}
         </div>
@@ -724,9 +843,9 @@ export function App(): React.JSX.Element {
 
       {sheet === undefined ? null : (
         <div className="sheet">
-          <div className="sheet-card">
+          <FocusPanel className="sheet-card" id="recovery-sheet" label={sheet.title} returnTo={sheetTrigger.current} onClose={() => { setSheet(undefined); }}>
             <h2>{sheet.title}</h2>
-            <pre>{sheet.body}</pre>
+            <pre tabIndex={0} aria-label="Plan or report details">{sheet.body}</pre>
             <div className="sheet-row">
               <button
                 className="act"
@@ -742,7 +861,7 @@ export function App(): React.JSX.Element {
                 </button>
               )}
             </div>
-          </div>
+          </FocusPanel>
         </div>
       )}
     </div>

@@ -19,16 +19,20 @@
   --rail-lift: #7a1c2b;
   --rail-ink: #f6e9e5;
   --rail-soft: color-mix(in srgb, var(--rail-ink) 74%, var(--rail-ground));
-  --rail-faint: color-mix(in srgb, var(--rail-ink) 52%, var(--rail-ground));
+  --rail-faint: color-mix(in srgb, var(--rail-ink) 64%, var(--rail-ground));
   --rail-rule: color-mix(in srgb, var(--rail-ink) 30%, var(--rail-ground));
   --rail-hit: #e8927f;
+  --rail-selected: #3e0d15;
+  --mask-ink: #000;
+  --overlay: rgb(0 0 0 / 0.52);
+  --shadow: rgb(0 0 0 / 0.3);
 
   /* --- the document. Parchment, unless asked otherwise. ---------------- */
   --ground: #f4ece5;
   --ground-lift: #eadfd5;
   --ink: #33101a;
   --ink-soft: color-mix(in srgb, var(--ink) 76%, var(--ground));
-  --ink-faint: color-mix(in srgb, var(--ink) 50%, var(--ground));
+  --ink-faint: color-mix(in srgb, var(--ink) 62%, var(--ground));
   --rule: color-mix(in srgb, var(--ink) 20%, var(--ground));
 
   /* A surface for what you said, and an edge that reads as a line. */
@@ -38,7 +42,7 @@
   /* Cards and the composer: a little deeper than the page, never inverted. */
   --panel: #ebdfd5;
   --panel-ink: #33101a;
-  --panel-faint: color-mix(in srgb, var(--panel-ink) 58%, var(--panel));
+  --panel-faint: color-mix(in srgb, var(--panel-ink) 66%, var(--panel));
   --panel-rule: color-mix(in srgb, var(--panel-ink) 22%, var(--panel));
   --panel-hit: #8c2133;
   --alarm: #9c2b1a;
@@ -48,8 +52,8 @@
   --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
 
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-  --rail: 264px;
-  --measure: 72ch;
+  --rail: 236px;
+  --measure: 78ch;
 
   --fret-art: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
 
@@ -61,7 +65,7 @@
   --ground-lift: #7a1c2b;
   --ink: #f6e9e5;
   --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--ground));
-  --ink-faint: color-mix(in srgb, var(--ink) 52%, var(--ground));
+  --ink-faint: color-mix(in srgb, var(--ink) 62%, var(--ground));
   --rule: color-mix(in srgb, var(--ink) 30%, var(--ground));
 
   --paper: color-mix(in srgb, var(--ink) 14%, var(--ground));
@@ -124,6 +128,9 @@ button:disabled {
   outline: 2px solid var(--panel-hit);
   outline-offset: 2px;
 }
+
+.rail :focus-visible { outline-color: var(--rail-hit); }
+.rail .pop :focus-visible { outline-color: var(--panel-hit); }
 
 /* --- the mark and the meander ---------------------------------------- */
 
@@ -193,8 +200,8 @@ button:disabled {
   margin: 0 1.1rem 0.6rem;
   -webkit-mask-composite: source-in;
   mask-composite: intersect;
-  -webkit-mask-image: var(--fret-art), linear-gradient(90deg, #000 62%, transparent);
-  mask-image: var(--fret-art), linear-gradient(90deg, #000 62%, transparent);
+  -webkit-mask-image: var(--fret-art), linear-gradient(90deg, var(--mask-ink) 62%, transparent);
+  mask-image: var(--fret-art), linear-gradient(90deg, var(--mask-ink) 62%, transparent);
   -webkit-mask-repeat: repeat-x, no-repeat;
   mask-repeat: repeat-x, no-repeat;
   -webkit-mask-size: 22px 22px, 100% 100%;
@@ -212,6 +219,9 @@ button:disabled {
 }
 
 .rail-new {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin: 0.55rem 1.1rem 0.7rem;
   padding: 0.45rem 0.7rem;
   border: 1px solid var(--rail-rule);
@@ -223,6 +233,8 @@ button:disabled {
   color: var(--rail-soft);
   text-align: left;
 }
+
+.rail-new > span:last-child { font-size: 0.6rem; color: var(--rail-faint); }
 
 .rail-new:hover:not(:disabled) {
   border-color: var(--rail-hit);
@@ -256,7 +268,7 @@ button:disabled {
 }
 
 .rail-item[aria-current="true"] {
-  background: color-mix(in srgb, #000 34%, var(--rail-ground));
+  background: var(--rail-selected);
   color: var(--rail-ink);
 }
 
@@ -356,7 +368,7 @@ button:disabled {
   border: 1px solid var(--panel-rule);
   border-radius: 10px;
   padding: 0.45rem;
-  box-shadow: 0 18px 44px rgb(0 0 0 / 0.3);
+  box-shadow: 0 18px 44px var(--shadow);
   display: grid;
   gap: 0.1rem;
   max-height: 66vh;
@@ -523,7 +535,25 @@ button:disabled {
   font-family: var(--mono);
   font-size: 0.7rem;
   letter-spacing: 0.04em;
-  color: var(--ink-faint);
+  color: var(--ink-soft);
+}
+
+.ledger-facts { display: grid; gap: 0.08rem; }
+.ledger-label, .eyebrow, .approval-label {
+  font-family: var(--mono);
+  font-size: 0.59rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-soft);
+}
+.ledger-label { color: var(--ink-faint); }
+.turn-status {
+  padding: 0.3rem 1.4rem;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--ink-soft);
+  background: var(--paper);
 }
 
 .ledger-count b {
@@ -566,7 +596,7 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   padding: 1.6rem 1.4rem 0.6rem;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 /*
@@ -582,13 +612,13 @@ button:disabled {
   max-width: var(--measure);
   margin: 0 auto;
   display: grid;
-  gap: 1.5rem;
+  gap: 1.1rem;
 }
 
 /* A reply that spoke, called a tool and spoke again is several messages in a
    row from one speaker. They belong close together, under one name. */
 .turn + .turn:not(:has(> .who)) {
-  margin-top: -1.1rem;
+  margin-top: -0.65rem;
 }
 
 .turn {
@@ -608,6 +638,40 @@ button:disabled {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.message-actions { display: flex; justify-content: flex-start; margin-top: -0.2rem; }
+.copy {
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  border-radius: 4px;
+  padding: 0.12rem 0.3rem;
+  text-align: left;
+}
+.copy:hover { color: var(--ink); background: var(--paper); }
+.markdown { white-space: normal; line-height: 1.65; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p { margin: 0.5rem 0; }
+.markdown h3, .markdown h4 { margin: 1rem 0 0.4rem; font-size: 1rem; line-height: 1.35; }
+.markdown h4 { font-size: 0.9rem; }
+.markdown ul, .markdown ol { padding-left: 1.4rem; margin: 0.5rem 0; }
+.markdown li { padding-left: 0.15rem; }
+.markdown li p { margin: 0.15rem 0; }
+.markdown blockquote { margin: 0.6rem 0; border-left: 2px solid var(--panel-hit); padding-left: 0.8rem; color: var(--ink-soft); }
+.markdown hr { border: 0; border-top: 1px solid var(--rule); margin: 1rem 0; }
+.markdown :not(pre) > code { background: var(--paper); border: 1px solid var(--rule); padding: 0.05rem 0.24rem; border-radius: 4px; font-family: var(--mono); font-size: 0.82em; }
+.markdown p .copy { text-decoration: underline; font-family: inherit; font-size: inherit; padding: 0; }
+.code-block { border: 1px solid var(--panel-rule); border-radius: 8px; background: var(--panel); margin: 0.65rem 0; overflow: hidden; }
+.code-head { display: flex; align-items: center; justify-content: space-between; padding: 0.22rem 0.65rem; border-bottom: 1px solid var(--panel-rule); color: var(--panel-faint); font: 0.65rem var(--mono); }
+.code-head .copy { color: var(--panel-ink); }
+.code-block pre { margin: 0; padding: 0.7rem; overflow-x: auto; color: var(--panel-ink); font: 0.78rem/1.6 var(--mono); white-space: pre; }
+.code-block pre:focus-visible, .table-wrap:focus-visible { outline-offset: -2px; }
+.table-wrap { overflow-x: auto; margin: 0.7rem 0; }
+.markdown table { border-collapse: collapse; font-size: 0.85rem; min-width: 60%; }
+.markdown th, .markdown td { text-align: left; border: 1px solid var(--rule); padding: 0.3rem 0.6rem; }
+.markdown th { background: var(--paper); font-weight: 500; }
+.image-caption { color: var(--ink-soft); font-style: italic; }
 
 /*
  * What you said sits on a plate: it separates your words from the model's at
@@ -649,6 +713,15 @@ button:disabled {
   gap: 0.5rem;
   flex-wrap: wrap;
 }
+
+.call-state { margin-left: auto; font-family: var(--mono); font-size: 0.63rem; color: var(--panel-faint); }
+.call-safety { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.1rem 0 0.25rem; }
+.capture { font-size: 0.72rem; color: var(--panel-ink); }
+.tag[data-kind="pending"] { color: var(--panel-ink); border-style: dashed; }
+.call-details { font-family: var(--mono); font-size: 0.66rem; color: var(--panel-faint); }
+.call-details summary { cursor: pointer; width: fit-content; border-radius: 3px; padding: 0.08rem 0; }
+.call-details[open] summary { margin-bottom: 0.4rem; }
+.call-details[open] .call-result { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid var(--panel-rule); }
 
 .call-name {
   font-family: var(--mono);
@@ -719,12 +792,15 @@ button:disabled {
 }
 
 .ask h2 {
-  font-family: var(--display);
-  font-weight: 400;
-  font-size: 1.1rem;
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 0.95rem;
   margin: 0;
   color: var(--panel-ink);
 }
+
+.approval-label { color: var(--panel-hit); }
+.ask .approval-note { font-size: 0.76rem; color: var(--panel-ink); }
 
 .ask p {
   margin: 0;
@@ -810,6 +886,8 @@ button:disabled {
   outline: none;
 }
 
+.box:has(textarea:focus-visible) { outline: 2px solid var(--panel-hit); outline-offset: 2px; }
+
 .box textarea::placeholder {
   color: var(--panel-faint);
 }
@@ -871,12 +949,22 @@ button:disabled {
 
 .empty {
   max-width: 46ch;
-  margin: 9vh auto 0;
+  margin: 4vh auto 1.5rem;
   text-align: center;
   display: grid;
   justify-items: center;
   gap: 0.7rem;
 }
+
+.empty .logo { margin-bottom: 0.35rem; }
+.starters { display: grid; width: 100%; text-align: left; margin: 0.5rem 0; gap: 0.35rem; }
+.starters button { border: 1px solid var(--rule); border-radius: 7px; padding: 0.45rem 0.65rem; font-size: 0.8rem; display: flex; gap: 0.5rem; justify-content: space-between; text-align: left; }
+.starters button:hover { background: var(--paper); border-color: var(--panel-hit); }
+.starters button span { color: var(--ink-soft); }
+.composer-help { max-width: var(--measure); margin: 0.45rem auto 0; display: flex; justify-content: space-between; gap: 0.5rem; color: var(--ink-soft); font-size: 0.65rem; }
+.composer-help button { border-radius: 4px; }
+kbd { font: 0.62rem var(--mono); border: 1px solid var(--rule); border-radius: 3px; padding: 0.05rem 0.22rem; margin-left: 0.2rem; }
+.latest { position: absolute; left: 50%; bottom: calc(100% + 0.4rem); transform: translateX(-50%); z-index: 2; background: var(--panel); border: 1px solid var(--panel-rule); border-radius: 20px; padding: 0.25rem 0.75rem; font-size: 0.75rem; color: var(--panel-ink); }
 
 .empty h2 {
   font-family: var(--display);
@@ -905,7 +993,7 @@ button:disabled {
 .sheet {
   position: fixed;
   inset: 0;
-  background: color-mix(in srgb, #000 52%, transparent);
+  background: var(--overlay);
   display: grid;
   place-items: center;
   padding: 2rem;
@@ -917,7 +1005,7 @@ button:disabled {
   border: 1px solid var(--panel-rule);
   border-radius: 12px;
   padding: 1.2rem 1.3rem;
-  width: min(560px, 100%);
+  width: min(640px, 100%);
   max-height: 80vh;
   overflow-y: auto;
   display: grid;
@@ -941,6 +1029,31 @@ button:disabled {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--panel-faint);
+  max-height: 48vh;
+  overflow-y: auto;
+  padding: 0.55rem;
+  border: 1px solid var(--panel-rule);
+  border-radius: 6px;
+}
+
+@media (max-width: 1050px) {
+  :root { --rail: 208px; }
+  .topbar { flex-wrap: wrap; gap: 0.35rem; padding-block: 0.6rem; }
+  .topbar h1 { width: 100%; font-size: 1.15rem; }
+  .ledger { width: 100%; }
+  .ledger-facts { margin-right: auto; }
+}
+@media (max-width: 760px) {
+  :root { --rail: 170px; }
+  .wordmark { letter-spacing: 0.12em; font-size: 0.63rem; }
+  .rail-new > span:last-child { display: none; }
+  .scroll, .topbar { padding-inline: 0.8rem; }
+  .composer { padding: 0 0.8rem 0.65rem; }
+  .composer-help { flex-wrap: wrap; }
+  .ledger { flex-wrap: wrap; }
+  .ledger-facts { width: 100%; }
+  .empty { margin-top: 1vh; }
+  .empty h2 { font-size: 1.9rem; }
 }
 
 .sheet-row {
@@ -979,18 +1092,17 @@ button:disabled {
 @media (prefers-reduced-motion: no-preference) {
   .turn,
   .ask {
-    animation: rise 0.42s var(--ease) both;
+    animation: rise 0.22s var(--ease) both;
   }
 
   .call {
-    animation: rise 0.34s var(--ease) both;
-    animation-delay: 0.05s;
+    animation: rise 0.2s var(--ease) both;
   }
 
   @keyframes rise {
     from {
       opacity: 0;
-      transform: translateY(9px);
+      transform: translateY(5px);
     }
   }
 
@@ -1101,7 +1213,7 @@ button:disabled {
 
   @keyframes blink {
     to {
-      visibility: hidden;
+      opacity: 0;
     }
   }
 
@@ -1113,11 +1225,7 @@ button:disabled {
   .account,
   .pop-row,
   .round {
-    transition:
-      background-color 0.18s var(--ease),
-      border-color 0.18s var(--ease),
-      color 0.18s var(--ease),
-      transform 0.12s var(--ease);
+    transition: transform 0.12s var(--ease);
   }
 
   .act:active:not(:disabled),

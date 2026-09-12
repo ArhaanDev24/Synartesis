@@ -41,7 +41,7 @@ let turn = 0;
 const sse = (frame) => `data: ${JSON.stringify(frame)}\n\n`;
 const wait = (ms) => new Promise((settle) => setTimeout(settle, ms));
 
-createServer((request, response) => {
+const handler = (request, response) => {
   request.on("data", () => undefined);
   request.on("end", async () => {
     const step = SCRIPT[Math.min(turn, SCRIPT.length - 1)];
@@ -74,6 +74,31 @@ createServer((request, response) => {
     response.write("data: [DONE]\n\n");
     response.end();
   });
-}).listen(PORT, "127.0.0.1", () => {
+};
+
+const server = createServer(handler);
+
+/**
+ * Refuse to start if something else already has the port.
+ *
+ * Without this the listen fails, the window carries on, and it quietly talks
+ * to whatever was there instead -- a stale server from another session, which
+ * answers plausibly and makes the app look broken in a way that has nothing to
+ * do with the app. That happened; this is why the check is here.
+ */
+server.on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(
+      `\n  Port ${String(PORT)} is already taken, so this did not start.\n` +
+        `  Something else would answer the window instead of this script.\n` +
+        `  Find it with: lsof -i:${String(PORT)}\n`,
+    );
+  } else {
+    console.error(error);
+  }
+  process.exit(1);
+});
+
+server.listen(PORT, "127.0.0.1", () => {
   console.log(`stand-in model on http://127.0.0.1:${String(PORT)}/v1`);
 });
