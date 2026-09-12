@@ -157,6 +157,7 @@ async function bench(options: { gateTimeoutMs?: number } = {}): Promise<Bench> {
       journalPath: join(root, "journal.db"),
       settingsPath,
       conversationsPath: join(root, "conversations.json"),
+      accountPath: join(root, "account.sealed"),
       secrets,
       emit: (id, event) => {
         events.push({ id, event });

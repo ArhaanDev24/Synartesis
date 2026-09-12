@@ -76,7 +76,7 @@ function titleFrom(text: string): string {
 
 export class Conversation {
   readonly id: string;
-  #title = "New conversation";
+  #title = "New chat";
   #history: Exchange[] = [];
   #messages: ChatMessage[] = [];
   #stopping: AbortController | undefined;

@@ -172,9 +172,18 @@ button:disabled {
 
 .rail > .fret {
   margin: 0 1.1rem 0.6rem;
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+  -webkit-mask-image: var(--fret-art), linear-gradient(90deg, #000 62%, transparent);
+  mask-image: var(--fret-art), linear-gradient(90deg, #000 62%, transparent);
+  -webkit-mask-repeat: repeat-x, no-repeat;
+  mask-repeat: repeat-x, no-repeat;
+  -webkit-mask-size: 22px 22px, 100% 100%;
+  mask-size: 22px 22px, 100% 100%;
 }
 
 .empty > .fret {
+  width: 100%;
   margin-bottom: 0.4rem;
   /* Fades out to the right so it reads as an ornament along the top of the
      text rather than as a rule boxing it in. */
@@ -247,29 +256,78 @@ button:disabled {
   color: var(--ink);
 }
 
+/* --- the account ------------------------------------------------------ */
+
 .rail-foot {
   border-top: 1px solid var(--rule);
-  padding: 0.8rem 1.1rem 1rem;
-  display: grid;
-  gap: 0.7rem;
+  padding: 0.5rem;
+  position: relative;
 }
 
-/* --- model and thinking ---------------------------------------------- */
-
-.field {
-  display: grid;
-  gap: 0.3rem;
-}
-
-.field select,
-.field input {
+/*
+ * Where every other program of this kind puts it, which is the whole argument
+ * for putting it there. Signing in is optional and does one thing: the journal
+ * records who approved what, by name, instead of "you".
+ */
+.account {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   width: 100%;
-  background: var(--panel);
-  border: 1px solid var(--panel-rule);
-  border-radius: 2px;
-  padding: 0.35rem 0.45rem;
-  color: var(--panel-ink);
-  font-size: 0.82rem;
+  text-align: left;
+  padding: 0.45rem 0.5rem;
+  border-radius: 4px;
+}
+
+.account:hover:not(:disabled) {
+  background: var(--ground-lift);
+}
+
+/* Empty while nobody is signed in: a question mark reads as an error, and
+   there is nothing wrong with being signed out. */
+.face:empty::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.face {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  object-fit: cover;
+  background: var(--paper);
+  border: 1px solid var(--paper-edge);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.account-who {
+  display: grid;
+  min-width: 0;
+}
+
+.account-who b {
+  font-weight: 500;
+  font-size: 0.84rem;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-sub {
+  font-size: 0.7rem;
+  color: var(--ink-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .note {
@@ -278,22 +336,126 @@ button:disabled {
   color: var(--ink-faint);
 }
 
+/* --- a popover -------------------------------------------------------- */
+
+/* Catches the click that closes it, so nothing behind it is hit on the way. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.pop {
+  position: absolute;
+  z-index: 41;
+  background: var(--panel);
+  border: 1px solid var(--panel-rule);
+  border-radius: 8px;
+  padding: 0.45rem;
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.45);
+  display: grid;
+  gap: 0.1rem;
+  max-height: 66vh;
+  overflow-y: auto;
+}
+
+.pop[data-at="account"] {
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: calc(100% - 0.2rem);
+}
+
+.pop[data-at="models"] {
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(100% + 0.4rem);
+  width: min(430px, calc(100vw - var(--rail) - 3rem));
+}
+
+.pop-label {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--panel-faint);
+  margin: 0.5rem 0 0.2rem 0.45rem;
+}
+
+.pop-label:first-child {
+  margin-top: 0.2rem;
+}
+
+.pop-row {
+  display: grid;
+  gap: 0.1rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.42rem 0.5rem;
+  border-radius: 5px;
+  color: var(--panel-ink);
+}
+
+.pop-row:hover {
+  background: color-mix(in srgb, var(--panel-ink) 12%, var(--panel));
+}
+
+.pop-row[aria-current="true"] {
+  background: color-mix(in srgb, var(--panel-ink) 16%, var(--panel));
+}
+
+.pop-row[aria-current="true"] .pop-name::after {
+  content: " ✓";
+  color: var(--panel-hit);
+}
+
+.pop-name {
+  font-size: 0.87rem;
+}
+
+.pop-name em {
+  font-style: normal;
+  color: var(--panel-hit);
+  font-size: 0.74rem;
+}
+
+.pop-note {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--panel-faint);
+  margin: 0.2rem 0.5rem 0.35rem;
+}
+
+.pop input {
+  width: calc(100% - 1rem);
+  margin: 0 0.5rem;
+  background: color-mix(in srgb, var(--panel-ink) 8%, var(--panel));
+  border: 1px solid var(--panel-rule);
+  border-radius: 5px;
+  padding: 0.42rem 0.5rem;
+  color: var(--panel-ink);
+  font-size: 0.84rem;
+}
+
+.pop .steps {
+  margin: 0 0.5rem;
+}
+
 .steps {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  border: 1px solid var(--rule);
-  border-radius: 2px;
+  border: 1px solid var(--panel-rule);
+  border-radius: 5px;
   overflow: hidden;
 }
 
 .steps button {
-  padding: 0.32rem 0.2rem;
+  padding: 0.34rem 0.2rem;
   font-family: var(--mono);
   font-size: 0.62rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--ink-faint);
-  border-right: 1px solid var(--rule);
+  color: var(--panel-faint);
+  border-right: 1px solid var(--panel-rule);
 }
 
 .steps button:last-child {
@@ -394,7 +556,7 @@ button:disabled {
 }
 
 .scroll {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   padding: 1.6rem 1.4rem 0.6rem;
@@ -569,70 +731,137 @@ button:disabled {
   padding: 0 1.4rem 1.1rem;
 }
 
+.composer {
+  position: relative;
+  /* Never squeezed. The thread above gives way instead, or the box loses its
+     bottom edge to the window -- which it did. */
+  flex-shrink: 0;
+}
+
 .composer > .fret {
-  opacity: 0.26;
+  opacity: 0.2;
   height: 20px;
   -webkit-mask-size: 20px 20px;
   mask-size: 20px 20px;
   margin: 0 -1.4rem 0.9rem;
 }
 
-.composer-inner {
+/*
+ * One rounded box holding the text and the controls that act on it, which is
+ * the shape every chat program has settled on. The model belongs in here,
+ * beside the thing it is about to do, rather than in a panel somewhere else.
+ */
+.box {
   max-width: var(--measure);
   margin: 0 auto;
-  display: grid;
-  gap: 0.5rem;
-}
-
-.composer textarea {
-  width: 100%;
-  min-height: 3.1rem;
-  max-height: 13rem;
-  resize: none;
   background: var(--panel);
   border: 1px solid var(--panel-rule);
-  border-radius: 3px;
-  padding: 0.6rem 0.7rem;
-  color: var(--panel-ink);
-  line-height: 1.55;
-  transition: border-color 0.2s var(--ease);
+  border-radius: 14px;
+  padding: 0.55rem 0.6rem 0.5rem;
+  display: grid;
+  gap: 0.4rem;
 }
 
-.composer textarea:focus {
-  border-color: var(--panel-hit);
+.box:focus-within {
+  border-color: color-mix(in srgb, var(--panel-hit) 70%, var(--panel));
+}
+
+.box textarea {
+  width: 100%;
+  min-height: 2.4rem;
+  max-height: 13rem;
+  resize: none;
+  background: none;
+  border: 0;
+  padding: 0.25rem 0.35rem;
+  color: var(--panel-ink);
+  line-height: 1.55;
+  field-sizing: content;
+}
+
+.box textarea:focus {
   outline: none;
 }
 
-.composer-row {
+.box textarea::placeholder {
+  color: var(--panel-faint);
+}
+
+.box-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.7rem;
+  gap: 0.5rem;
+}
+
+.picker {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.26rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--panel-rule);
+  color: var(--panel-faint);
+  font-size: 0.78rem;
+}
+
+.picker:hover {
+  color: var(--panel-ink);
+  border-color: var(--panel-ink);
+}
+
+.chev {
+  font-size: 0.72rem;
+  opacity: 0.7;
 }
 
 .hint {
+  flex: 1;
   font-size: 0.72rem;
-  color: var(--ink-faint);
+  color: var(--panel-faint);
+  text-align: right;
+}
+
+/* One round button that is send or stop, never both and never neither. */
+.round {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--panel-hit);
+  color: var(--panel);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.round:disabled {
+  background: var(--panel-rule);
+  color: var(--panel-faint);
 }
 
 /* --- set-piece states -------------------------------------------------- */
 
 .empty {
-  max-width: 44ch;
-  margin: 14vh auto 0;
-  text-align: left;
+  max-width: 46ch;
+  margin: 9vh auto 0;
+  text-align: center;
   display: grid;
-  gap: 0.8rem;
+  justify-items: center;
+  gap: 0.7rem;
+}
+
+.logo {
+  color: var(--ink);
 }
 
 .empty h2 {
   font-family: var(--display);
   font-weight: 300;
-  font-size: 2.1rem;
+  font-size: 2.3rem;
   line-height: 1.05;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin: 0;
+  letter-spacing: 0.02em;
+  margin: 0.2rem 0 0;
 }
 
 .empty p {

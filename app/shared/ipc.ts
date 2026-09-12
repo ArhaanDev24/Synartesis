@@ -96,12 +96,26 @@ export interface ModelChoice {
   readonly thinks: boolean;
 }
 
+/** Who is signed in, as the window shows them. Never a token. */
+export interface Account {
+  readonly name: string;
+  readonly email: string;
+  readonly picture?: string;
+}
+
 export interface Settings {
   readonly models: readonly ModelChoice[];
   readonly chosen?: string;
   readonly reasoning: Reasoning;
   /** False when the OS has no keychain, so the window can say why. */
   readonly canKeepSecrets: boolean;
+  readonly account?: Account;
+  /**
+   * Whether signing in is even possible in this build. It needs an OAuth
+   * client id, which belongs to whoever built the application -- so the
+   * window says what is missing rather than opening a browser at nothing.
+   */
+  readonly canSignIn: boolean;
 }
 
 export interface ConversationSummary {
@@ -126,6 +140,8 @@ export interface Bridge {
   /** The key goes straight to the OS keychain and is never read back out. */
   saveKey(id: string, key: string): Promise<Settings>;
   forgetKey(id: string): Promise<Settings>;
+  signIn(): Promise<Settings>;
+  signOut(): Promise<Settings>;
 
   conversations(): Promise<readonly ConversationSummary[]>;
   open(id: string): Promise<OpenConversation>;

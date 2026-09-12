@@ -21,6 +21,8 @@ export interface Bridge {
   setReasoning(reasoning: Reasoning): Promise<Settings>;
   saveKey(id: string, key: string): Promise<Settings>;
   forgetKey(id: string): Promise<Settings>;
+  signIn(): Promise<Settings>;
+  signOut(): Promise<Settings>;
 
   conversations(): Promise<readonly ConversationSummary[]>;
   start(): Promise<OpenConversation>;

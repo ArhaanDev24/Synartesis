@@ -1,3 +1,5 @@
+import { ARROWHEAD, BOX, STROKES } from "./logo-art.js";
+
 /**
  * The mark: a circle that does not quite close, and an arrow going back round.
  *
@@ -40,6 +42,35 @@ export function Mark({
         />
         <path d="M19.2 3.6l4.6 5.2-6.6 2.2z" fill="currentColor" />
       </g>
+    </svg>
+  );
+}
+
+/**
+ * The mark at full detail: the same glyph drawn as a fan of fine lines.
+ *
+ * One glyph, two weights, chosen by size. At twenty-two pixels the hairlines
+ * below turn to mush and `Mark` is the honest drawing of it; at two hundred
+ * they are the whole point. Both come from the same arc and the same arrow,
+ * and the fan is generated rather than traced so it cannot drift from the
+ * application icon, which is drawn from the same numbers.
+ */
+export function Logo({ size = 200 }: { size?: number }): React.JSX.Element {
+  return (
+    <svg
+      className="logo"
+      viewBox={`0 0 ${String(BOX)} ${String(BOX)}`}
+      width={size}
+      height={size}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <g stroke="currentColor" strokeWidth="2.4" fill="none" strokeLinecap="round" opacity="0.5">
+        {STROKES.map(([x1, y1, x2, y2], at) => (
+          <line key={at} x1={x1} y1={y1} x2={x2} y2={y2} />
+        ))}
+      </g>
+      <polygon points={ARROWHEAD} fill="currentColor" />
     </svg>
   );
 }

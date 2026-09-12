@@ -28,6 +28,30 @@ nothing and needs no account. Claude, Gemini, Mistral, OpenAI, LM Studio and
 vLLM are in the picker; the hosted ones want a key, which goes to this
 machine's keychain and never to a file, a log, or the journal.
 
+## Signing in (optional)
+
+Signing in with Google does exactly one thing: the journal records **who**
+approved a call, by name, instead of "you". There is no server, nothing syncs,
+and every feature works the same signed out.
+
+It needs an OAuth client id, which belongs to whoever builds the application —
+there is no default, because one in the source would be a client id anybody
+could point at their own program. Create a **Desktop app** OAuth client in the
+Google Cloud console, then:
+
+```bash
+export SYNARTESIS_GOOGLE_CLIENT_ID=xxxxx.apps.googleusercontent.com
+```
+
+Without it the button says so and everything else is unchanged.
+
+The sign-in happens in your own browser over a loopback redirect, the way
+RFC 8252 asks native applications to do it — never in a window this app draws,
+because an app that renders a password field can read what is typed into it.
+There is no client secret (a desktop app cannot keep one; PKCE replaces it),
+the only scope asked for is `openid email profile`, and **no token is kept**:
+the id token is read once for the name on it and then dropped.
+
 ## Building it
 
 ```bash

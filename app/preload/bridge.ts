@@ -40,6 +40,8 @@ const bridge = {
   setReasoning: (reasoning: string) => call("settings:reasoning", reasoning),
   saveKey: (id: string, key: string) => call("settings:save-key", id, key),
   forgetKey: (id: string) => call("settings:forget-key", id),
+  signIn: () => call("account:sign-in"),
+  signOut: () => call("account:sign-out"),
 
   conversations: () => call("chat:list"),
   start: () => call("chat:start"),

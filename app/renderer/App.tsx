@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { engine } from "./bridge.js";
-import { Fret, Mark } from "./Mark.js";
+import { Fret, Logo, Mark } from "./Mark.js";
 import { fold, leads } from "../shared/transcript.js";
 import type {
   ApprovalCard,
@@ -17,14 +17,19 @@ import type {
  * The window.
  *
  * It draws what the engine says and sends back what the person does, and it
- * decides nothing on its own. Two things here are deliberate rather than
- * decorative: a tool call is drawn with what Synartesis made of it, so you can
- * see a change is recoverable while it is happening rather than finding out
- * afterwards; and putting something back asks twice, with the plan in front of
- * you, because an undo is itself a change to somebody's work.
+ * decides nothing on its own. Laid out the way a chat program is laid out --
+ * conversations down the left, the model chosen from inside the composer, the
+ * account at the bottom -- because that is where people already look for those
+ * things, and a novel arrangement of them is a cost with no return.
+ *
+ * Two things here are the product rather than the convention: a tool call is
+ * drawn with what Synartesis made of it, so you can see a change is
+ * recoverable while it is happening; and putting something back asks twice,
+ * with the plan in front of you.
  */
 
 const EMPTY: ChangeSummary = { sessionId: "", touched: 0, recoverable: 0, held: 0 };
+const STEPS = ["brief", "balanced", "thorough"] as const;
 
 function split(name: string): [string, string] {
   const at = name.indexOf("__");
@@ -50,10 +55,7 @@ function Call({ call }: { call: CallCard }): React.JSX.Element {
         {call.state === "running" ? <span className="tag">running</span> : null}
         {recorded === undefined ? null : (
           <>
-            <span
-              className="tag"
-              data-kind={recorded.class === "irreversible" ? "irreversible" : recorded.class}
-            >
+            <span className="tag" data-kind={recorded.class}>
               {recorded.class}
             </span>
             {recorded.class === "readonly" ? null : (
@@ -125,6 +127,14 @@ interface Sheet {
   readonly confirm?: { readonly label: string; readonly go: () => void };
 }
 
+/** Their picture if Google gave us one, and an initial if it did not. */
+function Face({ name, picture }: { name: string; picture?: string }): React.JSX.Element {
+  if (picture !== undefined) {
+    return <img className="face" src={picture} alt="" referrerPolicy="no-referrer" />;
+  }
+  return <span className="face">{name.trim().slice(0, 1).toUpperCase()}</span>;
+}
+
 export function App(): React.JSX.Element {
   const [settings, setSettings] = useState<Settings | undefined>(undefined);
   const [list, setList] = useState<readonly ConversationSummary[]>([]);
@@ -138,6 +148,8 @@ export function App(): React.JSX.Element {
   const [sheet, setSheet] = useState<Sheet | undefined>(undefined);
   const [missing, setMissing] = useState<string | undefined>(undefined);
   const [key, setKey] = useState("");
+  /** Which popover is open, if any. */
+  const [pane, setPane] = useState<"models" | "account" | undefined>(undefined);
 
   const bottom = useRef<HTMLDivElement | null>(null);
   // Held in a ref as well so the event listener, which is installed once, can
@@ -156,6 +168,12 @@ export function App(): React.JSX.Element {
       ...was,
       { id: `note-${String(Date.now())}`, role: "note", text, calls: [] },
     ]);
+  }, []);
+
+  /** Settings that came back from something that also closes its popover. */
+  const took = useCallback((next: Settings) => {
+    setSettings(next);
+    setPane(undefined);
   }, []);
 
   /**
@@ -193,26 +211,28 @@ export function App(): React.JSX.Element {
     };
   }, [apply]);
 
-  const show = useCallback((opened: {
-    id: string;
-    title: string;
-    messages: readonly ChatMessage[];
-    summary: ChangeSummary;
-  }) => {
-    setOpenId(opened.id);
-    openRef.current = opened.id;
-    setTitle(opened.title);
-    setMessages([...opened.messages]);
-    setSummary(opened.summary);
-    setAsks([]);
-  }, []);
+  const show = useCallback(
+    (opened: {
+      id: string;
+      title: string;
+      messages: readonly ChatMessage[];
+      summary: ChangeSummary;
+    }) => {
+      setOpenId(opened.id);
+      openRef.current = opened.id;
+      setTitle(opened.title);
+      setMessages([...opened.messages]);
+      setSummary(opened.summary);
+      setAsks([]);
+    },
+    [],
+  );
 
   const refreshList = useCallback(() => {
     engine.conversations().then((found) => {
       setList(found);
-      // A conversation is named after the first thing said in it, which means
-      // its name arrives one turn after it opens. Without this the header
-      // still reads "New conversation" while the rail already shows the name.
+      // A conversation is named after the first thing said in it, so its name
+      // arrives one turn after it opens.
       const mine = found.find((one) => one.id === openRef.current);
       if (mine !== undefined) {
         setTitle(mine.title);
@@ -335,6 +355,7 @@ export function App(): React.JSX.Element {
       <div className="app" style={{ gridTemplateColumns: "1fr" }}>
         <div className="scroll">
           <div className="empty">
+            <Logo size={140} />
             <h2>No policy yet</h2>
             <p>
               Synartesis will not guess which of your tools are safe to let an agent use
@@ -350,6 +371,8 @@ export function App(): React.JSX.Element {
     );
   }
 
+  const account = settings?.account;
+
   return (
     <div className="app">
       <aside className="rail">
@@ -361,7 +384,7 @@ export function App(): React.JSX.Element {
         </div>
         <Fret />
         <button className="rail-new" onClick={begin} disabled={busy}>
-          New conversation
+          New chat
         </button>
         <div className="rail-list">
           {list.map((one) => (
@@ -378,78 +401,77 @@ export function App(): React.JSX.Element {
             </button>
           ))}
         </div>
+
         <div className="rail-foot">
-          <div className="field">
-            <span className="label">Model</span>
-            <select
-              value={settings?.chosen ?? ""}
-              onChange={(event) => {
-                engine.chooseModel(event.target.value).then(setSettings, complain);
+          {account === undefined ? (
+            <button
+              className="account"
+              disabled={settings?.canSignIn !== true}
+              title={
+                settings?.canSignIn === true
+                  ? "So the journal can record who approved what"
+                  : "This build has no Google client id"
+              }
+              onClick={() => {
+                engine.signIn().then(took, complain);
               }}
             >
-              {(settings?.models ?? []).map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                  {model.needsKey && !model.hasKey ? " — needs a key" : ""}
-                </option>
-              ))}
-            </select>
-            {chosen === undefined ? null : <span className="note">{chosen.note}</span>}
-          </div>
+              <span className="face" />
+              <span className="account-who">
+                <b>Sign in with Google</b>
+                <span className="account-sub">
+                  {settings?.canSignIn === true ? "Optional" : "Not available in this build"}
+                </span>
+              </span>
+            </button>
+          ) : (
+            <button
+              className="account"
+              onClick={() => {
+                setPane(pane === "account" ? undefined : "account");
+              }}
+            >
+              <Face
+                name={account.name}
+                {...(account.picture === undefined ? {} : { picture: account.picture })}
+              />
+              <span className="account-who">
+                <b>{account.name}</b>
+                <span className="account-sub">{account.email}</span>
+              </span>
+            </button>
+          )}
 
-          {chosen !== undefined && chosen.needsKey && !chosen.hasKey ? (
-            <div className="field">
-              <span className="label">API key</span>
-              <input
-                type="password"
-                value={key}
-                placeholder="Paste it here"
-                onChange={(event) => {
-                  setKey(event.target.value);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && key !== "") {
-                    engine.saveKey(chosen.id, key).then((next) => {
-                      setKey("");
-                      setSettings(next);
-                    }, complain);
-                  }
+          {pane === "account" && account !== undefined ? (
+            <>
+              <div
+                className="scrim"
+                onClick={() => {
+                  setPane(undefined);
                 }}
               />
-              <span className="note">
-                {settings?.canKeepSecrets === true
-                  ? "Kept in this machine's keychain. Never written to the journal or a log."
-                  : "This machine has no keychain available, so a key cannot be stored safely."}
-              </span>
-            </div>
-          ) : null}
-
-          <div className="field">
-            <span className="label">Thinking</span>
-            <div className="steps" data-inert={chosen?.thinks === false}>
-              {(["brief", "balanced", "thorough"] as const).map((step) => (
+              <div className="pop" data-at="account">
+                <p className="pop-note">
+                  Approvals are recorded in the journal as {account.email}. That is all signing
+                  in does — nothing is sent anywhere and nothing syncs.
+                </p>
                 <button
-                  key={step}
-                  aria-pressed={settings?.reasoning === step}
-                  disabled={chosen?.thinks === false}
+                  className="pop-row"
                   onClick={() => {
-                    engine.setReasoning(step).then(setSettings, complain);
+                    engine.signOut().then(took, complain);
                   }}
                 >
-                  {step}
+                  <span className="pop-name">Sign out</span>
                 </button>
-              ))}
-            </div>
-            {chosen?.thinks === false ? (
-              <span className="note">{chosen.name} has no thinking control, so this does nothing.</span>
-            ) : null}
-          </div>
+              </div>
+            </>
+          ) : null}
         </div>
       </aside>
 
       <main className="main">
         <header className="topbar">
-          <h1>{title === "" ? "New conversation" : title}</h1>
+          <h1>{title === "" ? "New chat" : title}</h1>
           <div className="ledger">
             <span className="ledger-count">
               <b>{summary.touched}</b> changed · <b>{summary.recoverable}</b> can be put back
@@ -478,14 +500,14 @@ export function App(): React.JSX.Element {
           <div className="thread">
             {messages.length === 0 ? (
               <div className="empty">
-                <Fret tall />
-                <h2>Say what you want done</h2>
+                <Logo size={150} />
+                <h2>Ready when you are.</h2>
                 <p>
-                  Whatever the model touches is recorded with the state it replaced, so you can put
-                  it back. Anything that cannot be undone waits for you first.
+                  Whatever the model touches is recorded with the state it replaced, so you can
+                  put it back. Anything that cannot be undone waits for you first.
                 </p>
                 <p className="note">
-                  Try: “what did you change?” or “put that back” — it has the same tools you do.
+                  Try “what did you change?” or “put that back” — it has the same tools you do.
                 </p>
               </div>
             ) : null}
@@ -536,9 +558,10 @@ export function App(): React.JSX.Element {
 
         <div className="composer">
           <Fret />
-          <div className="composer-inner">
+          <div className="box">
             <textarea
               value={draft}
+              rows={1}
               placeholder="Say what you want done"
               onChange={(event) => {
                 setDraft(event.target.value);
@@ -552,26 +575,120 @@ export function App(): React.JSX.Element {
                 }
               }}
             />
-            <div className="composer-row">
-              <span className="hint">
-                {busy ? "Working…" : "Enter to send · Shift-Enter for a new line"}
-              </span>
+            <div className="box-row">
+              {/* The model lives here, beside the thing it is about to do,
+                  rather than in a panel somewhere else. */}
+              <button
+                className="picker"
+                onClick={() => {
+                  setPane(pane === "models" ? undefined : "models");
+                }}
+              >
+                {chosen?.name ?? "No model"}
+                {chosen?.thinks === true ? ` · ${settings?.reasoning ?? ""}` : ""}
+                <span className="chev">⌄</span>
+              </button>
+              <span className="hint">{busy ? "Working…" : ""}</span>
               {busy ? (
                 <button
-                  className="act"
+                  className="round"
+                  aria-label="Stop"
                   onClick={() => {
                     if (openId !== undefined) engine.stop(openId).catch(complain);
                   }}
                 >
-                  Stop
+                  ■
                 </button>
               ) : (
-                <button className="act" data-weight="heavy" onClick={send} disabled={draft.trim() === ""}>
-                  Send
+                <button
+                  className="round"
+                  aria-label="Send"
+                  onClick={send}
+                  disabled={draft.trim() === ""}
+                >
+                  ↑
                 </button>
               )}
             </div>
           </div>
+
+          {pane === "models" ? (
+            <>
+              <div
+                className="scrim"
+                onClick={() => {
+                  setPane(undefined);
+                }}
+              />
+              <div className="pop" data-at="models">
+                <p className="pop-label">Model</p>
+                {(settings?.models ?? []).map((model) => (
+                  <button
+                    key={model.id}
+                    className="pop-row"
+                    aria-current={model.id === settings?.chosen}
+                    onClick={() => {
+                      engine.chooseModel(model.id).then(setSettings, complain);
+                    }}
+                  >
+                    <span className="pop-name">
+                      {model.name}
+                      {model.needsKey && !model.hasKey ? <em> needs a key</em> : null}
+                    </span>
+                    <span className="pop-note">{model.note}</span>
+                  </button>
+                ))}
+
+                <p className="pop-label">Thinking</p>
+                <div className="steps" data-inert={chosen?.thinks === false}>
+                  {STEPS.map((step) => (
+                    <button
+                      key={step}
+                      aria-pressed={settings?.reasoning === step}
+                      disabled={chosen?.thinks === false}
+                      onClick={() => {
+                        engine.setReasoning(step).then(setSettings, complain);
+                      }}
+                    >
+                      {step}
+                    </button>
+                  ))}
+                </div>
+                {chosen?.thinks === false ? (
+                  <p className="pop-note">
+                    {chosen.name} has no thinking control, so this does nothing.
+                  </p>
+                ) : null}
+
+                {chosen !== undefined && chosen.needsKey && !chosen.hasKey ? (
+                  <>
+                    <p className="pop-label">API key</p>
+                    <input
+                      type="password"
+                      value={key}
+                      placeholder="Paste it and press Enter"
+                      onChange={(event) => {
+                        setKey(event.target.value);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && key !== "") {
+                          engine.saveKey(chosen.id, key).then((next) => {
+                            setKey("");
+                            setSettings(next);
+                          }, complain);
+                        }
+                      }}
+                    />
+                    <p className="pop-note">
+                      {settings?.canKeepSecrets === true
+                        ? "Kept in this machine's keychain. Never written to the journal or a log."
+                        : "This machine has no keychain available, so a key cannot be stored safely."}
+                    </p>
+                  </>
+                ) : null}
+              </div>
+            </>
+          ) : null}
         </div>
       </main>
 

@@ -94,6 +94,8 @@ function wire(desk: Desk): void {
     "settings:reasoning": (reasoning) => desk.setReasoning(asReasoning(reasoning)),
     "settings:save-key": (id, key) => desk.saveKey(asString(id), asString(key)),
     "settings:forget-key": (id) => desk.forgetKey(asString(id)),
+    "account:sign-in": () => desk.signIn(),
+    "account:sign-out": () => desk.signOut(),
 
     "chat:list": () => desk.conversations(),
     "chat:start": () => desk.start(),
@@ -155,6 +157,15 @@ function places(): { manifestPath: string; journalPath: string } {
   return { manifestPath: join(root, MANIFEST_NAME), journalPath: join(root, JOURNAL_NAME) };
 }
 
+/**
+ * The OAuth client id belongs to whoever builds this, not to the source.
+ *
+ * One baked in here would be a client id anybody could point at their own
+ * application. Absent, the window says signing in is unavailable and
+ * everything else works unchanged.
+ */
+const clientId = process.env["SYNARTESIS_GOOGLE_CLIENT_ID"];
+
 async function main(): Promise<void> {
   // Before anything asks for a path: userData is derived from the name, and a
   // window that quietly stored a person's conversations under "Electron" would
@@ -179,8 +190,22 @@ async function main(): Promise<void> {
     journalPath,
     settingsPath: join(app.getPath("userData"), "models.json"),
     conversationsPath: join(app.getPath("userData"), "conversations.json"),
+    accountPath: join(app.getPath("userData"), "account.sealed"),
     secrets: keychain,
     emit: tell,
+    ...(clientId === undefined
+      ? {}
+      : {
+          google: {
+            clientId,
+            // The person's own browser, never a window this application
+            // draws. An application that renders a password field can read
+            // what is typed into it.
+            open: (url: string) => {
+              void shell.openExternal(url);
+            },
+          },
+        }),
   });
   wire(desk);
   makeWindow();

@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 import { createProvider, PRESETS, type ProviderConfig, type Provider } from "../providers/index.js";
 import type { ModelChoice, Reasoning, Settings } from "../shared/ipc.js";
 
+type ModelSettings = Omit<Settings, "account" | "canSignIn">;
+
 /**
  * Which models are set up, and where their keys are.
  *
@@ -177,7 +179,11 @@ export class Library {
     renameSync(beside, this.path);
   }
 
-  view(): Settings {
+  /**
+   * Everything about models, and nothing about who is using them. Signing in
+   * is the desk's business; this file only knows where the keys are.
+   */
+  view(): ModelSettings {
     return {
       models: this.#state.models.map(
         (model): ModelChoice => ({

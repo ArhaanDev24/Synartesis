@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+import { Signed, signInWithGoogle } from "./account.js";
 import { Conversation } from "./conversation.js";
 import { startEngine, type Engine } from "./engine.js";
 import { Library, type SecretStore } from "./settings.js";
@@ -35,8 +36,14 @@ export interface DeskOptions {
   readonly journalPath: string;
   readonly settingsPath: string;
   readonly conversationsPath: string;
+  readonly accountPath: string;
   readonly secrets: SecretStore;
   readonly emit: (conversationId: string, event: SessionEvent) => void;
+  /**
+   * The OAuth client id and a way to reach the person's browser. Absent in a
+   * build that has neither, where signing in is simply not offered.
+   */
+  readonly google?: { readonly clientId: string; readonly open: (url: string) => void };
   /** How long a held call waits for a person before it gives up. */
   readonly gateTimeoutMs?: number;
 }
@@ -97,12 +104,15 @@ export class Desk {
   /** Everything, open or not, newest last. */
   #stored: StoredConversation[];
 
+  readonly #signed: Signed;
+
   private constructor(
     private readonly options: DeskOptions,
     private readonly library: Library,
     stored: StoredConversation[],
   ) {
     this.#stored = stored;
+    this.#signed = new Signed(options.accountPath, options.secrets);
   }
 
   static open(options: DeskOptions): Desk {
@@ -114,7 +124,38 @@ export class Desk {
   }
 
   settings(): Settings {
-    return this.library.view();
+    const who = this.#signed.who;
+    return {
+      ...this.library.view(),
+      ...(who === undefined ? {} : { account: who }),
+      canSignIn: this.options.google !== undefined,
+    };
+  }
+
+  /**
+   * Sign in, so the journal can name whoever approves things.
+   *
+   * That is all it does. There is no server, nothing syncs, and every feature
+   * works exactly as well signed out -- which is why this is never asked for
+   * and never in the way.
+   */
+  async signIn(): Promise<Settings> {
+    const google = this.options.google;
+    if (google === undefined) {
+      throw new Error(
+        "This build has no Google client id, so it cannot sign anyone in. " +
+          "Set SYNARTESIS_GOOGLE_CLIENT_ID and restart.",
+      );
+    }
+    this.#signed.keep(
+      await signInWithGoogle({ clientId: google.clientId, open: google.open }),
+    );
+    return this.settings();
+  }
+
+  signOut(): Settings {
+    this.#signed.forget();
+    return this.settings();
   }
 
   chooseModel(id: string): Settings {
@@ -265,13 +306,20 @@ export class Desk {
     }
   }
 
+  /**
+   * Let it through, in somebody's name.
+   *
+   * The journal keeps who approved what, and that is the record anybody will
+   * read afterwards. Signed out it says "you", which is honest and useless;
+   * signed in it says who.
+   */
   approve(actionId: string): void {
-    this.#journal().approve(actionId, "you");
+    this.#journal().approve(actionId, this.#signed.actor);
     this.#announce(actionId);
   }
 
   deny(actionId: string, why: string): void {
-    this.#journal().deny(actionId, "you", why);
+    this.#journal().deny(actionId, this.#signed.actor, why);
     this.#announce(actionId);
   }
 
