@@ -12,13 +12,17 @@ name: release
 on:
   push:
     tags: ["v*"]
-  # So a tag that is already pushed can still be built, and so the whole thing
-  # can be rehearsed against a draft before anybody relies on it.
+  # Two uses. With a tag, it builds that tag and attaches the installers to
+  # its release -- for a tag pushed before this workflow existed, or a run that
+  # failed halfway. With the box left empty it builds this branch and publishes
+  # nothing, which is the only honest way to find out whether a build works on
+  # three platforms without spending a version number to ask.
   workflow_dispatch:
     inputs:
       tag:
-        description: The tag to build and attach to, e.g. v0.6.0
-        required: true
+        description: Tag to build and publish. Empty builds this branch and publishes nothing.
+        required: false
+        default: ""
 
 jobs:
   build:
@@ -76,6 +80,9 @@ jobs:
 
   attach:
     needs: build
+    # A rehearsal has no tag and therefore nothing to attach to. Everything
+    # above still ran, which is the whole point of it.
+    if: inputs.tag != '' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write

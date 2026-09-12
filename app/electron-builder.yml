@@ -61,6 +61,8 @@ win:
 
 linux:
   icon: build/icon.png
+  # dpkg requires one, and refuses to build without it.
+  maintainer: ArhaanDev24 <uptownedits1@gmail.com>
   category: Development
   target:
     - target: AppImage

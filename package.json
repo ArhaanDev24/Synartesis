@@ -66,6 +66,12 @@
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
+  "//pnpm": "better-sqlite3 ships a prebuilt binary for every platform it supports, and its loader prefers one over anything compiled locally -- so what node-gyp builds here is never loaded. npm knows not to bother, because the package sets gypfile: false; pnpm builds it anyway, which needs a C toolchain on every machine that installs this and fails outright on a Windows runner whose Visual Studio is newer than node-gyp.",
+  "pnpm": {
+    "neverBuiltDependencies": [
+      "better-sqlite3"
+    ]
+  },
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
     "@electron/notarize": "^3.1.1",
