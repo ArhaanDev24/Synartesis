@@ -71,11 +71,28 @@ async function bench(): Promise<{ engine: Engine; root: string }> {
   return { engine, root };
 }
 
+
+/**
+ * What a tool is really called from the model's side.
+ *
+ * The proxy qualifies names whenever it fronts more than one server, and this
+ * app always does -- the user's servers plus Synartesis's own. Hard-coding the
+ * bare name here would test a configuration the app never has.
+ */
+async function named(engine: Engine, bare: string): Promise<string> {
+  const tools = await engine.tools();
+  const found = tools.find((tool) => tool.name === bare || tool.name.endsWith(`__${bare}`));
+  if (found === undefined) {
+    throw new Error(`no tool like ${bare}; saw ${tools.map((t) => t.name).join(", ")}`);
+  }
+  return found.name;
+}
+
 describe("an agent talking through the proxy", () => {
   it("offers the upstream's tools to the model, in provider shape", async () => {
     const { engine } = await bench();
-    const tools = await engine.tools();
-    const write = tools.find((tool) => tool.name === "write_file");
+    const wanted = await named(engine, "write_file");
+    const write = (await engine.tools()).find((tool) => tool.name === wanted);
     expect(write).toBeDefined();
     expect(write?.inputSchema["type"]).toBe("object");
   });
@@ -92,7 +109,7 @@ describe("an agent talking through the proxy", () => {
         calls: [
           {
             id: "c1",
-            name: "write_file",
+            name: await named(engine, "write_file"),
             args: { path, content: "Region   Revenue\nNorth    000,000\n" },
           },
         ],
@@ -134,7 +151,12 @@ describe("an agent talking through the proxy", () => {
     writeFileSync(path, "before\n");
 
     const provider = scripted([
-      { text: "", calls: [{ id: "c1", name: "write_file", args: { path, content: "after\n" } }] },
+      {
+        text: "",
+        calls: [
+          { id: "c1", name: await named(engine, "write_file"), args: { path, content: "after\n" } },
+        ],
+      },
       { text: "Done.", calls: [] },
     ]);
     await run({
@@ -159,7 +181,11 @@ describe("an agent talking through the proxy", () => {
       {
         text: "",
         calls: [
-          { id: "c1", name: "write_file", args: { path: join(root, "new.txt"), content: "x" } },
+          {
+            id: "c1",
+            name: await named(engine, "write_file"),
+            args: { path: join(root, "new.txt"), content: "x" },
+          },
         ],
       },
       { text: "I could not do that without approval.", calls: [] },
@@ -190,7 +216,7 @@ describe("an agent talking through the proxy", () => {
     writeFileSync(path, "x\n");
     const forever: Turn = {
       text: "",
-      calls: [{ id: "c", name: "read_text_file", args: { path } }],
+      calls: [{ id: "c", name: await named(engine, "read_text_file"), args: { path } }],
     };
     const provider = scripted([forever, forever, forever, forever]);
 

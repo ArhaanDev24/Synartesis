@@ -6,9 +6,10 @@ import { openJournal, type Journal } from "../../src/journal/journal.js";
 import { loadManifest } from "../../src/manifest/load.js";
 import type { Manifest } from "../../src/manifest/types.js";
 import { createProxyServer } from "../../src/proxy/proxy.js";
-import { createRouter, type Router } from "../../src/proxy/routing.js";
+import { createRouter, SEPARATOR, type Router } from "../../src/proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "../../src/proxy/upstream.js";
 import type { ProviderTool } from "../providers/types.js";
+import { connectToolset, createToolset, TOOLSET_POLICY } from "./toolset.js";
 
 /**
  * The whole reason this app is not another chat client.
@@ -36,6 +37,11 @@ export interface EngineOptions {
   readonly onApprovalNeeded?: (request: GateRequest) => void;
   /** How long a held call waits before giving up. */
   readonly gateTimeoutMs?: number;
+  /**
+   * Offer Synartesis's own operations to the model. On by default: being able
+   * to ask what changed, in words, is most of why this app exists.
+   */
+  readonly ownTools?: boolean;
 }
 
 export interface Engine {
@@ -47,6 +53,16 @@ export interface Engine {
   readonly runId: string;
   /** Every tool the model may call, already in provider-neutral shape. */
   tools(): Promise<readonly ProviderTool[]>;
+  /**
+   * What one of Synartesis's own tools is called from the model's side.
+   *
+   * The proxy qualifies tool names whenever it fronts more than one server,
+   * so `what_changed` reaches the model as `synartesis__what_changed`. Since
+   * the toolset is always offered, this app is always past that threshold --
+   * which makes the qualified form the stable one rather than something that
+   * changes when a server is added. Callers ask rather than assume.
+   */
+  ownTool(bare: string): string;
   call(name: string, args: Record<string, unknown>): Promise<{ text: string; failed: boolean }>;
   close(): Promise<void>;
 }
@@ -101,6 +117,12 @@ function flatten(result: unknown): { text: string; failed: boolean } {
 
 export async function startEngine(options: EngineOptions): Promise<Engine> {
   const manifest = loadManifest(options.manifestPath);
+  /**
+   * Filled in once everything is up. A holder rather than two `let`s because
+   * the toolset closes over these before they exist -- it needs the router to
+   * read the world, and the router needs every upstream, including the toolset.
+   */
+  const live: { router?: Router; runId?: string } = {};
   const journal = openJournal(options.journalPath);
 
   const upstreams: Upstream[] = [];
@@ -122,9 +144,45 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
     }
   }
 
+  // Synartesis's own operations, as an upstream like any other. Going through
+  // the proxy rather than around it is deliberate: the policy below is what
+  // makes list and preview readonly and undo_session gated, using exactly the
+  // machinery every other server is held to.
+  const offerOwnTools = options.ownTools ?? true;
+  if (offerOwnTools) {
+    const toolset = createToolset({
+      journal,
+      router: () => {
+        if (live.router === undefined) {
+          throw new Error("the router is not ready yet");
+        }
+        return live.router;
+      },
+      manifestPath: options.manifestPath,
+      currentRun: () => live.runId,
+    });
+    upstreams.push(await connectToolset(toolset, "synartesis"));
+  }
+
+  // The manifest the proxy is given, not the one on disk: the user should not
+  // have to write a policy for tools the app itself supplies.
+  const covering: Manifest = offerOwnTools
+    ? {
+        ...manifest,
+        servers: {
+          ...manifest.servers,
+          // Never started as a process -- it is already connected -- but the
+          // router insists every upstream is declared, and that check has
+          // caught real mistakes.
+          synartesis: { command: "node", args: [] },
+        },
+        tools: [...TOOLSET_POLICY, ...manifest.tools],
+      }
+    : manifest;
+
   const proxy = createProxyServer({
     upstreams,
-    manifest,
+    manifest: covering,
     journal,
     gate: createJournalGate(journal, {
       ...(options.gateTimeoutMs === undefined ? {} : { timeoutMs: options.gateTimeoutMs }),
@@ -136,16 +194,21 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
   const client = new Client({ name: options.label ?? "synartesis-desktop", version: "0.1.0" });
   await Promise.all([proxy.server.connect(serverSide), client.connect(clientSide)]);
   const runId = await proxy.ready;
+  live.runId = runId;
+  live.router = createRouter(upstreams, covering);
 
   return {
     client,
     journal,
-    router: createRouter(upstreams, manifest),
-    manifest,
+    router: live.router,
+    manifest: covering,
     runId,
     async tools() {
       const listed = await client.listTools();
       return listed.tools.map(asProviderTool);
+    },
+    ownTool(bare) {
+      return offerOwnTools && upstreams.length > 1 ? `synartesis${SEPARATOR}${bare}` : bare;
     },
     async call(name, args) {
       try {

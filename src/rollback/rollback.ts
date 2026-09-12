@@ -236,6 +236,16 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
   for (const action of inScope) {
     // Reset per action: forcing past one conflict says nothing about the next.
     let forcedOver: string | undefined;
+    // Before its status is consulted at all. A readonly action changed
+    // nothing, so whether its outcome is known says nothing about whether the
+    // world needs putting back -- and classify halts on `pending`, which is
+    // exactly what a read still in flight looks like. A rollback that stopped
+    // because something was being *read* would be stopping on nothing.
+    if (action.class === "readonly") {
+      steps.push({ ...describeStep(action), kind: "skip", reason: "readonly", verified: true });
+      continue;
+    }
+
     const early = classify(action, policies !== undefined, force || dryRun);
     if (early?.kind === "halt") {
       // Deliberately not written back. Every halt classify can reach was read
@@ -258,11 +268,6 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     }
     if (early !== undefined) {
       steps.push({ ...describeStep(action), ...early });
-      continue;
-    }
-
-    if (action.class === "readonly") {
-      steps.push({ ...describeStep(action), kind: "skip", reason: "readonly", verified: true });
       continue;
     }
 
