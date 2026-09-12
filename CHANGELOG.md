@@ -2,6 +2,39 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.1 — 2026-09-12
+
+### Added
+
+- **A `release` workflow** builds the application on macOS, Windows and Linux --
+  each on its own machine, since an installer cannot honestly be built anywhere
+  else -- and attaches the `.dmg`, `.exe`, AppImage and `.deb` to the release
+  for a `v*` tag. It signs and notarises where the secrets exist and produces
+  unsigned builds where they do not, so a fork of this repository can still
+  build it.
+
+### Fixed
+
+- **The packaging script could not have run on Windows.** It started
+  electron-builder through the shim in `node_modules/.bin`, which is a `.cmd`
+  there and something node will not spawn without a shell. It runs the
+  builder's own entry file instead -- the same file on every platform -- and
+  the check that refuses a stale bundle now knows where Windows and Linux keep
+  the archive as well as where macOS does.
+
+- **An empty secret is not a certificate.** A CI job passes every secret it was
+  told about whether the repository holds one or not, so a build with no
+  signing certificate was handed `CSC_LINK=""`. electron-builder reads
+  "defined" as "use it": it took the empty string for the path to a
+  certificate, resolved it against the project directory, and stopped with
+  "`<repo>/app not a file`" -- a message with no visible relationship to its
+  cause. Blank credentials are dropped before the builder starts, so a build
+  without a certificate is simply unsigned.
+
+- **A `.DS_Store` could make a current bundle look stale.** Finder leaves one in
+  any directory somebody has looked at, and the staleness check was counting it
+  as input to the bundle even though nothing packs it.
+
 ## 0.6.0 — 2026-09-12
 
 ### Added
@@ -24,12 +57,6 @@ What changed, and why it mattered. Dates are release dates.
 
 - **`synartesis desktop`** opens that window if it is installed, and says where
   to get it if it is not.
-
-- **A `release` workflow** builds the application on macOS, Windows and Linux --
-  each on its own machine, since an installer cannot honestly be built anywhere
-  else -- and attaches the results to the release for a `v*` tag. It signs and
-  notarises where the secrets exist and produces unsigned builds where they do
-  not, so a fork of this repository can still build it.
 
 ### Fixed
 
