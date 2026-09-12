@@ -88,7 +88,14 @@ export async function run(options: RunOptions): Promise<readonly Exchange[]> {
     // pre-states for one before -- which is the one thing it must never do.
     for (const call of turn.calls) {
       emit({ kind: "call", call });
-      const result = await engine.call(call.name, call.args);
+      // A call the adapter could not read is answered here and goes no
+      // further. Dispatching arguments nobody could parse would mean sending
+      // whatever survived parsing -- usually nothing -- to a real filesystem,
+      // and the journal would record a call the model never actually made.
+      const result =
+        call.malformed === undefined
+          ? await engine.call(call.name, call.args)
+          : { text: `This call was not sent. ${call.malformed}`, failed: true };
       emit({ kind: "result", call, result });
       messages.push({
         role: "tool",

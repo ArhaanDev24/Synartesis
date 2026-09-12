@@ -60,6 +60,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
+    "@google/genai": "^2.22.0",
     "@modelcontextprotocol/server-filesystem": "^2026.7.10",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",

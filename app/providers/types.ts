@@ -35,6 +35,15 @@ export interface ToolCall {
   readonly id: string;
   readonly name: string;
   readonly args: Record<string, unknown>;
+  /**
+   * Set when the model asked for a tool but the request could not be read --
+   * arguments that are not JSON, most often, which small local models produce
+   * regularly. The call is still reported so the model can be told what was
+   * wrong with it, but it must never be dispatched: arguments nobody could
+   * parse are arguments nobody can check, and this one would arrive at a real
+   * filesystem. `args` is empty when this is set.
+   */
+  readonly malformed?: string;
 }
 
 /**
