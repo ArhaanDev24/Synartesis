@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { engine } from "./bridge.js";
-import { Fret, Logo, Mark } from "./Mark.js";
+import { Cross, Fret, Logo, Mark, Pin } from "./Mark.js";
 import { Copy } from "./Copy.js";
 import { Markdown } from "./Markdown.js";
 import { FocusPanel } from "./FocusPanel.js";
@@ -13,6 +13,7 @@ import type {
   ChangeSummary,
   ChatMessage,
   ConversationSummary,
+  FolderReport,
   SessionEvent,
   Settings,
 } from "../shared/ipc.js";
@@ -175,9 +176,12 @@ export function App(): React.JSX.Element {
   const sending = useRef(false);
   const [activity, setActivity] = useState<"checking" | "planning" | "undoing" | undefined>(undefined);
   const [sheet, setSheet] = useState<Sheet | undefined>(undefined);
+  const [folder, setFolder] = useState<FolderReport | undefined>(undefined);
   const sheetTrigger = useRef<HTMLElement | null>(null);
   const [missing, setMissing] = useState<string | undefined>(undefined);
   const [key, setKey] = useState("");
+  /** Which model's key field is open, if any. */
+  const [keying, setKeying] = useState<string | undefined>(undefined);
   /** Which popover is open, if any. */
   const [pane, setPane] = useState<"models" | "account" | undefined>(undefined);
 
@@ -477,18 +481,76 @@ export function App(): React.JSX.Element {
         </button>
         <div className="rail-list" aria-label="Chat history">
           {list.map((one) => (
-            <button
-              key={one.id}
-              className="rail-item"
-              aria-current={one.id === openId}
-              disabled={busy || activity !== undefined}
-              title={one.title}
-              onClick={() => {
-                engine.open(one.id).then(show, complain);
-              }}
-            >
-              {one.title}
-            </button>
+            <div className="rail-row" key={one.id} data-pinned={one.pinned}>
+              <button
+                className="rail-item"
+                aria-current={one.id === openId}
+                disabled={busy || activity !== undefined}
+                title={one.title}
+                onClick={() => {
+                  engine.open(one.id).then(show, complain);
+                }}
+              >
+                {one.pinned ? (
+                  <span className="rail-pinned" aria-label="Pinned">
+                    <Pin filled />
+                  </span>
+                ) : null}
+                {one.title}
+              </button>
+              <button
+                className="rail-act"
+                data-act="pin"
+                aria-label={one.pinned ? `Unpin ${one.title}` : `Pin ${one.title}`}
+                title={one.pinned ? "Unpin" : "Pin to the top"}
+                disabled={busy || activity !== undefined}
+                onClick={() => {
+                  engine.setPinned(one.id, !one.pinned).then(setList, complain);
+                }}
+              >
+                <Pin filled={one.pinned} />
+              </button>
+              <button
+                className="rail-act"
+                data-act="delete"
+                aria-label={`Delete ${one.title}`}
+                title="Delete this chat"
+                disabled={busy || activity !== undefined}
+                onClick={() => {
+                  sheetTrigger.current =
+                    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                  setSheet({
+                    title: `Delete “${one.title}”?`,
+                    body:
+                      "This forgets the conversation — the messages, and its place in this " +
+                      "list.\n\nWhat it changed stays in the journal. Everything it did is " +
+                      "still recorded and still reversible from a terminal:\n\n  synartesis " +
+                      `undo ${one.sessionId.slice(0, 8)}\n\nDeleting a chat is tidying, not ` +
+                      "erasing. Nothing on your disk changes either way.",
+                    confirm: {
+                      label: "Delete the chat",
+                      go: () => {
+                        setSheet(undefined);
+                        engine.forget(one.id).then((left) => {
+                          setList(left);
+                          if (one.id !== openId) {
+                            return;
+                          }
+                          const next = left[0];
+                          if (next === undefined) {
+                            begin();
+                          } else {
+                            engine.open(next.id).then(show, complain);
+                          }
+                        }, complain);
+                      },
+                    },
+                  });
+                }}
+              >
+                <Cross />
+              </button>
+            </div>
           ))}
         </div>
 
@@ -596,6 +658,22 @@ export function App(): React.JSX.Element {
               ) : null}
             </span>
             </div>
+            <button
+              className="act"
+              title="What has happened to the files in a folder"
+              onClick={() => {
+                sheetTrigger.current =
+                  document.activeElement instanceof HTMLElement ? document.activeElement : null;
+                engine.chooseFolder().then((picked) => {
+                  if (picked === undefined) {
+                    return;
+                  }
+                  engine.folder(picked).then(setFolder, complain);
+                }, complain);
+              }}
+            >
+              Files…
+            </button>
             <button className="act" onClick={check} disabled={summary.touched === 0 || busy || activity !== undefined} title="Read current state and check for changes">
               {activity === "checking" ? "Checking…" : "Check"}
             </button>
@@ -611,7 +689,17 @@ export function App(): React.JSX.Element {
           </div>
         </header>
 
-        {busy ? <div className="turn-status" role="status">{asks.length > 0 ? `${String(asks.length)} call held · waiting for your decision` : "Turn in progress · each tool card shows its recovery status"}</div> : null}
+        {busy ? (
+          <div className="turn-status" role="status">
+            {/* The same mark as the rail, turning, beside the words -- in the
+                middle of the window rather than in a corner, because the
+                corner is not where anybody is looking during a turn. */}
+            <Mark working size={15} />
+            {asks.length > 0
+              ? `${String(asks.length)} call held · waiting for your decision`
+              : "Working · each tool card shows whether its change can be put back"}
+          </div>
+        ) : null}
         <div className="scroll" data-streaming={busy} tabIndex={0} role="region" aria-label="Conversation transcript" onScroll={(event) => {
           const element = event.currentTarget;
           following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80;
@@ -767,24 +855,82 @@ export function App(): React.JSX.Element {
                   setPane(undefined);
                 }}
               />
-              <FocusPanel className="pop" at="models" id="model-options" label="Model and thinking effort" onClose={() => { setPane(undefined); setKey(""); }}>
+              <FocusPanel className="pop" at="models" id="model-options" label="Model and thinking effort" onClose={() => { setPane(undefined); setKey(""); setKeying(undefined); }}>
                 <p className="pop-label">Model</p>
                 {(settings?.models ?? []).map((model) => (
-                  <button
-                    key={model.id}
-                    className="pop-row"
-                    aria-current={model.id === settings?.chosen}
-                    onClick={() => {
-                      engine.chooseModel(model.id).then(setSettings, complain);
-                    }}
-                  >
-                    <span className="pop-name">
-                      {model.name}
-                      {model.needsKey && !model.hasKey ? <em> needs a key</em> : null}
-                    </span>
-                    <span className="pop-note">{model.note}</span>
-                  </button>
+                  <div className="model" key={model.id}>
+                    <button
+                      className="pop-row"
+                      aria-current={model.id === settings?.chosen}
+                      onClick={() => {
+                        engine.chooseModel(model.id).then(setSettings, complain);
+                      }}
+                    >
+                      <span className="pop-name">
+                        {model.name}
+                        {model.needsKey && !model.hasKey ? <em> needs a key</em> : null}
+                      </span>
+                      <span className="pop-note">{model.note}</span>
+                    </button>
+                    {/* Every model that wants a key can be given one here,
+                        not only whichever is selected -- otherwise setting up
+                        a second model means switching to it first. */}
+                    {model.needsKey ? (
+                      <div className="model-key">
+                        {model.hasKey ? (
+                          <>
+                            <span className="key-state">Key saved in this machine's keychain</span>
+                            <button
+                              className="act"
+                              onClick={() => {
+                                engine.forgetKey(model.id).then(setSettings, complain);
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </>
+                        ) : keying === model.id ? (
+                          <input
+                            type="password"
+                            autoFocus
+                            aria-label={`API key for ${model.name}`}
+                            autoComplete="off"
+                            value={key}
+                            placeholder="Paste it and press Enter"
+                            onChange={(event) => {
+                              setKey(event.target.value);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" && key !== "") {
+                                engine.saveKey(model.id, key).then((next) => {
+                                  setKey("");
+                                  setKeying(undefined);
+                                  setSettings(next);
+                                }, complain);
+                              }
+                            }}
+                          />
+                        ) : (
+                          <button
+                            className="act"
+                            disabled={settings?.canKeepSecrets !== true}
+                            onClick={() => {
+                              setKey("");
+                              setKeying(model.id);
+                            }}
+                          >
+                            Add key
+                          </button>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                 ))}
+                <p className="pop-note">
+                  {settings?.canKeepSecrets === true
+                    ? "Keys go to this machine's keychain. They are never written to the journal, a log, or this window."
+                    : "This machine has no keychain available, so a key cannot be stored safely. The local models need none."}
+                </p>
 
                 <p className="pop-label">Thinking</p>
                 <div className="steps" data-inert={chosen?.thinks === false}>
@@ -807,39 +953,85 @@ export function App(): React.JSX.Element {
                   </p>
                 ) : null}
 
-                {chosen !== undefined && chosen.needsKey && !chosen.hasKey ? (
-                  <>
-                    <p className="pop-label">API key</p>
-                    <input
-                      type="password"
-                      aria-label="API key"
-                      autoComplete="off"
-                      value={key}
-                      placeholder="Paste it and press Enter"
-                      onChange={(event) => {
-                        setKey(event.target.value);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" && key !== "") {
-                          engine.saveKey(chosen.id, key).then((next) => {
-                            setKey("");
-                            setSettings(next);
-                          }, complain);
-                        }
-                      }}
-                    />
-                    <p className="pop-note">
-                      {settings?.canKeepSecrets === true
-                        ? "Kept in this machine's keychain. Never written to the journal or a log."
-                        : "This machine has no keychain available, so a key cannot be stored safely."}
-                    </p>
-                  </>
-                ) : null}
               </FocusPanel>
             </>
           ) : null}
         </div>
       </main>
+
+      {folder === undefined ? null : (
+        <div className="sheet">
+          <FocusPanel
+            className="sheet-card wide"
+            id="folder-report"
+            label={`Files changed under ${folder.folder}`}
+            returnTo={sheetTrigger.current}
+            onClose={() => {
+              setFolder(undefined);
+            }}
+          >
+            <h2>What has happened here</h2>
+            <p className="pop-note">
+              {folder.folder}
+              <br />
+              Read from the journal, not from the disk — this is what was done, not what is true
+              now. Reads are left out; only changes are listed.
+            </p>
+            {folder.files.length === 0 ? (
+              <p className="pop-note">No agent has changed anything in this folder.</p>
+            ) : (
+              <div className="table-wrap" tabIndex={0} role="region" aria-label="Files changed">
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col">File</th>
+                      <th scope="col">Changed</th>
+                      <th scope="col">Can be put back</th>
+                      <th scope="col">Put back</th>
+                      <th scope="col">Held</th>
+                      <th scope="col">Last</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {folder.files.map((file) => (
+                      <tr key={file.path} data-risk={file.changes > file.recoverable}>
+                        <td title={file.path}>{file.path.split("/").pop()}</td>
+                        <td>{file.changes}</td>
+                        <td>{file.recoverable}</td>
+                        <td>{file.undone}</td>
+                        <td>{file.held === 0 ? "" : file.held}</td>
+                        <td className="whenever">{file.lastTool}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="pop-note">
+              A row where “changed” is more than “can be put back” has a change the journal
+              cannot reverse. Undo runs by conversation, not by file — open the chat that did it.
+            </p>
+            <div className="sheet-row">
+              <button
+                className="act"
+                onClick={() => {
+                  engine.folder(folder.folder).then(setFolder, complain);
+                }}
+              >
+                Refresh
+              </button>
+              <button
+                className="act"
+                onClick={() => {
+                  setFolder(undefined);
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </FocusPanel>
+        </div>
+      )}
 
       {sheet === undefined ? null : (
         <div className="sheet">

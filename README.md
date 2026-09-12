@@ -114,6 +114,10 @@ every line it would write over and stops; `--force --yes` goes ahead.
 
 ## Commands
 
+`synartesis desktop` opens the desktop window if it is installed — a separate
+download, so this command stays a few hundred kilobytes rather than shipping a
+browser engine. Both share one journal, so either can undo what the other did.
+
 | Command | Does |
 |---|---|
 | `synartesis` | The screen. Everything below can be done from it |

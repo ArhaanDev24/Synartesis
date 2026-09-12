@@ -1,5 +1,6 @@
 import type {
   ConversationSummary,
+  FolderReport,
   OpenConversation,
   Reasoning,
   SessionEvent,
@@ -27,6 +28,10 @@ export interface Bridge {
   signOut(): Promise<Settings>;
 
   conversations(): Promise<readonly ConversationSummary[]>;
+  setPinned(id: string, pinned: boolean): Promise<readonly ConversationSummary[]>;
+  forget(id: string): Promise<readonly ConversationSummary[]>;
+  chooseFolder(): Promise<string | undefined>;
+  folder(path: string): Promise<FolderReport>;
   start(): Promise<OpenConversation>;
   open(id: string): Promise<OpenConversation>;
   send(id: string, text: string): Promise<void>;

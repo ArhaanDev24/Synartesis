@@ -12,6 +12,7 @@ if (NODE_MAJOR < 22) {
   process.exit(2);
 }
 
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +37,7 @@ import { summariseArgs } from "./describe.js";
 import { discover, type ConfigSite } from "./install/clients.js";
 import { needsConnecting, scan, stateOf } from "./install/connections.js";
 import { applyInstall, applyUninstall, invokerFor, planInstall } from "./install/install.js";
+import { findDesktop, whereToGetIt } from "./desktop.js";
 
 const COMMANDS = `
   synartesis                                      start here. Live activity,
@@ -57,6 +59,7 @@ const COMMANDS = `
                   [--journal <path>]
                   [--http <port> --token <secret>]      for a client that
                                                         cannot start one
+  synartesis desktop
   synartesis watch [--by <name>] [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
@@ -67,6 +70,10 @@ install is the short way in: it finds what Claude Code, Claude Desktop,
 Cursor or Codex already list, writes a policy covering all of it -- using the ones that
 ship where they fit -- and points each entry at the proxy. The original config
 is copied aside first, and uninstall puts it back. status says what is covered.
+
+desktop opens the window, if it is installed. It is a separate download --
+shipping it through npm would put a browser engine inside every install of
+this command. Both share one journal, so either can undo what the other did.
 
 close ends a run left active by a proxy that was killed; nothing guesses at
 that, since several proxies can share one journal.
@@ -1608,6 +1615,10 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
+  if (command === "desktop") {
+    return runDesktop();
+  }
+
   // Every remaining command reads an existing journal. Only the proxy makes one.
   const journal = openJournalOrExplain(journalPath);
   try {
@@ -1634,6 +1645,28 @@ async function main(argv: readonly string[]): Promise<number> {
   } finally {
     journal.close();
   }
+}
+
+/**
+ * Open the window.
+ *
+ * Detached and with its streams let go, so closing this terminal does not
+ * close the application -- which is what somebody typing this expects, and
+ * the opposite of what a child process does by default.
+ */
+function runDesktop(): number {
+  const found = findDesktop();
+  if (found === undefined) {
+    process.stderr.write(`${whereToGetIt()}\n`);
+    return 2;
+  }
+  const child = spawn(found.open.command, [...found.open.args], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+  out(`opening ${found.path}`);
+  return 0;
 }
 
 try {

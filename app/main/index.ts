@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from "electron";
 
 import { Desk } from "./desk.js";
 import type { SecretStore } from "./settings.js";
@@ -106,6 +106,8 @@ function wire(desk: Desk): void {
     "account:sign-out": () => desk.signOut(),
 
     "chat:list": () => desk.conversations(),
+    "chat:pin": (id, pinned) => desk.setPinned(asString(id), pinned === true),
+    "chat:forget": (id) => desk.forget(asString(id)),
     "chat:start": () => desk.start(),
     "chat:open": (id) => desk.open(asString(id)),
     "chat:send": (id, text) => desk.send(asString(id), asString(text)),
@@ -119,6 +121,17 @@ function wire(desk: Desk): void {
     "gate:deny": (actionId, why) => {
       desk.deny(asString(actionId), asString(why));
     },
+
+    // The operating system's own picker, opened from the main process. The
+    // renderer has no filesystem and must never be given one.
+    "folder:choose": async () => {
+      const window = BrowserWindow.getAllWindows()[0];
+      const picked = await (window === undefined
+        ? dialog.showOpenDialog({ properties: ["openDirectory"] })
+        : dialog.showOpenDialog(window, { properties: ["openDirectory"] }));
+      return picked.canceled ? undefined : picked.filePaths[0];
+    },
+    "folder:report": (path) => desk.folder(asString(path)),
 
     "undo:verify": (id) => desk.verify(asString(id)),
     "undo:preview": (id) => desk.previewUndo(asString(id)),

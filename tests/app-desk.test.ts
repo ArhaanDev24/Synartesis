@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { Desk } from "../app/main/desk.js";
+import { openJournal } from "../src/journal/journal.js";
 import type { SecretStore } from "../app/main/settings.js";
 import { SEPARATOR } from "../src/proxy/routing.js";
 import type { SessionEvent } from "../app/shared/ipc.js";
@@ -255,6 +256,90 @@ describe("saying something and watching it happen", () => {
     // the model asked for something and did not get it.
     expect(summary.held).toBe(1);
     expect(summary.touched).toBe(0);
+  });
+});
+
+describe("the chat list", () => {
+  it("holds pinned conversations above the rest, newest first otherwise", async () => {
+    const { desk } = await bench();
+    const first = await desk.start();
+    await desk.send(first.id, "the older one");
+    const second = await desk.start();
+    await desk.send(second.id, "the newer one");
+
+    expect(desk.conversations().map((one) => one.title)).toEqual([
+      "the newer one",
+      "the older one",
+    ]);
+
+    const pinned = desk.setPinned(first.id, true);
+    expect(pinned.map((one) => one.title)).toEqual(["the older one", "the newer one"]);
+    expect(pinned[0]?.pinned).toBe(true);
+    expect(desk.setPinned(first.id, false)[0]?.title).toBe("the newer one");
+  });
+
+  it("forgets a conversation without forgetting what it changed", async () => {
+    const { desk, files, script, root } = await bench();
+    const path = join(files, "kept.txt");
+    writeFileSync(path, "before\n");
+
+    const opened = await desk.start();
+    script.calls = [{ name: WRITE, args: { path, content: "after\n" } }];
+    await desk.send(opened.id, "change it");
+    const session = (await desk.open(opened.id)).summary.sessionId;
+
+    expect(await desk.forget(opened.id)).toHaveLength(0);
+    expect(desk.conversations()).toHaveLength(0);
+
+    // The transcript is gone; the record of what happened is not. Somebody
+    // tidying their chat list must not thereby lose the ability to put a file
+    // back, and `synartesis undo <session>` still can.
+    const journal = openJournal(join(root, "journal.db"));
+    try {
+      const actions = journal.getActions(session);
+      expect(actions.some((one) => one.tool === "write_file")).toBe(true);
+      expect(actions.find((one) => one.tool === "write_file")?.inverse).toBeDefined();
+    } finally {
+      journal.close();
+    }
+  });
+
+  it("reports what has happened to the files under a folder", async () => {
+    const { desk, files, script } = await bench();
+    const path = join(files, "report.txt");
+    writeFileSync(path, "before\n");
+
+    const opened = await desk.start();
+    script.calls = [{ name: WRITE, args: { path, content: "after\n" } }];
+    await desk.send(opened.id, "change it");
+
+    const report = desk.folder(files);
+    const seen = report.files.find((one) => one.path === path);
+    expect(seen?.changes).toBe(1);
+    expect(seen?.recoverable).toBe(1);
+    expect(seen?.undone).toBe(0);
+    expect(seen?.lastTool).toBe("fs.write_file");
+    expect(seen?.sessions).toHaveLength(1);
+
+    // A folder nothing has been done in says so, rather than guessing.
+    expect(desk.folder(join(files, "nowhere")).files).toHaveLength(0);
+  });
+
+  it("counts a file as put back once it has been", async () => {
+    const { desk, files, script } = await bench();
+    const path = join(files, "restored.txt");
+    writeFileSync(path, "before\n");
+
+    const opened = await desk.start();
+    script.calls = [{ name: WRITE, args: { path, content: "after\n" } }];
+    await desk.send(opened.id, "change it");
+    await desk.undo(opened.id);
+
+    const seen = desk.folder(files).files.find((one) => one.path === path);
+    // Not still counted as a change outstanding: the whole reason to look at a
+    // folder is to find what has not been put back yet.
+    expect(seen?.undone).toBe(1);
+    expect(seen?.changes).toBe(0);
   });
 });
 

@@ -127,6 +127,33 @@ export interface ConversationSummary {
   readonly title: string;
   readonly startedAt: number;
   readonly sessionId: string;
+  readonly pinned: boolean;
+}
+
+/**
+ * One file, and what the journal says has happened to it.
+ *
+ * People think in folders, not in session ids. Everything here is read from
+ * the journal and nothing from the disk: the question is what was done, not
+ * what is true now -- which costs a call per file and is what Check is for.
+ */
+export interface TouchedFile {
+  readonly path: string;
+  /** Changes that landed. */
+  readonly changes: number;
+  /** Of those, the ones whose prior state was captured. */
+  readonly recoverable: number;
+  readonly undone: number;
+  /** Asked about and not done: waiting, or refused. */
+  readonly held: number;
+  readonly lastAt: string;
+  readonly lastTool: string;
+  readonly sessions: readonly string[];
+}
+
+export interface FolderReport {
+  readonly folder: string;
+  readonly files: readonly TouchedFile[];
 }
 
 export interface OpenConversation {
@@ -149,6 +176,14 @@ export interface Bridge {
   signOut(): Promise<Settings>;
 
   conversations(): Promise<readonly ConversationSummary[]>;
+  setPinned(id: string, pinned: boolean): Promise<readonly ConversationSummary[]>;
+  /** Forgets the transcript. The journal keeps what it changed. */
+  forget(id: string): Promise<readonly ConversationSummary[]>;
+
+  /** Ask the operating system for a folder. Undefined if they cancelled. */
+  chooseFolder(): Promise<string | undefined>;
+  /** What the journal says has happened to the files under it. */
+  folder(path: string): Promise<FolderReport>;
   open(id: string): Promise<OpenConversation>;
   start(): Promise<OpenConversation>;
 

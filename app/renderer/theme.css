@@ -1234,3 +1234,169 @@ kbd { font: 0.62rem var(--mono); border: 1px solid var(--rule); border-radius: 3
     transform: translateY(1px);
   }
 }
+
+/* --- the chat list, with its two small controls ----------------------- */
+
+/*
+ * The title takes the row and the controls sit over its end, appearing on
+ * hover or focus. Laying them out side by side would cost the title a third of
+ * its width permanently, to show two things nobody needs most of the time.
+ */
+.rail-row {
+  position: relative;
+  display: grid;
+}
+
+.rail-row .rail-item {
+  padding-right: 3.4rem;
+}
+
+.rail-pinned {
+  display: inline-flex;
+  vertical-align: -0.15em;
+  margin-right: 0.3rem;
+  color: var(--rail-hit);
+}
+
+.rail-act {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--rail-faint);
+  opacity: 0;
+}
+
+/* Named, not counted. `:nth-of-type` counts every button in the row, and the
+   title is one of them -- so counting put the pin where the title is and left
+   the cross unpositioned. */
+.rail-act[data-act="pin"] {
+  right: 1.75rem;
+}
+
+.rail-act[data-act="delete"] {
+  right: 0.3rem;
+}
+
+.rail-row:hover .rail-act,
+.rail-row:focus-within .rail-act,
+.rail-row[data-pinned="true"] .rail-act[data-act="pin"] {
+  opacity: 1;
+}
+
+.rail-act:hover:not(:disabled) {
+  background: var(--rail-ground);
+  color: var(--rail-ink);
+}
+
+.rail-row[data-pinned="true"] .rail-act[data-act="pin"] {
+  color: var(--rail-hit);
+}
+
+/* --- a model's key, next to the model ---------------------------------- */
+
+.model {
+  display: grid;
+}
+
+.model-key {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.5rem 0.45rem 0.5rem;
+}
+
+.model-key input {
+  margin: 0;
+  flex: 1;
+}
+
+.model-key .act {
+  border-color: var(--panel-rule);
+  color: var(--panel-faint);
+  flex-shrink: 0;
+}
+
+.model-key .act:hover:not(:disabled) {
+  border-color: var(--panel-hit);
+  color: var(--panel-ink);
+}
+
+.key-state {
+  flex: 1;
+  font-size: 0.7rem;
+  color: var(--panel-faint);
+}
+
+/* --- the folder report -------------------------------------------------- */
+
+.sheet-card.wide {
+  width: min(760px, 100%);
+}
+
+.sheet-card .table-wrap {
+  border: 1px solid var(--panel-rule);
+  border-radius: 8px;
+}
+
+.sheet-card table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.8rem;
+}
+
+.sheet-card th,
+.sheet-card td {
+  text-align: left;
+  padding: 0.34rem 0.6rem;
+  border-bottom: 1px solid var(--panel-rule);
+  white-space: nowrap;
+}
+
+.sheet-card th {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--panel-faint);
+}
+
+.sheet-card tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.sheet-card td:first-child {
+  width: 99%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--panel-ink);
+}
+
+.whenever {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--panel-faint);
+}
+
+/* A file with a change the journal cannot reverse. The one row worth finding
+   in a long list, so it is the only one that is marked. */
+.sheet-card tr[data-risk="true"] td {
+  color: var(--alarm);
+}
+
+/* --- the working banner ------------------------------------------------- */
+
+.turn-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.turn-status .mark {
+  color: var(--panel-hit);
+}

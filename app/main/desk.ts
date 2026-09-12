@@ -5,12 +5,15 @@ import { dirname } from "node:path";
 import { Signed, signInWithGoogle } from "./account.js";
 import { Conversation } from "./conversation.js";
 import { startEngine, type Engine } from "./engine.js";
+import { openJournal } from "../../src/journal/journal.js";
 import { Library, type SecretStore } from "./settings.js";
+import { touchedUnder } from "./touched.js";
 import { inspect, tally, verdict } from "../../src/rollback/inspect.js";
 import { rollback } from "../../src/rollback/rollback.js";
 import type {
   ChatMessage,
   ConversationSummary,
+  FolderReport,
   OpenConversation,
   Reasoning,
   SessionEvent,
@@ -55,6 +58,7 @@ interface StoredConversation {
   readonly startedAt: number;
   readonly sessions: string[];
   readonly messages: ChatMessage[];
+  readonly pinned: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -85,6 +89,7 @@ function readConversations(path: string): StoredConversation[] {
       // journal -- so a message that does not survive the trip costs a line
       // of history, not the ability to undo anything.
       messages: Array.isArray(messages) ? messages.filter(isChatMessage) : [],
+      pinned: one["pinned"] === true,
     });
   }
   return kept;
@@ -189,15 +194,63 @@ export class Desk {
     return this.settings();
   }
 
+  /** Newest first, with anything pinned held above it. */
   conversations(): readonly ConversationSummary[] {
-    return [...this.#stored]
-      .reverse()
-      .map((one) => ({
-        id: one.id,
-        title: one.title,
-        startedAt: one.startedAt,
-        sessionId: one.sessions[one.sessions.length - 1] ?? "",
-      }));
+    const rows = [...this.#stored].reverse().map((one) => ({
+      id: one.id,
+      title: one.title,
+      startedAt: one.startedAt,
+      sessionId: one.sessions[one.sessions.length - 1] ?? "",
+      pinned: one.pinned,
+    }));
+    return [...rows.filter((one) => one.pinned), ...rows.filter((one) => !one.pinned)];
+  }
+
+  setPinned(id: string, pinned: boolean): readonly ConversationSummary[] {
+    const at = this.#stored.findIndex((one) => one.id === id);
+    const row = this.#stored[at];
+    if (row !== undefined) {
+      this.#stored[at] = { ...row, pinned };
+      this.#write();
+    }
+    return this.conversations();
+  }
+
+  /**
+   * Forget a conversation.
+   *
+   * The transcript goes; the journal does not. What an agent changed is a
+   * record, and a record that disappears because somebody tidied their chat
+   * list is not a record -- the sessions stay, and `synartesis undo <id>` can
+   * still put any of it back. The window says so before it asks.
+   */
+  async forget(id: string): Promise<readonly ConversationSummary[]> {
+    if (this.#live?.conversation.id === id) {
+      const live = this.#live;
+      this.#live = undefined;
+      await live.engine.close();
+    }
+    this.#stored = this.#stored.filter((one) => one.id !== id);
+    this.#write();
+    return this.conversations();
+  }
+
+  /**
+   * What has happened to the files under a folder.
+   *
+   * Any engine's journal will do -- they all share one -- so this works even
+   * with no conversation open, which is most of the point: somebody wanting to
+   * know what happened to a directory should not have to start a chat first.
+   */
+  folder(path: string): FolderReport {
+    const journal = this.#live?.engine.journal ?? openJournal(this.options.journalPath);
+    try {
+      return { folder: path, files: touchedUnder(journal, path) };
+    } finally {
+      if (this.#live === undefined) {
+        journal.close();
+      }
+    }
   }
 
   /**
@@ -447,6 +500,7 @@ export class Desk {
       startedAt: this.#stored[at]?.startedAt ?? Date.now(),
       sessions: [...conversation.sessions],
       messages: [...conversation.messages],
+      pinned: this.#stored[at]?.pinned ?? false,
     };
     if (at === -1) this.#stored.push(row);
     else this.#stored[at] = row;

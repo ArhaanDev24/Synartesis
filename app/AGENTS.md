@@ -124,7 +124,9 @@ all landed — see `renderer/README.md` for what each promises. Still open:
 
 - nothing can be attached to a message, and nothing renders an image;
 - a long conversation is one unbroken scroll with no way to jump within it;
-- there is no way to rename or delete a conversation from the rail.
+- a conversation cannot be renamed (pin and delete are in the rail now);
+- the folder report is read-only — you cannot undo a single file from it,
+  because undo runs by session and the journal has no per-file plan.
 
 ## Style
 
@@ -169,5 +171,13 @@ fail before you believe it.
 - **Tool names are qualified.** `fs__write_file`, never `write_file` — the proxy
   fronts the user's servers *and* Synartesis's own, so it always prefixes.
   Tests that hard-code the bare name pass against a file nobody touched.
+- **`:nth-of-type` counts siblings by tag, not by class.** A row with a title
+  button and two icon buttons has three `button` children, so
+  `.icon:nth-of-type(1)` is the title. Name the thing with a `data-` attribute
+  rather than counting it.
+- **A stale listener is silence, not an error.** Electron logs "Address
+  already in use" for a taken `--remote-debugging-port` and carries on without
+  it, so the window is fine and the screenshot tool says nothing is running.
+  `lsof -i:<port>` before assuming the app failed.
 - **`app/dist` is build output.** It is git-ignored and eslint-ignored. Do not
   edit it and do not be surprised when it is stale — run `pnpm app:build`.

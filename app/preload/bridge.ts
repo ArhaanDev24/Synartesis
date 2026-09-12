@@ -45,6 +45,10 @@ const bridge = {
   signOut: () => call("account:sign-out"),
 
   conversations: () => call("chat:list"),
+  setPinned: (id: string, pinned: boolean) => call("chat:pin", id, pinned),
+  forget: (id: string) => call("chat:forget", id),
+  chooseFolder: () => call("folder:choose"),
+  folder: (path: string) => call("folder:report", path),
   start: () => call("chat:start"),
   open: (id: string) => call("chat:open", id),
   send: (id: string, text: string) => call("chat:send", id, text),

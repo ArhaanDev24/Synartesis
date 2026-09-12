@@ -120,3 +120,38 @@ export function Logo({
 export function Fret(): React.JSX.Element {
   return <div className="fret" aria-hidden="true" />;
 }
+
+/**
+ * A pin, and a cross, drawn rather than imported.
+ *
+ * Two glyphs is not worth an icon font, and an icon font is not worth a
+ * network the page is not allowed to have. They take the ink of wherever they
+ * are put, like everything else here.
+ */
+export function Pin({ filled = false }: { filled?: boolean }): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <path
+        d="M9.6 1.6 14.4 6.4 12 7.1 9.6 9.5l.5 2.6-1.4 1L3.4 8l1-1.4 2.6.5L9.4 4.7z"
+        fill={filled ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M6.2 9.8 2.4 13.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function Cross(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false">
+      <path
+        d="M4 4 12 12 M12 4 4 12"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}

@@ -28,6 +28,21 @@ nothing and needs no account. Claude, Gemini, Mistral, OpenAI, LM Studio and
 vLLM are in the picker; the hosted ones want a key, which goes to this
 machine's keychain and never to a file, a log, or the journal.
 
+## In the window
+
+Chats can be pinned to the top of the rail or deleted. **Deleting forgets the
+conversation, not what it changed** — the sessions stay in the journal and
+`synartesis undo <id>` still works. The window says so before it asks.
+
+**Files…** in the header asks for a folder and shows what the journal says has
+happened to everything under it: how many changes landed, how many can be put
+back, how many already were, and how many were held. It reads the journal, not
+the disk, so it costs nothing — the question is what was done, not what is true
+now, and the latter is what **Check** is for.
+
+Every model that wants an API key can be given one from the model picker, not
+only the one currently selected.
+
 ## Signing in (optional)
 
 Signing in with Google does exactly one thing: the journal records **who**
