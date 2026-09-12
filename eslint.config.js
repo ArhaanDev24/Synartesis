@@ -7,7 +7,10 @@ export default tseslint.config(
   // app/build holds packaging tooling -- an icon renderer and a notarisation
   // hook -- which run under Electron and electron-builder rather than as
   // project source, and are outside the tsconfig the type-aware rules need.
-  { ignores: ["dist/**", "app/dist/**", "app/build/**", "app/dev/**", "app/release/**", "node_modules/**", "docs/**", "brand/**"] },
+  // tests/helpers/*.mjs are stand-in servers a test starts as child processes.
+  // They are run by node, never imported, so they sit outside the tsconfig
+  // too.
+  { ignores: ["dist/**", "app/dist/**", "app/build/**", "app/dev/**", "app/release/**", "node_modules/**", "docs/**", "brand/**", "tests/helpers/*.mjs"] },
   ...tseslint.configs.strictTypeChecked,
   {
     languageOptions: {

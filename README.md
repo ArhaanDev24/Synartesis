@@ -76,6 +76,55 @@ synartesis
 One screen: what agents have done, what is held for approval, every AI on the
 machine, and undo — all on the arrow keys.
 
+## The desktop window
+
+The same engine, with a conversation in front of it. You talk to a model — any
+model — and every tool it calls goes through the proxy on its way out, so the
+undo is not a feature the window implements. It is one it can already offer.
+
+![The Synartesis desktop window: a turn that wrote a file, with the tool card showing it was captured and can be put back](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-desktop.png)
+
+Every call gets a card: which server, which tool, the class Synartesis gave it,
+and whether the state it replaced was captured. The ledger at the top counts the
+same thing for the whole conversation. Nothing there is a promise about what
+should have happened — it is read back out of the journal after the fact.
+
+A call that cannot be undone does not happen behind your back. It stops, and
+waits for you, with the reason it cannot be reversed written out:
+
+![A held call in the desktop window, asking whether to allow a write whose prior state could not be captured](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-desktop-approval.png)
+
+And putting it back is the same two steps the CLI takes: the real plan first,
+built from the journal, then the confirmation.
+
+![The undo plan in the desktop window, showing one call skipped and one reverted](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-desktop-undo.png)
+
+It talks to Claude, Gemini, Mistral, OpenAI, or anything speaking
+`/v1/chat/completions` — including Ollama, LM Studio and vLLM on your own
+machine, which cost nothing and send nothing anywhere. Keys are pasted by you,
+kept in the OS keychain through Electron's `safeStorage`, and never written to
+the journal or a log. There is a parchment and a dark setting:
+
+![The desktop window in its dark setting](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-desktop-dark.png)
+
+**Getting it.** `synartesis desktop` opens it, and says where to get it if it is
+not installed. It is a separate download on purpose: shipping a browser engine
+inside a CLI would put 200 MB into every install of a command that is a few
+hundred kilobytes. Until there is a signed build to download, it is built from a
+clone:
+
+```bash
+pnpm install && pnpm app:dist
+```
+
+That writes an installer for the machine it runs on to `app/release` — a `.dmg`
+and a `.app` on macOS, an `.exe` on Windows, an AppImage and a `.deb` on Linux.
+It is unsigned, so it runs where it was built and Gatekeeper refuses it
+anywhere it has been downloaded to: signing and notarisation need an Apple
+developer account, and [`app/README.md`](app/README.md) lists the two
+environment variables that turn them on. Both the window and the terminal share
+one journal, so either can undo what the other did.
+
 ## What it can and cannot do
 
 Every tool gets one of four classifications, written down in a manifest:
@@ -114,9 +163,8 @@ every line it would write over and stops; `--force --yes` goes ahead.
 
 ## Commands
 
-`synartesis desktop` opens the desktop window if it is installed — a separate
-download, so this command stays a few hundred kilobytes rather than shipping a
-browser engine. Both share one journal, so either can undo what the other did.
+`synartesis desktop` opens [the window](#the-desktop-window), and says where to
+get it if it is not installed.
 
 | Command | Does |
 |---|---|

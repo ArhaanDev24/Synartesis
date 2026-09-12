@@ -4,6 +4,9 @@
  *   pnpm app:sandbox            parchment, the default
  *   pnpm app:sandbox -- --dark  the other theme
  *
+ * SANDBOX_DIR puts the throwaway everything somewhere other than
+ * app/dev/.sandbox -- useful when the paths will be in a screenshot.
+ *
  * Makes a policy, a journal, a settings file and a directory of sample files
  * under app/dev/.sandbox, starts the stand-in model, and launches the app
  * pointed at all of it. Nothing here touches ~/.synartesis, so a turn that
@@ -19,7 +22,10 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../..");
-const sandbox = join(here, ".sandbox");
+// Somewhere else on request, which is what the README's screenshots use: the
+// tool cards quote the paths they touched, and a picture meant for strangers
+// should not be a picture of somebody's home directory.
+const sandbox = process.env.SANDBOX_DIR ?? join(here, ".sandbox");
 const home = join(sandbox, "home");
 const files = join(sandbox, "files");
 const userData = join(sandbox, "userdata");

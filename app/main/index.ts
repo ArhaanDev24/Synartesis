@@ -271,8 +271,25 @@ async function main(): Promise<void> {
     });
   });
 
-  app.on("before-quit", () => {
-    void desk.close();
+  /*
+   * Quit, but not before the engine has put itself away.
+   *
+   * Electron does not wait for a promise handed to `before-quit`, and what is
+   * left undone is not nothing: a run is finalised, an empty one is taken back
+   * out of the journal, and the servers underneath are asked to stop. Quitting
+   * over the top of that left a row behind every time. So the first quit is
+   * held, the close is awaited, and the second one -- ours -- goes through.
+   */
+  let leaving = false;
+  app.on("before-quit", (event) => {
+    if (leaving) {
+      return;
+    }
+    leaving = true;
+    event.preventDefault();
+    void desk.close().finally(() => {
+      app.quit();
+    });
   });
 }
 

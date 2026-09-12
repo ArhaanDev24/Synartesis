@@ -2,6 +2,46 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.0 — 2026-09-12
+
+### Added
+
+- **A desktop window.** You talk to a model; every tool it calls goes through
+  the same proxy the CLI installs, so what it did is journalled and reversible
+  without the window implementing any of that itself. Each call gets a card
+  naming the server, the tool, the class it was given and whether the state it
+  replaced was captured; a call that cannot be undone stops and waits for a
+  person rather than happening behind one; and "put it back" is the CLI's own
+  two steps — the real plan, then the confirmation. Claude, Gemini, Mistral,
+  OpenAI, and anything speaking `/v1/chat/completions`, which includes Ollama,
+  LM Studio and vLLM on the same machine. Keys are pasted by you and kept in the
+  OS keychain; they are never written to the journal or a log.
+
+  It is a separate download rather than part of this package: a browser engine
+  inside a CLI would put 200 MB into every install of a command that is a few
+  hundred kilobytes. Both share one journal, so either can undo what the other
+  did.
+
+- **`synartesis desktop`** opens that window if it is installed, and says where
+  to get it if it is not.
+
+### Fixed
+
+- **Opening the window no longer leaves an empty session behind.** A run is
+  begun whether or not anybody says anything, and closing one is a chain of
+  waits — each server is asked to stop, and a child process takes its time
+  going. Quitting the application ended the process partway through, so the
+  empty row survived: thirteen of them in one afternoon of testing, thirteen
+  lines of `synartesis list` between somebody and the run they were looking for.
+  The tidy-up now happens before the servers are waited on — nothing can be
+  recorded once the model's client is shut, so the count is already final — and
+  quit is held until the engine has put itself away.
+
+- **A held call explains itself in words.** An MCP server returns its errors as
+  a content envelope, and the most common reason of all — the file does not
+  exist yet, so there is nothing to keep — was reaching the screen as a wall of
+  `{"content":[{"type":"text"...` with the sentence that mattered inside it.
+
 ## 0.5.2 — 2026-09-10
 
 ### Changed

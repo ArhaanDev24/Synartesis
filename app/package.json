@@ -1,7 +1,7 @@
 {
   "name": "synartesis-desktop",
   "productName": "Synartesis",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Talk to any model, and watch what it changes.",
   "author": "Arhaan (https://github.com/ArhaanDev24)",
   "license": "MIT",

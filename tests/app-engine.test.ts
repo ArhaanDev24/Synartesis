@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { run } from "../app/main/agent.js";
 import { startEngine, type Engine } from "../app/main/engine.js";
 import type { Ask, Provider, Turn } from "../app/providers/types.js";
+import { openJournal } from "../src/journal/journal.js";
 import { rollback } from "../src/rollback/rollback.js";
 import { inspect, tally } from "../src/rollback/inspect.js";
 
@@ -229,5 +230,49 @@ describe("an agent talking through the proxy", () => {
       },
     });
     expect(stopped).toMatch(/3 rounds/);
+  });
+});
+
+describe("shutting the engine down", () => {
+  /**
+   * The ordering inside `close`, which is not a detail.
+   *
+   * An empty session is taken out of the journal on the way down. That tidy-up
+   * used to come last, after every upstream had been asked to stop -- and
+   * asking a server to stop means waiting for a child process to go. An
+   * application being quit is given no such time: macOS ended the process
+   * mid-wait and the row survived, once per launch, thirteen times in an
+   * afternoon. Nothing can be recorded after the client is shut, so the count
+   * is final long before the servers are gone, and the tidy-up now happens
+   * there.
+   */
+  it("takes an empty session back before it waits for servers to go", async () => {
+    const root = mkdtempSync(join(tmpdir(), "synartesis-slow-"));
+    dirs.push(root);
+    const manifestPath = join(root, "synartesis.yaml");
+    writeFileSync(
+      manifestPath,
+      `version: 1\nservers:\n  slow:\n    command: node\n` +
+        `    args: ["${resolve("tests/helpers/lingering-server.mjs")}", "400"]\ntools: []\n`,
+    );
+    const journalPath = join(root, "journal.db");
+    const engine = await startEngine({ manifestPath, journalPath, label: "desktop-test" });
+
+    const began = Date.now();
+    const closing = engine.close();
+    await new Promise((wake) => setTimeout(wake, 150));
+
+    // Read it from beside, while the close is still in flight.
+    const journal = openJournal(journalPath);
+    try {
+      expect(journal.listRuns()).toHaveLength(0);
+    } finally {
+      journal.close();
+    }
+
+    await closing;
+    // And the wait was real: if the server had gone instantly the check above
+    // would have proved nothing about when the tidy-up happens.
+    expect(Date.now() - began).toBeGreaterThan(300);
   });
 });

@@ -4,6 +4,7 @@ import { engine } from "./bridge.js";
 import { Cross, Fret, Logo, Mark, Pin } from "./Mark.js";
 import { Copy } from "./Copy.js";
 import { Markdown } from "./Markdown.js";
+import { plainly } from "./plainly.js";
 import { FocusPanel } from "./FocusPanel.js";
 import { draftIsSaved, readDraft, saveDraft } from "./drafts.js";
 import { fold, leads } from "../shared/transcript.js";
@@ -91,7 +92,9 @@ function Call({ call }: { call: CallCard }): React.JSX.Element {
       <details className="call-details" open={call.state === "failed"}>
         <summary>Arguments{call.result === undefined ? "" : " & result"}</summary>
         <pre tabIndex={0} className="call-args" aria-label="Full tool arguments">{JSON.stringify(call.args, null, 2)}</pre>
-        {call.result === undefined || call.result === "" ? null : <pre tabIndex={0} aria-label="Full tool result" className="call-result" data-failed={call.state === "failed"}>{call.result}</pre>}
+        {/* A failure is read by a person; anything else is the tool's own
+            output and is shown exactly as the tool wrote it. */}
+        {call.result === undefined || call.result === "" ? null : <pre tabIndex={0} aria-label="Full tool result" className="call-result" data-failed={call.state === "failed"}>{call.state === "failed" ? plainly(call.result) : call.result}</pre>}
       </details>
     </div>
   );
@@ -120,7 +123,7 @@ function Ask({
       <h2>
         Allow {ask.server} · {ask.tool}?
       </h2>
-      <p>{ask.reason}</p>
+      <p>{plainly(ask.reason)}</p>
       <pre className="call-args">{brief(ask.args)}</pre>
       <details className="call-details"><summary>Full arguments</summary><pre tabIndex={0} className="call-args">{JSON.stringify(ask.args, null, 2)}</pre></details>
       <p className="approval-note">Nothing happens until you decide. Approval does not make this undoable.</p>

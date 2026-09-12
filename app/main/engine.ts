@@ -223,9 +223,6 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
     async close() {
       await client.close();
       await proxy.server.close();
-      for (const upstream of upstreams) {
-        await upstream.close();
-      }
       /*
        * A session in which nothing happened is not history, it is litter.
        *
@@ -234,6 +231,13 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
        * afternoon of testing, which is twelve lines of `synartesis list`
        * standing between somebody and the run they are looking for. This is
        * our own run and it recorded nothing, so it is safe to take back.
+       *
+       * Before the upstreams rather than after, and that ordering is the
+       * whole of it: closing a server means waiting for a child process to
+       * go, an application being quit has no patience for that, and the first
+       * version of this tidy-up never ran because the process was gone by the
+       * time it came round. Nothing can be recorded once the client is shut,
+       * so the count is already final here.
        */
       try {
         if (journal.getActions(runId).length === 0) {
@@ -241,6 +245,9 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
         }
       } catch {
         // A journal that cannot be tidied is not a reason to fail a shutdown.
+      }
+      for (const upstream of upstreams) {
+        await upstream.close();
       }
       journal.close();
     },

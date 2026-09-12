@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { Markdown } from "./Markdown.js";
 import { draftIsSaved, readDraft, saveDraft } from "./drafts.js";
+import { plainly } from "./plainly.js";
 
 const render = (text: string): string => renderToStaticMarkup(<Markdown text={text} />);
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -79,4 +80,28 @@ it("retains the current draft in memory when local persistence is unavailable", 
   vi.stubGlobal("localStorage", { setItem: vi.fn() });
   expect(saveDraft("unavailable-storage", "Persisted again")).toBe(true);
   expect(draftIsSaved("unavailable-storage")).toBe(true);
+});
+
+/**
+ * The held-call reason, which is the one piece of prose in the window nobody
+ * wrote: it arrives from the gate, with whatever the server said inside it.
+ */
+it("says a held call's reason in words rather than in an error envelope", () => {
+  const said = plainly(
+    "nothing was captured to restore, so this cannot be undone — the read said: " +
+      "snapshot via fs.read_text_file failed: the read reported an error: " +
+      '{"content":[{"type":"text","text":"ENOENT: no such file or directory, open \'/files/summary.md\'"}],"isError":true}',
+  );
+  expect(said).not.toContain("{");
+  expect(said).not.toContain("isError");
+  // The reason somebody actually needs: the file is not there yet.
+  expect(said).toContain("there is no file at /files/summary.md yet");
+  // And the clause the sentence had already said is gone.
+  expect(said).not.toContain("the read reported an error");
+  expect(said).toContain("cannot be undone");
+});
+
+it("passes a reason it does not recognise through untouched", () => {
+  const odd = "held because the policy says so, and {this} is not JSON";
+  expect(plainly(odd)).toBe(odd);
 });
