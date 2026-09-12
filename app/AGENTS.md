@@ -119,10 +119,12 @@ states, keyboard shortcuts, more motion, a settings surface, anything that
 makes it easier to use. The rules above are about what the window *promises*,
 not about how it looks.
 
-Two things worth doing that nobody has:
+Markdown, copy, per-conversation drafts, prompt history and keyboard handling
+all landed — see `renderer/README.md` for what each promises. Still open:
 
-- the transcript has no way to copy a message, and no markdown rendering;
-- the composer has no history, no drafts, no attachment affordance.
+- nothing can be attached to a message, and nothing renders an image;
+- a long conversation is one unbroken scroll with no way to jump within it;
+- there is no way to rename or delete a conversation from the rail.
 
 ## Style
 
@@ -141,7 +143,7 @@ conditionally (`...(x === undefined ? {} : { x })`) rather than set to
 ```bash
 pnpm typecheck   # two projects: the root, and app/renderer
 pnpm lint
-pnpm test
+pnpm test        # the library suite and app/renderer/*.test.tsx together
 ```
 
 All three must be clean. The renderer has its own `tsconfig.json` because it is

@@ -2,17 +2,19 @@
 
 Read `../AGENTS.md` before making changes. Develop with `pnpm app:sandbox`, never the real `pnpm app` profile.
 
-Run the repository checks and the renderer's small, separate JSX test suite:
+Run the repository checks:
 
 ```sh
 pnpm typecheck
 pnpm lint
 pnpm test
-pnpm exec vitest run --config app/renderer/vitest.config.ts
 pnpm app:build
 ```
 
-The renderer suite checks inert Markdown rendering, unfinished code fences, nested lists, task states, tables, and conversation draft storage/failure handling. The root Vitest configuration searches `tests/`; use the explicit renderer configuration above for these additional tests.
+`pnpm test` runs this directory's `*.test.tsx` alongside the library suite — a
+test you have to remember to run separately is a test that does not get run.
+They cover inert Markdown rendering, unfinished code fences, nested lists, task
+states, tables, and conversation draft storage and failure handling.
 
 ## Window behavior
 
