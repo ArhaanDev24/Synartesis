@@ -1,0 +1,4 @@
+# The desktop application has its own dependency list, which is what gets
+# packaged. The root package stays a library and two CLI binaries.
+packages:
+  - "app"

@@ -1,0 +1,73 @@
+# How the application is packaged.
+#
+# Nothing from node_modules is shipped except better-sqlite3: everything else
+# is already inside dist/main/index.js. The native binding is unpacked out of
+# the asar archive, because a .node file cannot be loaded from inside one.
+
+appId: online.synartesis.desktop
+productName: Synartesis
+copyright: Copyright © 2026 Arhaan
+
+directories:
+  output: release
+  buildResources: build
+
+# Stated rather than read from a devDependency, so this package does not have
+# to carry a second copy of Electron just to be packaged.
+electronVersion: 44.3.0
+
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+
+asar: true
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+
+# The binding is prebuilt and N-API, so it loads on Electron's ABI untouched.
+# Rebuilding it here would replace a working file with one built against
+# whatever toolchain happens to be on the machine doing the packaging.
+npmRebuild: false
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # The journal is a plaintext copy of the person's data -- that is what makes
+  # undo work -- and it must never leave the machine. Nothing here asks for a
+  # permission that would let it.
+  extendInfo:
+    NSHumanReadableCopyright: Copyright © 2026 Arhaan
+    LSMinimumSystemVersion: "11.0"
+
+dmg:
+  title: Synartesis ${version}
+  backgroundColor: "#5e1420"
+
+win:
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+linux:
+  icon: build/icon.png
+  category: Development
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+    - target: deb
+      arch: [x64, arm64]
+
+# Relative to where the command is run, not to projectDir -- unlike every
+# other path in this file. The scripts run from the repository root.
+afterSign: app/build/notarize.cjs

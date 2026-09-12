@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    The hardened runtime, opened exactly as far as Electron needs and no
+    further. The first three are Chromium's JavaScript engine, which compiles
+    and runs code it wrote itself; without them the renderer will not start.
+  -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+
+  <!--
+    better-sqlite3 is a native binding, signed as part of this application
+    rather than by Apple, and library validation would refuse to load it.
+  -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!--
+    The whole point of the program is to run the MCP servers named in the
+    person's own policy file -- node, npx, a python script, whatever they
+    wrote down. Those are separate processes, launched by this one.
+  -->
+  <key>com.apple.security.inherit</key>
+  <true/>
+</dict>
+</plist>

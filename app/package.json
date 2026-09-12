@@ -1,0 +1,15 @@
+{
+  "name": "synartesis-desktop",
+  "productName": "Synartesis",
+  "version": "0.5.2",
+  "description": "Talk to any model, and watch what it changes.",
+  "author": "Arhaan (https://github.com/ArhaanDev24)",
+  "license": "MIT",
+  "homepage": "https://synartesis.online/",
+  "type": "module",
+  "main": "dist/main/index.js",
+  "//": "Its own package because the published npm package is a CLI with no main entry, and giving that one would make `import \"synartesis\"` resolve to a desktop application. One dependency: everything else is bundled, and this one is a native binding that cannot be.",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  }
+}

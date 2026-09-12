@@ -14,14 +14,17 @@ export default defineConfig([
     format: ["esm"],
     platform: "node",
     target: "node22",
-    external: ["electron"],
-    // Nothing from node_modules is bundled. better-sqlite3 is a native binding
-    // and cannot be; the model SDKs reach for `child_process` and `http2`
-    // through dynamic requires a bundler has to rewrite, and rewriting them
-    // turns a working library into one that throws on the first import. The
-    // app carries its dependency tree instead, which is how Electron apps ship
-    // anyway.
-    skipNodeModulesBundle: true,
+    // Everything but these two. better-sqlite3 is a native binding and cannot
+    // be bundled at all; Electron supplies its own.
+    external: ["electron", "better-sqlite3"],
+    banner: {
+      // Several libraries in here -- the model SDKs especially -- reach for
+      // node builtins through `require` at run time. In an ES module there is
+      // no `require`, and a bundler that leaves those calls alone produces a
+      // file that throws "Dynamic require of child_process is not supported"
+      // on first import. This gives them the one they expect.
+      js: "import { createRequire as __nodeRequire } from 'node:module';\nconst require = __nodeRequire(import.meta.url);",
+    },
     clean: true,
     sourcemap: true,
   },

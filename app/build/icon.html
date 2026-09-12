@@ -1,0 +1,29 @@
+<!doctype html>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; background: transparent; }
+  svg { display: block; }
+</style>
+<!--
+  The application icon, drawn rather than pasted in, so it can be regenerated
+  from the same glyph the window and the site use. Oxblood squircle, ink mark:
+  the circle that does not quite close, with the arrow going back round it.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7a1c2b" />
+      <stop offset="1" stop-color="#4b0f19" />
+    </linearGradient>
+  </defs>
+  <!-- macOS insets its icons; 100px of the 1024 on each side is the usual ratio. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" ry="185" fill="url(#ground)" />
+  <!-- Nudged up and left of true centre: the arrowhead hangs outside the
+       circle to the upper right, so the glyph's visual mass is not where its
+       bounding box says it is. -->
+  <g transform="translate(502 500) scale(14.5) translate(-16 -16)">
+    <circle cx="16" cy="16" r="9" fill="none" stroke="#f6e9e5" stroke-width="3.5"
+            stroke-dasharray="41 16" transform="rotate(-58 16 16)" />
+    <path d="M19.2 3.6l4.6 5.2-6.6 2.2z" fill="#f6e9e5" />
+  </g>
+</svg>

@@ -4,7 +4,10 @@ export default tseslint.config(
   // docs/ holds the build tooling for the user guide -- a Chrome DevTools
   // driver and a Python script -- not project source, so it is outside the
   // tsconfig the type-aware rules need and cannot be linted by them.
-  { ignores: ["dist/**", "app/dist/**", "node_modules/**", "docs/**", "brand/**"] },
+  // app/build holds packaging tooling -- an icon renderer and a notarisation
+  // hook -- which run under Electron and electron-builder rather than as
+  // project source, and are outside the tsconfig the type-aware rules need.
+  { ignores: ["dist/**", "app/dist/**", "app/build/**", "app/release/**", "node_modules/**", "docs/**", "brand/**"] },
   ...tseslint.configs.strictTypeChecked,
   {
     languageOptions: {
