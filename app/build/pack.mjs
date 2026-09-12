@@ -17,6 +17,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { readdirSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,16 +40,30 @@ function newest(dir) {
     return 0;
   }
   for (const entry of entries) {
+    // Finder leaves .DS_Store files in any directory somebody has looked at,
+    // and electron-builder does not pack them. Counting one as input means a
+    // window opened after the pack makes a current bundle look stale.
+    if (entry.name.startsWith(".")) {
+      continue;
+    }
     const path = join(dir, entry.name);
     latest = Math.max(latest, entry.isDirectory() ? newest(path) : statSync(path).mtimeMs);
   }
   return latest;
 }
 
+/*
+ * The builder's own entry file, run by this node rather than through the shim
+ * in node_modules/.bin. Windows puts a .cmd there, which node will not spawn
+ * without a shell, and a shell brings quoting problems of its own -- so the
+ * one file that is the same on every platform is the one that gets run.
+ */
+const BUILDER = createRequire(import.meta.url).resolve("electron-builder/cli.js");
+
 function run() {
   return spawnSync(
-    join(root, "node_modules/.bin/electron-builder"),
-    [...passed, "--projectDir", join(root, "app")],
+    process.execPath,
+    [BUILDER, ...passed, "--projectDir", join(root, "app")],
     { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
 }
@@ -76,16 +91,20 @@ for (let attempt = 1; checkOnly ? false : attempt <= ATTEMPTS; attempt += 1) {
 }
 
 /*
- * The part that stops a stale bundle being handed over. Every macOS bundle
- * that was produced is compared against the renderer and main bundles that
- * went into it; on the platforms this does not build here, there is nothing
- * to compare and nothing to check.
+ * The part that stops a stale bundle being handed over. Every archive that was
+ * produced is compared against the renderer and main bundles that went into
+ * it. The three platforms put it in three places, so all three are looked for
+ * and whatever is not there is simply not this machine's build.
  */
 const release = join(root, "app/release");
 const built = newest(join(root, "app/dist"));
 const bundles = readdirSync(release, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && entry.name.startsWith("mac"))
-  .map((entry) => join(release, entry.name, "Synartesis.app/Contents/Resources/app.asar"));
+  .filter((entry) => entry.isDirectory())
+  .flatMap((entry) => [
+    // macOS, Windows, Linux.
+    join(release, entry.name, "Synartesis.app/Contents/Resources/app.asar"),
+    join(release, entry.name, "resources/app.asar"),
+  ]);
 
 for (const asar of bundles) {
   let packed;

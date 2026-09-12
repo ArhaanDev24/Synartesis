@@ -25,6 +25,12 @@ What changed, and why it mattered. Dates are release dates.
 - **`synartesis desktop`** opens that window if it is installed, and says where
   to get it if it is not.
 
+- **A `release` workflow** builds the application on macOS, Windows and Linux --
+  each on its own machine, since an installer cannot honestly be built anywhere
+  else -- and attaches the results to the release for a `v*` tag. It signs and
+  notarises where the secrets exist and produces unsigned builds where they do
+  not, so a fork of this repository can still build it.
+
 ### Fixed
 
 - **Opening the window no longer leaves an empty session behind.** A run is

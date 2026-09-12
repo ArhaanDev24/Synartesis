@@ -136,6 +136,17 @@ codesign --verify --deep --strict --verbose=2 app/release/mac-arm64/Synartesis.a
 Windows and Linux targets are configured and unsigned. Windows code signing
 needs its own certificate and is a separate purchase.
 
+### Building all three at once
+
+An application has to be built on the platform it is for: the mac bundle wants
+a mac to sign and staple it, and the Windows installer wants a real Windows
+machine rather than wine imitating one. `.github/workflows/release.yml` runs
+three runners on a `v*` tag -- or on demand, given a tag -- and attaches the
+`.dmg`, `.exe`, AppImage and `.deb` to that tag's release. The signing
+variables above are read from repository secrets of the same names; with none
+of them set the workflow still succeeds and produces unsigned builds, which is
+what a fork gets.
+
 ## What is in here
 
 | | |

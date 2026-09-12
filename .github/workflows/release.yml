@@ -1,0 +1,105 @@
+# Build the desktop application for every platform, and attach it to the
+# release for the tag.
+#
+# It has to be built on the machine it is built for: the mac bundle wants a
+# mac to sign and staple it, and the Windows installer wants a Windows box
+# rather than wine pretending to be one. So three runners, one release.
+#
+# Nothing here publishes to npm. That is `npm publish`, run by a person with
+# the credentials, which is where it belongs.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  # So a tag that is already pushed can still be built, and so the whole thing
+  # can be rehearsed against a draft before anybody relies on it.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to build and attach to, e.g. v0.6.0
+        required: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Signing and notarisation happen only where the secrets exist. Without
+      # them the build still succeeds and produces an unsigned application,
+      # which is what a fork gets: see app/README.md.
+      - name: Build the application
+        run: pnpm app:dist
+        env:
+          # Either route notarize.cjs accepts: an App Store Connect key, or an
+          # Apple ID with an app-specific password. Whichever is set wins; with
+          # neither, the build says so and carries on unsigned.
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      # The installers only. The unpacked directories are build intermediates
+      # and are several hundred megabytes of nothing anybody downloads.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            app/release/*.dmg
+            app/release/*.zip
+            app/release/*.exe
+            app/release/*.AppImage
+            app/release/*.deb
+            app/release/latest*.yml
+
+  attach:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+
+      - name: Attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          ls -la installers
+          # A release for this tag may already exist; make one only if it does
+          # not, and never overwrite notes somebody has written by hand.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" installers/* --clobber

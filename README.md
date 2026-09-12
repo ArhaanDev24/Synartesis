@@ -110,8 +110,15 @@ the journal or a log. There is a parchment and a dark setting:
 **Getting it.** `synartesis desktop` opens it, and says where to get it if it is
 not installed. It is a separate download on purpose: shipping a browser engine
 inside a CLI would put 200 MB into every install of a command that is a few
-hundred kilobytes. Until there is a signed build to download, it is built from a
-clone:
+hundred kilobytes.
+
+On macOS it installs the way anything does — open the `.dmg`, drag Synartesis to
+Applications — and on Windows the `.exe` installer puts it where the Start menu
+can find it. After that, either the icon or `synartesis desktop` opens it; the
+command looks where each platform actually installs things rather than asking
+you to remember a path.
+
+To build it yourself instead:
 
 ```bash
 pnpm install && pnpm app:dist
@@ -121,8 +128,9 @@ That writes an installer for the machine it runs on to `app/release` — a `.dmg
 and a `.app` on macOS, an `.exe` on Windows, an AppImage and a `.deb` on Linux.
 It is unsigned, so it runs where it was built and Gatekeeper refuses it
 anywhere it has been downloaded to: signing and notarisation need an Apple
-developer account, and [`app/README.md`](app/README.md) lists the two
-environment variables that turn them on. Both the window and the terminal share
+developer account, and [`app/README.md`](app/README.md) lists exactly what they
+want. The `release` workflow builds all three platforms on their own machines
+and attaches the installers to the release for a tag. Both the window and the terminal share
 one journal, so either can undo what the other did.
 
 ## What it can and cannot do
