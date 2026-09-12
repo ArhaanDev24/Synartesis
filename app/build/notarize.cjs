@@ -44,7 +44,8 @@ exports.default = async function notarize(context) {
       "\n  Not notarising: no Apple credentials in the environment.\n" +
         "  The application is built and will run on this machine. On anybody\n" +
         "  else's, Gatekeeper will refuse it until it is signed and notarised.\n" +
-        "  See app/README.md for the two variables you need.\n",
+        "  See app/README.md: either an App Store Connect key or an Apple ID\n" +
+        "  with an app-specific password, three variables each.\n",
     );
     return;
   }

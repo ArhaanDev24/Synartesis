@@ -60,11 +60,41 @@ function newest(dir) {
  */
 const BUILDER = createRequire(import.meta.url).resolve("electron-builder/cli.js");
 
+/*
+ * An empty variable is not a credential.
+ *
+ * A CI job passes every secret it was told about whether or not the repository
+ * holds one, so a fork building this gets `CSC_LINK=""`. electron-builder reads
+ * "defined" as "use it": it takes the empty string for the path to a signing
+ * certificate, resolves it against the project directory, and stops with
+ * "<...>/app not a file" -- a message with no visible relationship to its
+ * cause. Blank ones are dropped here so the build is simply unsigned, which is
+ * what having no certificate means.
+ */
+const CREDENTIALS = [
+  "CSC_LINK",
+  "CSC_KEY_PASSWORD",
+  "WIN_CSC_LINK",
+  "WIN_CSC_KEY_PASSWORD",
+  "APPLE_API_KEY",
+  "APPLE_API_KEY_ID",
+  "APPLE_API_ISSUER",
+  "APPLE_ID",
+  "APPLE_APP_SPECIFIC_PASSWORD",
+  "APPLE_TEAM_ID",
+];
+const env = { ...process.env };
+for (const name of CREDENTIALS) {
+  if (env[name] === "") {
+    delete env[name];
+  }
+}
+
 function run() {
   return spawnSync(
     process.execPath,
     [BUILDER, ...passed, "--projectDir", join(root, "app")],
-    { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    { cwd: root, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
 }
 
