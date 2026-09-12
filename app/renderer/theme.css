@@ -18,7 +18,16 @@
 
   --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--ground));
   --ink-faint: color-mix(in srgb, var(--ink) 52%, var(--ground));
-  --rule: color-mix(in srgb, var(--ink) 24%, var(--ground));
+  --rule: color-mix(in srgb, var(--ink) 30%, var(--ground));
+
+  /*
+   * Oxblood from edge to edge leaves the eye nowhere to rest, and everything
+   * ends up the same weight. These are the pale end of the same ink -- a
+   * surface to sit things on, and an edge bright enough to read as a line
+   * rather than as a slightly different red.
+   */
+  --paper: color-mix(in srgb, var(--ink) 14%, var(--ground));
+  --paper-edge: color-mix(in srgb, var(--ink) 42%, var(--ground));
   --panel-faint: color-mix(in srgb, var(--panel-ink) 62%, var(--panel));
   --panel-rule: color-mix(in srgb, var(--panel-ink) 26%, var(--panel));
 
@@ -90,6 +99,52 @@ button:disabled {
   color: var(--ink-faint);
 }
 
+/* --- the mark and the meander ---------------------------------------- */
+
+.mark {
+  display: block;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+.mark-turn {
+  transform-origin: 16px 16px;
+}
+
+/*
+ * A meander: one line that turns back on itself without ever breaking, which
+ * is roughly what the name means. Masked rather than drawn, because a data URI
+ * cannot read a custom property and this has to follow whichever ink is in
+ * use. The one place the palette is allowed to go properly pale.
+ */
+.fret {
+  height: 22px;
+  background-color: var(--ink);
+  opacity: 0.45;
+  flex-shrink: 0;
+  -webkit-mask-image: var(--fret-art);
+  mask-image: var(--fret-art);
+  -webkit-mask-repeat: repeat-x;
+  mask-repeat: repeat-x;
+  /* Left, not centre: centring lands the repeat mid-glyph, so the band starts
+     with half a turn of the line and reads as something cut off. */
+  -webkit-mask-position: left center;
+  mask-position: left center;
+  -webkit-mask-size: 22px 22px;
+  mask-size: 22px 22px;
+}
+
+.fret[data-tall="true"] {
+  height: 38px;
+  opacity: 0.34;
+  -webkit-mask-size: 38px 38px;
+  mask-size: 38px 38px;
+}
+
+:root {
+  --fret-art: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+}
+
 /* --- frame ----------------------------------------------------------- */
 
 .app {
@@ -102,14 +157,35 @@ button:disabled {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-right: 1px solid var(--rule);
+  border-right: 1px solid var(--paper-edge);
   background: color-mix(in srgb, var(--panel) 34%, var(--ground));
 }
 
 /* The traffic lights sit in this strip on macOS, so nothing else may. */
 .rail-top {
-  padding: 2.1rem 1.1rem 0.7rem;
+  padding: 2.1rem 1.1rem 0.5rem;
   -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.rail > .fret {
+  margin: 0 1.1rem 0.6rem;
+}
+
+.empty > .fret {
+  margin-bottom: 0.4rem;
+  /* Fades out to the right so it reads as an ornament along the top of the
+     text rather than as a rule boxing it in. */
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+  -webkit-mask-image: var(--fret-art), linear-gradient(90deg, #000 45%, transparent);
+  mask-image: var(--fret-art), linear-gradient(90deg, #000 45%, transparent);
+  -webkit-mask-repeat: repeat-x, no-repeat;
+  mask-repeat: repeat-x, no-repeat;
+  -webkit-mask-size: 36px 36px, 100% 100%;
+  mask-size: 36px 36px, 100% 100%;
 }
 
 .wordmark {
@@ -133,7 +209,6 @@ button:disabled {
   text-transform: uppercase;
   color: var(--ink-soft);
   text-align: left;
-  transition: border-color 0.2s var(--ease), color 0.2s var(--ease);
 }
 
 .rail-new:hover:not(:disabled) {
@@ -160,7 +235,6 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: background-color 0.18s var(--ease), color 0.18s var(--ease);
 }
 
 .rail-item:hover {
@@ -220,7 +294,6 @@ button:disabled {
   text-transform: uppercase;
   color: var(--ink-faint);
   border-right: 1px solid var(--rule);
-  transition: background-color 0.18s var(--ease), color 0.18s var(--ease);
 }
 
 .steps button:last-child {
@@ -251,7 +324,7 @@ button:disabled {
   justify-content: space-between;
   gap: 1rem;
   padding: 0.75rem 1.4rem;
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--paper-edge);
   -webkit-app-region: drag;
   min-height: 3.1rem;
 }
@@ -303,7 +376,6 @@ button:disabled {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--ink-soft);
-  transition: border-color 0.2s var(--ease), color 0.2s var(--ease), background-color 0.2s var(--ease);
 }
 
 .act:hover:not(:disabled) {
@@ -351,7 +423,7 @@ button:disabled {
   font-size: 0.62rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--ink-soft);
 }
 
 .said {
@@ -359,12 +431,22 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+/*
+ * What you said sits on a pale plate. Two jobs: it separates your words from
+ * the model's at a glance without a label doing all the work, and it is the
+ * largest pale surface in the window -- which is what stops the whole thing
+ * reading as one field of red.
+ */
 .turn[data-role="you"] .said {
   color: var(--ink);
+  background: var(--paper);
+  border-left: 2px solid var(--ink);
+  border-radius: 2px;
+  padding: 0.5rem 0.8rem;
 }
 
 .turn[data-role="model"] .said {
-  color: var(--ink-soft);
+  color: var(--ink);
 }
 
 .turn[data-role="note"] .said {
@@ -413,10 +495,17 @@ button:disabled {
   color: var(--panel-faint);
 }
 
-.tag[data-kind="reversible"],
+.tag[data-kind="reversible"] {
+  color: var(--panel-ink);
+  border-color: color-mix(in srgb, var(--panel-ink) 45%, var(--panel));
+}
+
+/* The one that matters -- whether it can be put back -- reads as a mark
+   rather than as another label, so it is filled rather than outlined. */
 .tag[data-kind="ok"] {
-  color: var(--panel-hit);
-  border-color: color-mix(in srgb, var(--panel-hit) 50%, var(--panel));
+  color: var(--panel);
+  background: var(--panel-ink);
+  border-color: var(--panel-ink);
 }
 
 .tag[data-kind="irreversible"],
@@ -474,9 +563,18 @@ button:disabled {
 
 /* --- the composer ----------------------------------------------------- */
 
+/* No rule above it: the meander is the divider. A line and a band doing the
+   same job is two dividers, and the band is the one that belongs here. */
 .composer {
-  border-top: 1px solid var(--rule);
-  padding: 0.85rem 1.4rem 1.1rem;
+  padding: 0 1.4rem 1.1rem;
+}
+
+.composer > .fret {
+  opacity: 0.26;
+  height: 20px;
+  -webkit-mask-size: 20px 20px;
+  mask-size: 20px 20px;
+  margin: 0 -1.4rem 0.9rem;
 }
 
 .composer-inner {
@@ -599,8 +697,116 @@ button:disabled {
   justify-content: flex-end;
 }
 
-/* A caret that blinks only while a turn is actually arriving. */
+/* --- movement --------------------------------------------------------- */
+
+/*
+ * One easing curve everywhere, as on the site, so nothing feels like it came
+ * from a different program. Everything below is opacity and transform only:
+ * those are the two properties a browser can animate without laying the page
+ * out again, which is the whole difference between smooth and nearly smooth.
+ *
+ * All of it is inside this query. Motion is a preference the operating system
+ * already knows the answer to, and a window that makes somebody ill is not
+ * improved by being pretty.
+ */
 @media (prefers-reduced-motion: no-preference) {
+  /* Arriving. A turn rises into place rather than appearing; the tool card
+     that belongs to it follows a beat later, which is the order they
+     happened in. */
+  .turn,
+  .ask {
+    animation: rise 0.42s var(--ease) both;
+  }
+
+  .call {
+    animation: rise 0.34s var(--ease) both;
+    animation-delay: 0.05s;
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(9px);
+    }
+  }
+
+  /*
+   * The mark, while something is running.
+   *
+   * Not a constant sweep: it eases into each revolution and out of it again,
+   * and breathes slightly out of step with itself. A spinner tells you to
+   * wait. This is meant to read as something working, which is a different
+   * feeling and worth the extra keyframe.
+   */
+  .mark[data-working="true"] .mark-turn {
+    animation: work 2.4s var(--ease) infinite;
+  }
+
+  .mark[data-working="true"] {
+    animation: breathe 2.4s ease-in-out infinite;
+  }
+
+  @keyframes work {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes breathe {
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  /* A call in flight draws a line along its own top edge, once per pass. */
+  .call[data-running="true"] {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .call[data-running="true"]::before {
+    content: "";
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+    height: 1px;
+    width: 34%;
+    background: linear-gradient(90deg, transparent, var(--panel-hit), transparent);
+    animation: sweep 1.5s var(--ease) infinite;
+  }
+
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(390%);
+    }
+  }
+
+  /* The sheet comes forward rather than appearing on top of things. */
+  .sheet {
+    animation: fade 0.16s var(--ease) both;
+  }
+
+  .sheet-card {
+    animation: come 0.26s var(--ease) both;
+  }
+
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes come {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.985);
+    }
+  }
+
+  /* A caret that blinks only while a turn is actually arriving. */
   .writing::after {
     content: "";
     display: inline-block;
@@ -617,4 +823,36 @@ button:disabled {
       visibility: hidden;
     }
   }
+
+  .rail-item,
+  .act,
+  .rail-new,
+  .steps button {
+    transition:
+      background-color 0.18s var(--ease),
+      border-color 0.18s var(--ease),
+      color 0.18s var(--ease),
+      transform 0.12s var(--ease);
+  }
+
+  .act:active:not(:disabled),
+  .rail-new:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+}
+
+/*
+ * Smooth scrolling only while nothing is streaming.
+ *
+ * The thread is scrolled to the bottom on every chunk of text, and smooth
+ * behaviour there means a scroll animation that is cancelled and restarted
+ * dozens of times a second -- which lands as a judder rather than as smooth.
+ * So the element asks for smooth and the streaming state turns it off.
+ */
+.scroll {
+  scroll-behavior: smooth;
+}
+
+.scroll[data-streaming="true"] {
+  scroll-behavior: auto;
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { engine } from "./bridge.js";
+import { Fret, Mark } from "./Mark.js";
 import { fold, leads } from "../shared/transcript.js";
 import type {
   ApprovalCard,
@@ -40,7 +41,7 @@ function Call({ call }: { call: CallCard }): React.JSX.Element {
   const [server, tool] = split(call.name);
   const recorded = call.recorded;
   return (
-    <div className="call">
+    <div className="call" data-running={call.state === "running"}>
       <div className="call-head">
         <span className="call-name">
           {server === "" ? null : <span className="server">{server} · </span>}
@@ -243,8 +244,10 @@ export function App(): React.JSX.Element {
   }, [begin, complain, missing, show]);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, asks]);
+    // Instant while text is streaming. A smooth scroll restarted on every
+    // chunk is a scroll that never finishes, and it lands as a judder.
+    bottom.current?.scrollIntoView({ behavior: busy ? "auto" : "smooth", block: "end" });
+  }, [messages, asks, busy]);
 
   const send = useCallback(() => {
     const text = draft.trim();
@@ -351,8 +354,12 @@ export function App(): React.JSX.Element {
     <div className="app">
       <aside className="rail">
         <div className="rail-top">
+          {/* It turns while a turn is running, which is the only place in the
+              window that says "still working" without taking up a row. */}
+          <Mark working={busy} />
           <p className="wordmark">Synartesis</p>
         </div>
+        <Fret />
         <button className="rail-new" onClick={begin} disabled={busy}>
           New conversation
         </button>
@@ -467,10 +474,11 @@ export function App(): React.JSX.Element {
           </div>
         </header>
 
-        <div className="scroll">
+        <div className="scroll" data-streaming={busy}>
           <div className="thread">
             {messages.length === 0 ? (
               <div className="empty">
+                <Fret tall />
                 <h2>Say what you want done</h2>
                 <p>
                   Whatever the model touches is recorded with the state it replaced, so you can put
@@ -527,6 +535,7 @@ export function App(): React.JSX.Element {
         </div>
 
         <div className="composer">
+          <Fret />
           <div className="composer-inner">
             <textarea
               value={draft}
