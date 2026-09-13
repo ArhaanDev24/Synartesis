@@ -15,6 +15,9 @@ export const BOX = 1024;
 
 export const ARROWHEAD = "663.2,633.6 582.5,616.5 656.3,725.9";
 
+/** The same glyph filled rather than combed, for small sizes. */
+export const SOLID = "M663.7 331.2 A236.0 236.0 0 1 0 644.0 707.7 L597.0 638.0 A152.0 152.0 0 1 1 609.7 395.6 Z";
+
 /** The thin square the meanders are set around. */
 export const SQUARE = { at: 208, side: 608 };
 

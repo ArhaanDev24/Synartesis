@@ -2,6 +2,24 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.5 — 2026-09-13
+
+### Changed
+
+- **One logo, everywhere.** The mark is generated -- one set of numbers behind
+  the window, the application icon, the site and the cards on the README --
+  but three surfaces had been drawing their own version of it instead: the
+  rail beside the wordmark, the site masthead and favicon, and the brand PNGs
+  each had a hand-drawn circle with an arrow that resembled the mark without
+  being it.
+
+  They now all show the generated one. Where the fan of five hundred
+  hairlines cannot survive -- a favicon, a 22px rail -- the generator emits
+  the identical geometry filled rather than combed, so it is the same glyph at
+  a different weight rather than a different drawing. `brand/mark.html` draws
+  nothing of its own any more; it displays `synartesis-logo.svg`, which the
+  generator writes.
+
 ## 0.6.4 — 2026-09-13
 
 ### Changed

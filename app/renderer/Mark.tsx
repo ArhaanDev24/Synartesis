@@ -1,4 +1,4 @@
-import { ARROWHEAD, BOX, FRINGE, KEY, SQUARE, STROKES, TILE, TILES } from "./logo-art.js";
+import { ARROWHEAD, BOX, FRINGE, KEY, SOLID, SQUARE, STROKES, TILE, TILES } from "./logo-art.js";
 
 /**
  * The mark: a circle that does not quite close, and an arrow going back round.
@@ -23,24 +23,19 @@ export function Mark({
     <svg
       className="mark"
       data-working={working}
-      viewBox="0 0 32 32"
+      viewBox={`0 0 ${String(BOX)} ${String(BOX)}`}
       width={size}
       height={size}
       aria-hidden="true"
       focusable="false"
     >
       <g className="mark-turn">
-        <circle
-          cx="16"
-          cy="16"
-          r="9"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="3.5"
-          strokeDasharray="41 16"
-          transform="rotate(-58 16 16)"
-        />
-        <path d="M19.2 3.6l4.6 5.2-6.6 2.2z" fill="currentColor" />
+        {/* Pulled up to fill its box: the glyph is generated at the size that
+            sits inside the meander frame, which on its own is far too timid. */}
+        <g transform="translate(512 512) scale(1.72) translate(-512 -512)">
+          <path d={SOLID} fill="currentColor" />
+          <polygon points={ARROWHEAD} fill="currentColor" />
+        </g>
       </g>
     </svg>
   );
@@ -49,11 +44,11 @@ export function Mark({
 /**
  * The mark at full detail: the same glyph drawn as a fan of fine lines.
  *
- * One glyph, two weights, chosen by size. At twenty-two pixels the hairlines
- * below turn to mush and `Mark` is the honest drawing of it; at two hundred
- * they are the whole point. Both come from the same arc and the same arrow,
- * and the fan is generated rather than traced so it cannot drift from the
- * application icon, which is drawn from the same numbers.
+ * One glyph, two weights, chosen by size. At twenty-two pixels five hundred
+ * hairlines are a smudge, so `Mark` fills the same band instead of combing
+ * it; at two hundred the comb is the whole point. Both are generated from the
+ * same two circles and the same arrow as the application icon, so there is
+ * one mark here rather than a family of things that resemble each other.
  */
 export function Logo({
   size = 200,
