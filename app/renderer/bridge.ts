@@ -22,6 +22,7 @@ export interface Bridge {
   chooseModel(id: string): Promise<Settings>;
   setReasoning(reasoning: Reasoning): Promise<Settings>;
   setTheme(theme: Theme): Promise<Settings>;
+  setModel(id: string, model: string): Promise<Settings>;
   saveKey(id: string, key: string): Promise<Settings>;
   forgetKey(id: string): Promise<Settings>;
   openKeyPage(url: string): Promise<void>;

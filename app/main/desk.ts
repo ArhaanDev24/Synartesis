@@ -184,6 +184,11 @@ export class Desk {
     return this.library.theme();
   }
 
+  setModel(id: string, model: string): Settings {
+    this.library.setModel(id, model);
+    return this.settings();
+  }
+
   saveKey(id: string, key: string): Settings {
     this.library.saveKey(id, key);
     return this.settings();

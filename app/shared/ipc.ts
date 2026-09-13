@@ -172,6 +172,8 @@ export interface Bridge {
   setReasoning(reasoning: Reasoning): Promise<Settings>;
   setTheme(theme: Theme): Promise<Settings>;
   /** The key goes straight to the OS keychain and is never read back out. */
+  /** Point a model at a different name on the same service. */
+  setModel(id: string, model: string): Promise<Settings>;
   saveKey(id: string, key: string): Promise<Settings>;
   forgetKey(id: string): Promise<Settings>;
   /**

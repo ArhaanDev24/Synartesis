@@ -2,6 +2,32 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.8 — 2026-09-13
+
+### Added
+
+- **The model name can be changed in the window.** Every provider retires
+  models on its own schedule, and when one goes the request fails with a 404
+  naming its replacement. Until now the only way out was editing a JSON file
+  with the application closed, to keep using a service already paid for. The
+  sheet -- **Models and keys** now, since it does two jobs -- shows the name
+  each model points at and lets it be retyped. The key stays: it belongs to
+  the account, not to the model name.
+
+### Changed
+
+- **A provider's refusal arrives as a sentence.** Each of them says no in its
+  own dialect wrapped in its own JSON, and the window showed the wrapper. The
+  three that happen in practice now read plainly: a retired model says what
+  replaced it, a model the plan does not include says it is the plan, and a
+  refused key points at where keys are kept. The original text is kept
+  underneath, because a guess dressed as an explanation is worse than both.
+
+  Anything unrecognised is passed through exactly as it arrived.
+
+- **Gemini's default is `gemini-3.1-pro-preview`**, which is what Google
+  replaced `gemini-3-pro-preview` with.
+
 ## 0.6.7 — 2026-09-13
 
 ### Fixed

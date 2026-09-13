@@ -16,6 +16,7 @@ import type {
   ChatMessage,
   ConversationSummary,
   FolderReport,
+  ModelChoice,
   SessionEvent,
   Settings,
 } from "../shared/ipc.js";
@@ -38,6 +39,18 @@ import type {
 const EMPTY: ChangeSummary = { sessionId: "", touched: 0, recoverable: 0, held: 0 };
 const STEPS = ["brief", "balanced", "thorough"] as const;
 const THEMES = ["light", "dark"] as const;
+
+/**
+ * The name a model choice points at on its service.
+ *
+ * The three provider shapes spell it the same way, but two of them make it
+ * optional -- so this is where "whatever the adapter defaults to" gets a word
+ * a person can read, and retype when the provider retires it.
+ */
+function modelNameOf(choice: ModelChoice): string {
+  const named: unknown = { ...choice.config }.model;
+  return typeof named === "string" && named !== "" ? named : "default";
+}
 
 function split(name: string): [string, string] {
   const at = name.indexOf("__");
@@ -201,6 +214,8 @@ export function App(): React.JSX.Element {
   const [sheet, setSheet] = useState<Sheet | undefined>(undefined);
   const [folder, setFolder] = useState<FolderReport | undefined>(undefined);
   const [keys, setKeys] = useState(false);
+  /** The model whose name is being retyped, and what it has been retyped to. */
+  const [naming, setNaming] = useState<{ id: string; model: string } | undefined>(undefined);
   const sheetTrigger = useRef<HTMLElement | null>(null);
   const [missing, setMissing] = useState<string | undefined>(undefined);
   const [key, setKey] = useState("");
@@ -910,7 +925,7 @@ export function App(): React.JSX.Element {
                     setKeys(true);
                   }}
                 >
-                  <span className="pop-name">API keys…</span>
+                  <span className="pop-name">Models and keys…</span>
                 </button>
 
                 <p className="pop-label">Thinking</p>
@@ -945,7 +960,7 @@ export function App(): React.JSX.Element {
           <FocusPanel
             className="sheet-card wide"
             id="api-keys"
-            label="API keys"
+            label="Models and keys"
             returnTo={sheetTrigger.current}
             onClose={() => {
               setKeys(false);
@@ -953,7 +968,7 @@ export function App(): React.JSX.Element {
               setKeying(undefined);
             }}
           >
-            <h2>API keys</h2>
+            <h2>Models and keys</h2>
             <p className="pop-note">
               {settings?.canKeepSecrets === true
                 ? "Kept in this machine's keychain. Never written to the journal, a log, or this window — not even to show you a masked version."
@@ -969,6 +984,59 @@ export function App(): React.JSX.Element {
                       <div className="key-who">
                         <b>{model.name}</b>
                         <span>{model.note}</span>
+                        {/* The name on the service: the thing that breaks when
+                            a provider retires a model. Editable here, because
+                            the alternative is editing a JSON file with the
+                            application shut. */}
+                        <span className="key-model">
+                          {naming?.id === model.id ? (
+                            <input
+                              className="key-model-input"
+                              aria-label={`Model name for ${model.name}`}
+                              autoFocus
+                              spellCheck={false}
+                              value={naming.model}
+                              onChange={(event) => {
+                                setNaming({ id: model.id, model: event.target.value });
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  setNaming(undefined);
+                                  return;
+                                }
+                                if (event.key === "Enter" && naming.model.trim() !== "") {
+                                  engine.setModel(model.id, naming.model).then((next) => {
+                                    setNaming(undefined);
+                                    setSettings(next);
+                                  }, complain);
+                                }
+                              }}
+                              onBlur={() => {
+                                const typed = naming.model.trim();
+                                if (typed === "" || typed === modelNameOf(model)) {
+                                  setNaming(undefined);
+                                  return;
+                                }
+                                engine.setModel(model.id, typed).then((next) => {
+                                  setNaming(undefined);
+                                  setSettings(next);
+                                }, complain);
+                              }}
+                            />
+                          ) : (
+                            <button
+                              className="key-model-name"
+                              title="Change the model name"
+                              onClick={() => {
+                                setNaming({ id: model.id, model: modelNameOf(model) });
+                              }}
+                            >
+                              <code>{modelNameOf(model)}</code>
+                              <span aria-hidden="true">✎</span>
+                            </button>
+                          )}
+                        </span>
                       </div>
 
                       <div className="key-do">

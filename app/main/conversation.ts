@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { run } from "./agent.js";
 import type { Engine } from "./engine.js";
 import { SEPARATOR } from "../../src/proxy/routing.js";
+import { explain } from "../providers/explain.js";
 import type { Exchange, Provider, Reasoning } from "../providers/index.js";
 import type { ChangeSummary, ChatMessage, Recorded, SessionEvent } from "../shared/ipc.js";
 import { fold } from "../shared/transcript.js";
@@ -264,11 +265,16 @@ export class Conversation {
       ];
     } catch (error: unknown) {
       // A provider that refused, a server that is not running, a key that has
-      // expired. The person gets the sentence the thing itself produced,
-      // because a generic failure here is indistinguishable from a model that
-      // simply had nothing to say.
-      const message = error instanceof Error ? error.message : String(error);
-      emit({ kind: "error", message });
+      // expired. The person gets the sentence the thing itself produced --
+      // read first, where it is one of the handful of refusals every provider
+      // has its own dialect for, because "404 NOT_FOUND {json}" tells nobody
+      // that the model was retired last week and what to put in its place.
+      const raw = error instanceof Error ? error.message : String(error);
+      const read = explain(provider.id, raw);
+      emit({
+        kind: "error",
+        message: read.said === raw ? raw : `${read.said}\n\n${raw}`,
+      });
     } finally {
       this.#stopping = undefined;
       this.options.emit({ kind: "turn-done", summary: this.summary() });

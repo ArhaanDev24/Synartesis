@@ -87,7 +87,7 @@ writeFileSync(
           needsKey: true,
           keyUrl: "https://aistudio.google.com/apikey",
           note: "Google. Charged per token. Thinking level applies.",
-          config: { kind: "gemini", model: "gemini-3-pro-preview" },
+          config: { kind: "gemini", model: "gemini-3.1-pro-preview" },
         },
       ],
       chosen: "ollama",

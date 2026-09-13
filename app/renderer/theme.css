@@ -1376,6 +1376,41 @@ kbd { font: 0.62rem var(--mono); border: 1px solid var(--rule); border-radius: 3
   color: var(--panel-faint);
 }
 
+/* The name on the service, small and quiet until somebody needs it. */
+.key-model {
+  margin-top: 0.15rem;
+}
+
+.key-model-name {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--panel-faint);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+
+.key-model-name code {
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.01em;
+}
+
+.key-model-name:hover {
+  color: var(--panel-ink);
+}
+
+.key-model-input {
+  width: min(22rem, 100%);
+  margin: 0;
+  padding: 0.3rem 0.45rem;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+}
+
 .key-link {
   font-size: 0.78rem;
   color: var(--panel-hit);

@@ -508,3 +508,34 @@ describe("keys", () => {
     await expect(desk.send(opened.id, "hello")).rejects.toThrow(/needs an API key/);
   });
 });
+
+describe("pointing a model somewhere else", () => {
+  /*
+   * What a person does when a provider retires a model.
+   *
+   * Every one of them eventually answers 404 naming a replacement, and until
+   * this existed the only way out was editing a JSON file with the
+   * application closed -- for a service the person is already paying for.
+   */
+  it("changes the name a model points at, and keeps the key", async () => {
+    const { desk } = await bench();
+    desk.saveKey("bench", "sk-keep-me");
+
+    const before = desk.settings().models.find((one) => one.id === "bench");
+    expect(before?.hasKey).toBe(true);
+
+    const after = desk.setModel("bench", "some-newer-model").models.find((one) => one.id === "bench");
+    // Read rather than asserted into shape: every provider config carries a
+    // `model`, but two of the three make it optional, so this is what the
+    // window itself has to do to show the name.
+    const named: unknown = after === undefined ? undefined : { ...after.config }.model;
+    expect(named).toBe("some-newer-model");
+    // The key belongs to the account, not to the model name.
+    expect(after?.hasKey).toBe(true);
+  });
+
+  it("refuses an empty name rather than saving one nothing can use", async () => {
+    const { desk } = await bench();
+    expect(() => desk.setModel("bench", "   ")).toThrow(/needs a name/i);
+  });
+});

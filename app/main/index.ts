@@ -100,6 +100,7 @@ function wire(desk: Desk): void {
     "settings:choose": (id) => desk.chooseModel(asString(id)),
     "settings:reasoning": (reasoning) => desk.setReasoning(asReasoning(reasoning)),
     "settings:theme": (theme) => desk.setTheme(asTheme(theme)),
+    "settings:set-model": (id, model) => desk.setModel(asString(id), asString(model)),
     "settings:save-key": (id, key) => desk.saveKey(asString(id), asString(key)),
     "settings:forget-key": (id) => desk.forgetKey(asString(id)),
     /**

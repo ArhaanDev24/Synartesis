@@ -251,6 +251,29 @@ export class Library {
     return this.#state.theme;
   }
 
+  /**
+   * Point a model at a different name on the same service.
+   *
+   * Providers retire models on their own schedule, and when they do, every
+   * request fails with a 404 naming the replacement. Without this the only
+   * way out is editing a JSON file with the application closed, which is not
+   * something anybody should be asked to do to keep using a thing they have
+   * already paid for.
+   */
+  setModel(id: string, model: string): void {
+    const name = model.trim();
+    if (name === "") {
+      throw new Error("A model needs a name. Leave it as it was, or type the one the provider gave you.");
+    }
+    this.#state = {
+      ...this.#state,
+      models: this.#state.models.map((one) =>
+        one.id === id ? { ...one, config: { ...one.config, model: name } } : one,
+      ),
+    };
+    this.#save();
+  }
+
   saveKey(id: string, key: string): void {
     if (!this.secrets.available()) {
       throw new Error(
