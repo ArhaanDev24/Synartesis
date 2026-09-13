@@ -533,6 +533,13 @@ pre code {
 .gallery-controls button:hover {
   border-color:var(--wine);
 }
+/* The screenshot is evidence, not a billboard: capped and centred so it sits
+   inside the page rather than filling it. The tabs and the caption take the
+   same width, so the three read as one object. */
+.gallery-controls,.desktop-section figure {
+  max-width:900px;
+  margin-inline:auto;
+}
 .gallery-image {
   border:1px solid #b5a196;
   box-shadow:0 12px 38px #361c2010;
