@@ -2,6 +2,31 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.10 — 2026-09-13
+
+### Added
+
+- **Every model is told where it is before anybody says anything.** A model
+  arrives knowing how to call tools and nothing about why these particular
+  ones behave the way they do -- so a held call reads as a malfunction and it
+  goes looking for a way around it. That is the one behaviour this product
+  cannot tolerate, and it was not the model's fault: nobody had told it. Now
+  it is told, in the same terms for Claude, Gemini, and anything on an
+  OpenAI-compatible endpoint, local models included. What Synartesis is, what
+  the recording is for, what the four classes mean, and the one rule -- never
+  reach for a different tool that does the same thing without being held.
+- **Each tool carries its own class, in its own description.** `write_file`
+  now says it is reversible and that what it replaces is copied first;
+  `move_file` says it cannot be undone and will be held for approval; a tool
+  the policy does not describe says it is treated as the worst case. On the
+  tool rather than in the prompt, because that is where a model looks when it
+  is choosing between two tools that do nearly the same thing -- a note at the
+  top of a conversation is read once, this is read every time the list is.
+- **The briefing is particular, not general.** It names the servers actually
+  connected, the session this conversation is recorded as, today's date, and
+  the calls that will stop and wait -- by name. "Some calls are held" cannot
+  be planned around; "fs.move_file is held" can.
+
 ## 0.6.9 — 2026-09-13
 
 ### Added

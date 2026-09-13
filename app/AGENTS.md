@@ -52,6 +52,7 @@ looking is cheaper than guessing.
 | `shared/ipc.ts` | Every type that crosses the process boundary. |
 | `shared/transcript.ts` | How events become messages. Used by **both** sides. |
 | `preload/bridge.ts` | The only way the page reaches anything. |
+| `main/briefing.ts` | **What every model is told before anybody speaks.** The charter, and the note each tool carries about its own class. Change it and you change how every provider behaves. |
 | `main/` | Electron, the desk, the engine. Not yours unless the task says so. |
 
 ## Rules

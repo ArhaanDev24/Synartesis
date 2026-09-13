@@ -7,6 +7,8 @@ import { loadManifest } from "../../src/manifest/load.js";
 import type { Manifest } from "../../src/manifest/types.js";
 import { createProxyServer } from "../../src/proxy/proxy.js";
 import { createRouter, SEPARATOR, type Router } from "../../src/proxy/routing.js";
+import { createPolicyResolver } from "../../src/manifest/match.js";
+import { noteFor } from "./briefing.js";
 import { connectStdioUpstream, type Upstream } from "../../src/proxy/upstream.js";
 import type { ProviderTool } from "../providers/types.js";
 import { connectToolset, createToolset, TOOLSET_POLICY } from "./toolset.js";
@@ -71,21 +73,45 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** MCP describes a tool exactly as a provider needs to hear about it. */
-function asProviderTool(tool: {
-  name: string;
-  // Widened to match the SDK's own optionality under exactOptionalPropertyTypes.
-  description?: string | undefined;
-  inputSchema?: unknown;
-}): ProviderTool {
+/**
+ * MCP describes a tool exactly as a provider needs to hear about it, plus the
+ * one thing MCP has no word for: what happens to this call here.
+ *
+ * On the description rather than in the system prompt, because that is where
+ * a model looks when it is choosing between two tools that do nearly the same
+ * thing. A note at the top of the conversation is read once; this is read
+ * every time the list is.
+ */
+function asProviderTool(
+  tool: {
+    name: string;
+    // Widened to match the SDK's own optionality under exactOptionalPropertyTypes.
+    description?: string | undefined;
+    inputSchema?: unknown;
+  },
+  note: (name: string) => string,
+): ProviderTool {
   const schema: Record<string, unknown> = isRecord(tool.inputSchema)
     ? tool.inputSchema
     : { type: "object", properties: {} };
+  const said = tool.description ?? "";
   return {
     name: tool.name,
-    description: tool.description ?? "",
+    description: said === "" ? note(tool.name) : `${said}\n\n${note(tool.name)}`,
     inputSchema: schema,
   };
+}
+
+/**
+ * The name the model sees, back into the name policy is written against.
+ *
+ * The proxy qualifies with a doubled underscore and the manifest qualifies
+ * with a dot. A tool whose own name contains the separator is split at the
+ * first one, which is where the proxy put it.
+ */
+export function policyName(offered: string): string {
+  const at = offered.indexOf(SEPARATOR);
+  return at === -1 ? offered : `${offered.slice(0, at)}.${offered.slice(at + SEPARATOR.length)}`;
 }
 
 /**
@@ -190,6 +216,11 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
     }),
   });
 
+  // The same resolution the proxy uses to decide what to do with a call, used
+  // here to say so in advance. Two answers from one table, which is the only
+  // way they stay the same answer.
+  const policy = createPolicyResolver(covering);
+
   const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: options.label ?? "synartesis-desktop", version: "0.1.0" });
   await Promise.all([proxy.server.connect(serverSide), client.connect(clientSide)]);
@@ -205,7 +236,12 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
     runId,
     async tools() {
       const listed = await client.listTools();
-      return listed.tools.map(asProviderTool);
+      return listed.tools.map((tool) =>
+        asProviderTool(tool, (name) => {
+          const found = policy.resolve(policyName(name));
+          return noteFor(found.policy.class, found.policy.gate, found.matched);
+        }),
+      );
     },
     ownTool(bare) {
       return offerOwnTools && upstreams.length > 1 ? `synartesis${SEPARATOR}${bare}` : bare;

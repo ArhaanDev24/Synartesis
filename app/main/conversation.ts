@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { run } from "./agent.js";
 import type { Engine } from "./engine.js";
 import { SEPARATOR } from "../../src/proxy/routing.js";
+import { briefing } from "./briefing.js";
 import { explain } from "../providers/explain.js";
 import type { Exchange, Provider, Reasoning } from "../providers/index.js";
 import type { ChangeSummary, ChatMessage, Recorded, SessionEvent } from "../shared/ipc.js";
@@ -18,30 +19,20 @@ import { fold } from "../shared/transcript.js";
  */
 
 /**
- * What the model is told about where it is.
+ * What the model is told it is doing here.
  *
- * Worth being plain with it. A model that does not know its calls are being
- * recorded will apologise for a held call and try to route around it, which is
- * the one behaviour this whole product exists to prevent.
+ * Assembled per turn from the engine actually running, because half of what
+ * is worth telling it is particular: which servers are up, which calls will
+ * be held, which session this is. See `briefing.ts` for the charter itself.
  */
-export const SYSTEM = [
-  "You are working inside Synartesis, which records every tool call you make",
-  "together with the state that call replaced, so the person you are helping",
-  "can put things back afterwards.",
-  "",
-  "Some calls change things that cannot be undone. Those are held until the",
-  "person approves them, and you will be told so in the tool result. When that",
-  "happens, say plainly what you were trying to do and why, and wait. Do not",
-  "look for another tool that achieves the same thing without being held --",
-  "that is the one thing you must never do here.",
-  "",
-  "You can ask what changed and offer to put it back: the synartesis tools",
-  "read the same records the person can. Before undoing anything, preview it",
-  "and tell them what it will do.",
-  "",
-  "Be concrete about what you did. 'I updated the file' is less useful than",
-  "naming the file and what changed in it.",
-].join("\n");
+function systemFor(engine: Engine): string {
+  return briefing({
+    manifest: engine.manifest,
+    session: engine.runId,
+    toolset: (bare) => engine.ownTool(bare),
+    now: new Date(),
+  });
+}
 
 export interface ConversationOptions {
   /**
@@ -220,7 +211,7 @@ export class Conversation {
           engine,
           provider,
           reasoning,
-          system: SYSTEM,
+          system: systemFor(engine),
           history: this.#history,
           say: text,
           signal: controller.signal,

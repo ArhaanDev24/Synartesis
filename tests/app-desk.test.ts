@@ -73,6 +73,10 @@ interface Script {
   say: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 async function scriptedServer(script: Script): Promise<FakeModel> {
   const server = await fakeModel(() => {
     const calls = script.calls.splice(0);
@@ -118,6 +122,8 @@ interface Bench {
   readonly secrets: SecretStore & { sealed: string[]; opened: string[] };
   /** A second desk over the same files, which is what restarting the app is. */
   readonly reopen: () => Desk;
+  /** The fake provider, so a test can read what the app actually sent it. */
+  readonly model: FakeModel;
 }
 
 async function bench(options: { gateTimeoutMs?: number } = {}): Promise<Bench> {
@@ -174,8 +180,56 @@ async function bench(options: { gateTimeoutMs?: number } = {}): Promise<Bench> {
     desks.push(desk);
     return desk;
   };
-  return { desk: make(), root, files, script, events, settingsPath, secrets, reopen: make };
+  return { desk: make(), root, files, script, events, settingsPath, secrets, reopen: make, model: server };
 }
+
+describe("what the model is told before anybody says anything", () => {
+  it("arrives knowing what Synartesis is, which calls stop, and which session this is", async () => {
+    const { desk, model } = await bench();
+    const opened = await desk.start();
+    await desk.send(opened.id, "hello");
+
+    const body = model.sent[0];
+    const messages = body?.["messages"];
+    expect(Array.isArray(messages)).toBe(true);
+    const first: unknown = Array.isArray(messages) ? messages[0] : undefined;
+    const system = isRecord(first) ? first["content"] : undefined;
+    expect(typeof system).toBe("string");
+    const said = typeof system === "string" ? system : "";
+
+    expect(said).toContain("You are the agent inside Synartesis");
+    // The rule the whole product rests on.
+    expect(said).toMatch(/[Nn]ever\s+look for a different tool/);
+    // And the particulars, which is the half that cannot be written in
+    // advance: this manifest, these servers, this session.
+    expect(said).toContain("Connected: fs, synartesis");
+    expect(said).toContain("fs.move_file");
+    expect(said).toMatch(/session [0-9a-f]{8}/);
+  });
+
+  it("puts each tool's class on the tool itself, where a model chooses between them", async () => {
+    const { desk, model } = await bench();
+    const opened = await desk.start();
+    await desk.send(opened.id, "hello");
+
+    const tools = model.sent[0]?.["tools"];
+    expect(Array.isArray(tools)).toBe(true);
+    const described = (Array.isArray(tools) ? tools : [])
+      .map((tool) => (isRecord(tool) ? tool["function"] : undefined))
+      .filter(isRecord);
+    const of = (bare: string): string => {
+      const found = described.find((fn) => String(fn["name"]).endsWith(bare));
+      return typeof found?.["description"] === "string" ? found["description"] : "";
+    };
+
+    expect(of("write_file")).toContain("[Synartesis: reversible");
+    expect(of("move_file")).toContain("held for the person's approval");
+    expect(of("read_file")).toContain("read-only");
+    // The server's own description is still there; the note is added, not
+    // substituted.
+    expect(of("write_file")).toContain("Only works within allowed directories");
+  });
+});
 
 describe("saying something and watching it happen", () => {
   it("counts what changed, and puts it back on the second yes", async () => {
