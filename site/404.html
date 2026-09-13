@@ -366,6 +366,14 @@ details p {
 .install-command.is-copied { outline:2px solid var(--accent); outline-offset:3px; }
 details[open]>summary:after { content:"−"; }
 html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transform:none!important;clip-path:none!important;transition:none!important;animation:none!important;}
+/* The meander is the name drawn: a line that folds back on itself, which is
+   what the product does and what this page is about. A static image without
+   JavaScript, and drawn stroke by stroke when there is some -- the one piece
+   of motion a dead end gets, because a dead end should still look maintained. */
+.fret { height:12px; margin-top:70px; background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='12' viewBox='0 0 32 12'%3E%3Cpath d='M0 11h31V1H9v7h15V5H15' fill='none' stroke='%235e1420' stroke-opacity='.3'/%3E%3C/svg%3E") repeat-x; }
+.fret.meander-built { display:flex; height:24px; background:none; }
+.meander-unit { position:relative; flex:1; height:24px; }
+.meander-unit i { position:absolute; display:block; background:var(--wine); opacity:.45; }
 /* Focus is not decoration and is not behind the motion guard: somebody who
    asked for less movement still has to be able to see where they are. The
    browser's own ring is kept where it is enough and strengthened where the
@@ -385,6 +393,7 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
 <p>The page may have moved, or it may never have existed. There is still a way back.</p>
 <div class="ways"><a class="primary" href="./">Back to Synartesis ↶</a><a href="install.html">Install &amp; set up ↗</a>
 </div>
+<div class="fret" aria-hidden="true"></div>
 </main>
 <footer class="wrap colophon"><span>© 2026 Synartesis · MIT licence · Open source</span>
 <nav aria-label="Footer"><a href="https://github.com/ArhaanDev24/Synartesis">GitHub</a><a href="https://www.npmjs.com/package/synartesis">npm</a><a href="https://www.linkedin.com/in/arhaankhan143" rel="me">Arhaan Khan</a><a href="https://www.instagram.com/synartesis_in/" rel="me">Instagram</a>
@@ -441,6 +450,24 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
   /* Scene frames are added below. Each is finite, replayable, and cancelled
      to an informative still when it leaves the viewport. */
   const builders = {};
+
+  const fret = document.querySelector('.fret');
+  if (fret) {
+    // Each straight segment grows from its own origin, so the pen turns the
+    // corners itself. No stroke-dashoffset paint loop and no library.
+    const parts = [ [0,22,94,2,'X','left'],[94,2,2,22,'Y','bottom'],[24,2,70,2,'X','right'],[24,2,2,13,'Y','top'],[24,13,46,2,'X','left'],[70,8,2,7,'Y','bottom'],[45,8,25,2,'X','right'] ];
+    for(let unit=0;unit<12;unit++) {
+      const group = document.createElement('span'); group.className = 'meander-unit';
+      for (const [left,top,width,height,axis,origin] of parts) {
+        const line = document.createElement('i'); line.dataset.axis = axis;
+        line.style.cssText = `left:${left}%;top:${top}px;width:${width}%;height:${height}px;transform-origin:${origin};`;
+        group.append(line);
+      }
+      fret.append(group);
+    }
+    fret.classList.add('meander-built'); fret.dataset.motion = 'meander';
+    builders.meander = scene => [...scene.querySelectorAll('i')].map((line,i) => animate(line,[{transform:`scale${line.dataset.axis}(0)`},{transform:`scale${line.dataset.axis}(1)`}],120,i*25));
+  }
 
   function play(scene) {
     if (!allowed()) return;
