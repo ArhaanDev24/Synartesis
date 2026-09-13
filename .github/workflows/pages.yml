@@ -33,6 +33,13 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
+      # Notes for whoever is working on the site are for this repository, not
+      # for synartesis.online. Everything in site/ is published verbatim, so
+      # they come out before the upload rather than being trusted not to be
+      # found.
+      - name: Leave the working notes out of what ships
+        run: rm -f site/*.md
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
