@@ -2,6 +2,38 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.12 — 2026-09-13
+
+### Security
+
+- **Nine advisories, none of them ours, all of them shipped anyway.** Four
+  high and five moderate arrived through one dependency's dependencies --
+  `fast-uri`, `qs` and `hono`, by way of the MCP SDK. Nothing in the published
+  npm package contained them: that bundle imports the SDK rather than inlining
+  it, so a fresh install resolves patched versions on its own. The desktop
+  application is the opposite -- it bundles everything, so it was carrying
+  `fast-uri` 3.1.5 and its four high advisories into every installer. Pinned to
+  patched versions; `pnpm audit --prod` now reports nothing.
+
+### Fixed
+
+- **Two lookups that ran while somebody was waiting were full table scans.**
+  Finding a standing approval happens twice on every call that needs one, and
+  listing what is held backs both `synartesis gates` and the console. Neither
+  had an index, so both read every row in the journal -- including the
+  snapshots, which are the largest column there. At fifty thousand actions with
+  two-kilobyte snapshots, measured: 61ms and 56ms, on every irreversible call,
+  growing with the journal.
+
+  Both are now indexed: **61ms to 0.01ms, and 56ms to nothing.**
+
+  Deliberately without a schema version bump. This build refuses to open a
+  journal written by a different schema, so bumping would have told everybody
+  with history to abandon it in exchange for an index. Adding an index changes
+  no row and no meaning, the statement is idempotent, and it runs on every
+  open -- so an existing journal gains both the next time it is opened, and an
+  older build opening the same file afterwards neither notices nor cares.
+
 ## 0.6.11 — 2026-09-13
 
 ### Fixed

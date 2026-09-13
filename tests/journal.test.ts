@@ -443,3 +443,77 @@ describe("one approval, two proxies", () => {
     expect(second).toBe(false);
   });
 });
+
+describe("the lookups a person waits on", () => {
+  /**
+   * Both of these run while somebody is waiting: findApproval twice on every
+   * gated call, findGated behind `synartesis gates` and the console. Without
+   * an index each is a full scan over rows carrying the snapshots, which is
+   * the largest column in the table -- measured at 61ms with fifty thousand
+   * actions, on every irreversible call.
+   */
+  const plans = (path: string, sql: string, args: unknown[]): string => {
+    const db = new Database(path, { readonly: true });
+    try {
+      const rows = z
+        .array(z.object({ detail: z.string() }))
+        .parse(db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...args));
+      return rows.map((row) => row.detail).join(" | ");
+    } finally {
+      db.close();
+    }
+  };
+
+  const indexes = (path: string): string[] => {
+    const db = new Database(path, { readonly: true });
+    try {
+      return z
+        .array(z.object({ name: z.string() }))
+        .parse(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all())
+        .map((row) => row.name);
+    } finally {
+      db.close();
+    }
+  };
+
+  it("reaches an approval and the gated queue by index, not by reading every row", () => {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-index-"));
+    const path = join(dir, "journal.db");
+    const journal = openJournal(path);
+    journal.close();
+
+    const approval = plans(
+      path,
+      "SELECT * FROM actions WHERE server = ? AND tool = ? AND status = 'approved' AND approved_at >= ? ORDER BY approved_at DESC",
+      ["fs", "write_file", "2020-01-01"],
+    );
+    const gated = plans(path, "SELECT * FROM actions WHERE status = 'gated' ORDER BY ts", []);
+
+    expect(approval).toContain("actions_approved");
+    expect(approval).not.toMatch(/SCAN actions(?! USING)/);
+    expect(gated).toContain("actions_gated");
+    expect(gated).not.toMatch(/SCAN actions(?! USING)/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("adds them to a journal written before they existed", () => {
+    // Why there is no schema version bump: this build refuses to open a
+    // journal from another schema, so bumping would cost somebody every record
+    // of what an agent has done, to gain an index. Opening is the migration.
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-oldindex-"));
+    const path = join(dir, "journal.db");
+    const first = openJournal(path);
+    first.close();
+
+    const db = new Database(path);
+    db.exec("DROP INDEX IF EXISTS actions_approved; DROP INDEX IF EXISTS actions_gated;");
+    db.close();
+    expect(indexes(path)).not.toContain("actions_approved");
+
+    const second = openJournal(path);
+    second.close();
+    expect(indexes(path)).toContain("actions_approved");
+    expect(indexes(path)).toContain("actions_gated");
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

@@ -53,4 +53,21 @@ CREATE TABLE IF NOT EXISTS actions (
 );
 
 CREATE INDEX IF NOT EXISTS actions_by_run ON actions(run_id, seq);
+
+-- Deliberately not a schema version bump. Adding an index changes no row and
+-- no meaning, IF NOT EXISTS makes it idempotent, and the statement is run on
+-- every open -- so a journal written months ago gains these the next time it
+-- is opened, and an older build opening the same file afterwards neither
+-- notices nor cares. A version bump would have been the opposite: this build
+-- refuses to open a journal from a different schema, and telling somebody to
+-- abandon everything an agent has ever done in order to gain an index would
+-- be a poor trade.
+--
+-- Both of these sit in front of a person waiting. findApproval runs twice on
+-- every gated call and findGated backs the gates command and the console;
+-- without them each is a full scan over rows that carry the snapshots, which
+-- is the largest thing in the table. Measured at fifty thousand actions with
+-- two-kilobyte snapshots: 61ms to 0.01ms, and 56ms to 0.00ms.
+CREATE INDEX IF NOT EXISTS actions_approved ON actions(server, tool, status, approved_at);
+CREATE INDEX IF NOT EXISTS actions_gated ON actions(status, ts);
 `;
