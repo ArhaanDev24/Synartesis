@@ -76,6 +76,25 @@ describe("a reply that spoke, acted, and spoke again", () => {
   });
 });
 
+describe("a rate limit being waited out", () => {
+  it("says so on its own line, as a wait rather than a failure", () => {
+    const messages = play([
+      { kind: "text", chunk: "I will try." },
+      { kind: "waiting", ms: 23250 },
+    ]);
+    expect(messages[1]?.role).toBe("note");
+    expect(messages[1]?.text).toBe("Rate-limited. Waiting 23 seconds and trying again.");
+    // Not glued onto what the model said, and not an error: nothing has gone
+    // wrong yet, and the turn is still running.
+    expect(messages[0]?.text).toBe("I will try.");
+  });
+
+  it("never says nought seconds", () => {
+    const messages = play([{ kind: "waiting", ms: 250 }]);
+    expect(messages[0]?.text).toContain("1 seconds");
+  });
+});
+
 describe("who is speaking", () => {
   it("is named once per speaker, not once per fragment", () => {
     const messages = play([

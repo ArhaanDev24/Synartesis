@@ -58,6 +58,17 @@ export function fold(messages: readonly ChatMessage[], event: SessionEvent): Cha
     return next;
   }
 
+  if (event.kind === "waiting") {
+    const seconds = Math.max(1, Math.round(event.ms / 1000));
+    next.push({
+      id: newId(next.length, "note"),
+      role: "note",
+      text: `Rate-limited. Waiting ${String(seconds)} seconds and trying again.`,
+      calls: [],
+    });
+    return next;
+  }
+
   if (event.kind === "error" || event.kind === "stopped") {
     // In its own line rather than folded into the model's words, where it
     // would read as something the model said.

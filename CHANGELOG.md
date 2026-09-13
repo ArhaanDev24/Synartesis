@@ -2,6 +2,45 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.9 — 2026-09-13
+
+### Added
+
+- **A rate limit is waited out rather than handed over.** Every hosted
+  provider refuses when requests arrive too fast, and every one of them says
+  how long to wait. A turn that fails on that has not gone wrong, it has
+  arrived early, and reading a paragraph of JSON and pressing send again is
+  the application failing to do something it knows exactly how to do. It now
+  waits the stated time and tries again, at most twice, and says so on its own
+  line while it waits -- a window that silently stalls for a minute is
+  indistinguishable from one that has hung. It will not retry after the model
+  has started speaking: a retry replays the request from the beginning, and
+  words already on screen would be said twice.
+
+### Changed
+
+- **A quota of zero is not a rate limit, and the difference is the whole
+  point.** A free Google key asking for a Pro model is told `limit: 0` and
+  "please retry in 23s" in the same breath. Both are true and only one is
+  useful: there is no allowance to come back to, so that retry succeeds on no
+  schedule at all. The window now separates them -- a spent quota says how
+  long to wait, a quota that was never there says to turn on billing or pick
+  another model, and nothing waits for it.
+- **The presets start on models a new key can actually use.** Gemini pointed
+  at a Pro preview and Mistral at `mistral-large-latest`; a free Gemini key is
+  allowed none of the former and an entry Mistral key is refused the latter
+  outright. A preset is a first impression, and greeting somebody with a quota
+  refusal on their first message is a poor one. Gemini starts at
+  `gemini-3.8-flash` and Mistral at `mistral-small-latest`, with a note saying
+  what billing buys. Anyone already set up keeps what they chose.
+- **Refusals name the model, not the adapter.** They read
+  "gemini-3.1-pro-preview", not "gemini:gemini-3.1-pro-preview".
+
+### Fixed
+
+- The Gemini adapter's fallback model was `gemini-3-pro-preview`, which Google
+  retired. A default nobody set has to be one that answers.
+
 ## 0.6.8 — 2026-09-13
 
 ### Added

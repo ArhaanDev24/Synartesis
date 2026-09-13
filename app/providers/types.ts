@@ -78,6 +78,12 @@ export interface Ask {
   readonly tools: readonly ProviderTool[];
   readonly reasoning: Reasoning;
   readonly signal?: AbortSignal;
+  /**
+   * Called when a provider has asked us to wait before trying again, with how
+   * long. The turn is not over and nothing has gone wrong; the window says so
+   * rather than appearing to hang.
+   */
+  readonly onWait?: (ms: number) => void;
   /** Called with text as it arrives, for a window that types as the model does. */
   readonly onText?: (chunk: string) => void;
 }

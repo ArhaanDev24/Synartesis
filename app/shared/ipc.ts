@@ -82,6 +82,12 @@ export type SessionEvent =
   | { readonly kind: "result"; readonly call: CallCard }
   | { readonly kind: "turn-done"; readonly summary: ChangeSummary }
   | { readonly kind: "stopped"; readonly why: string }
+  /**
+   * A rate limit being waited out. The turn is still running; this exists so
+   * that a minute of silence is a sentence rather than a window that looks
+   * like it has hung.
+   */
+  | { readonly kind: "waiting"; readonly ms: number }
   | { readonly kind: "error"; readonly message: string }
   | { readonly kind: "approval"; readonly request: ApprovalCard }
   | { readonly kind: "approval-resolved"; readonly actionId: string };

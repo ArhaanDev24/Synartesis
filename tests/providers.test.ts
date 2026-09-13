@@ -485,6 +485,20 @@ describe("the model picker", () => {
     }
   });
 
+  it("starts everybody on a model their key can actually use", () => {
+    // A preset is a first impression, and both of these vendors gate their
+    // flagship: a free Gemini key is allowed zero of the Pro models, and an
+    // entry Mistral key is refused the large ones outright. Naming a
+    // flagship here greets a new user with a quota refusal on their first
+    // message. Raise these only along with the note beside them.
+    const model = (name: string): string | undefined => {
+      const config = PRESETS.find((preset) => preset.name === name)?.config;
+      return config === undefined ? undefined : { ...config }.model;
+    };
+    expect(model("Gemini")).toBe("gemini-3.8-flash");
+    expect(model("Mistral")).toBe("mistral-small-latest");
+  });
+
   it("refuses a hosted model with no key, before the request rather than after", () => {
     expect(() => createProvider({ kind: "anthropic" })).toThrow(/API key/);
     expect(() => createProvider({ kind: "gemini" }, "")).toThrow(/API key/);

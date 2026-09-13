@@ -257,6 +257,9 @@ export class Conversation {
               });
               return;
             }
+            if (event.kind === "waiting" && event.ms !== undefined) {
+              emit({ kind: "waiting", ms: event.ms });
+            }
             if (event.kind === "stopped" && event.why !== undefined) {
               emit({ kind: "stopped", why: event.why });
             }

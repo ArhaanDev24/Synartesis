@@ -1,6 +1,7 @@
 import { createAnthropicProvider } from "./anthropic.js";
 import { createGeminiProvider } from "./gemini.js";
 import { createOpenAICompatibleProvider } from "./openai.js";
+import { patient } from "./patience.js";
 import type { Provider } from "./types.js";
 
 export type { Ask, Exchange, Provider, ProviderTool, Reasoning, ToolCall, Turn } from "./types.js";
@@ -49,24 +50,28 @@ export function createProvider(config: ProviderConfig, apiKey?: string): Provide
         ...(config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens }),
         ...(config.baseURL === undefined ? {} : { baseURL: config.baseURL }),
       };
-      return config.kind === "anthropic"
-        ? createAnthropicProvider(shared)
-        : createGeminiProvider(shared);
+      return patient(
+        config.kind === "anthropic"
+          ? createAnthropicProvider(shared)
+          : createGeminiProvider(shared),
+      );
     }
     case "openai-compatible":
-      return createOpenAICompatibleProvider({
-        model: config.model,
-        baseURL: config.baseURL,
-        // A local server wants no authentication and is given none. Sending an
-        // empty bearer token to `localhost` is not harmless: some gateways
-        // read it as an attempt and refuse.
-        ...(apiKey === undefined || apiKey === "" ? {} : { apiKey }),
-        ...(config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens }),
-        ...(config.reasoningEffort === undefined
-          ? {}
-          : { reasoningEffort: config.reasoningEffort }),
-        ...(config.label === undefined ? {} : { label: config.label }),
-      });
+      return patient(
+        createOpenAICompatibleProvider({
+          model: config.model,
+          baseURL: config.baseURL,
+          // A local server wants no authentication and is given none. Sending
+          // an empty bearer token to `localhost` is not harmless: some
+          // gateways read it as an attempt and refuse.
+          ...(apiKey === undefined || apiKey === "" ? {} : { apiKey }),
+          ...(config.maxTokens === undefined ? {} : { maxTokens: config.maxTokens }),
+          ...(config.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: config.reasoningEffort }),
+          ...(config.label === undefined ? {} : { label: config.label }),
+        }),
+      );
   }
 }
 
@@ -103,9 +108,13 @@ export const PRESETS: readonly Preset[] = [
   {
     name: "Gemini",
     keyUrl: "https://aistudio.google.com/apikey",
-    config: { kind: "gemini", model: "gemini-3.1-pro-preview" },
+    // Flash rather than Pro, because a key from AI Studio is a free key
+    // until somebody turns on billing, and a free key's allowance for the Pro
+    // models is zero -- not small, zero. A preset that greets a new user with
+    // a quota refusal on their first message is a preset that is wrong.
+    config: { kind: "gemini", model: "gemini-3.8-flash" },
     needsKey: true,
-    note: "Google. Charged per token. Thinking level applies.",
+    note: "Google. Thinking level applies. The Pro models need billing on the key's project.",
   },
   {
     name: "Ollama",
@@ -145,12 +154,14 @@ export const PRESETS: readonly Preset[] = [
     keyUrl: "https://console.mistral.ai/api-keys",
     config: {
       kind: "openai-compatible",
-      model: "mistral-large-latest",
+      // Small for the same reason Gemini is Flash: the large models are
+      // refused outright on the entry tier.
+      model: "mistral-small-latest",
       baseURL: "https://api.mistral.ai/v1",
       label: "Mistral",
     },
     needsKey: true,
-    note: "Hosted. Charged per token. No thinking control.",
+    note: "Hosted. No thinking control. The large models need a paid tier.",
   },
   {
     name: "OpenAI",

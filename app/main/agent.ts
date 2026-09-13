@@ -13,12 +13,14 @@ import type { Exchange, Provider, Reasoning, ToolCall } from "../providers/types
  */
 
 export interface AgentEvent {
-  readonly kind: "text" | "call" | "result" | "done" | "stopped";
+  readonly kind: "text" | "call" | "result" | "done" | "stopped" | "waiting";
   readonly text?: string;
   readonly call?: ToolCall;
   readonly result?: { readonly text: string; readonly failed: boolean };
   /** Why it stopped, when it stopped for a reason worth saying. */
   readonly why?: string;
+  /** How long the provider asked us to wait, for `waiting`. Milliseconds. */
+  readonly ms?: number;
 }
 
 export interface RunOptions {
@@ -69,6 +71,9 @@ export async function run(options: RunOptions): Promise<readonly Exchange[]> {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       onText: (chunk) => {
         emit({ kind: "text", text: chunk });
+      },
+      onWait: (ms) => {
+        emit({ kind: "waiting", ms });
       },
     });
 

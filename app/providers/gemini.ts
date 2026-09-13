@@ -21,7 +21,10 @@ export interface GeminiOptions {
   readonly baseURL?: string;
 }
 
-const DEFAULT_MODEL = "gemini-3-pro-preview";
+// Google retired gemini-3-pro-preview, which this used to name. A default
+// nobody set has to be a model that answers; Flash also answers on a key with
+// no billing attached, which a default should not assume.
+const DEFAULT_MODEL = "gemini-3.8-flash";
 
 /**
  * The marker on an id this adapter invented.
