@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "./Markdown.js";
 import { draftIsSaved, readDraft, saveDraft } from "./drafts.js";
 import { plainly } from "./plainly.js";
+import { stopped } from "./status.js";
 
 const render = (text: string): string => renderToStaticMarkup(<Markdown text={text} />);
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -104,4 +105,16 @@ it("says a held call's reason in words rather than in an error envelope", () => 
 it("passes a reason it does not recognise through untouched", () => {
   const odd = "held because the policy says so, and {this} is not JSON";
   expect(plainly(odd)).toBe(odd);
+});
+
+/**
+ * A call that was refused changed nothing, and the card has to say that.
+ */
+it("treats a refused or waiting call as nothing applied, not as damage", () => {
+  expect(stopped("denied")).toBe(true);
+  expect(stopped("gated")).toBe(true);
+  // Everything that did reach the system is judged on its inverse instead.
+  expect(stopped("applied")).toBe(false);
+  expect(stopped("rolled_back")).toBe(false);
+  expect(stopped("unrecoverable")).toBe(false);
 });

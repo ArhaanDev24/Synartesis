@@ -5,6 +5,7 @@ import { Cross, Fret, Logo, Mark, Pin } from "./Mark.js";
 import { Copy } from "./Copy.js";
 import { Markdown } from "./Markdown.js";
 import { plainly } from "./plainly.js";
+import { stopped } from "./status.js";
 import { FocusPanel } from "./FocusPanel.js";
 import { draftIsSaved, readDraft, saveDraft } from "./drafts.js";
 import { fold, leads } from "../shared/transcript.js";
@@ -67,7 +68,14 @@ function Call({ call }: { call: CallCard }): React.JSX.Element {
             <span className="tag" data-kind={recorded.class}>
               {recorded.class}
             </span>
-            {recorded.class === "readonly" ? null : (
+            {recorded.class === "readonly" ? null : stopped(recorded.status) ? (
+              /* A call that never happened has nothing to put back, and
+                 saying "no way back recorded" about it reads as damage that
+                 cannot be undone -- the opposite of what took place. */
+              <span className="tag" data-kind="ok">
+                Nothing was applied
+              </span>
+            ) : (
               <span className="tag" data-kind={recorded.reversible ? "ok" : "bad"}>
                 {recorded.reversible ? "↶ Can be put back" : "No way back recorded"}
               </span>
@@ -85,7 +93,19 @@ function Call({ call }: { call: CallCard }): React.JSX.Element {
           <span className="tag" data-kind="pending">Undo not confirmed yet</span>
         ) : null}
         <span className="capture">
-          {recorded === undefined ? call.state === "running" ? "Waiting for journal evidence" : "No journal evidence for this call" : recorded.reversible ? "Prior state captured" : recorded.class === "readonly" ? "Read only · no change to restore" : "Prior state not captured"}
+          {recorded === undefined
+            ? call.state === "running"
+              ? "Waiting for journal evidence"
+              : "No journal evidence for this call"
+            : stopped(recorded.status)
+              ? recorded.status === "denied"
+                ? "Refused before it reached the system"
+                : "Held, and waiting for a decision"
+              : recorded.reversible
+                ? "Prior state captured"
+                : recorded.class === "readonly"
+                  ? "Read only · no change to restore"
+                  : "Prior state not captured"}
         </span>
       </div>
       <pre className="call-args">{brief(call.args)}</pre>
@@ -452,7 +472,7 @@ export function App(): React.JSX.Element {
       <div className="app" style={{ gridTemplateColumns: "1fr" }}>
         <div className="scroll">
           <div className="empty">
-            <Logo size={190} framed />
+            <Logo size={190} white />
             <h2>No policy yet</h2>
             <p>
               Synartesis will not guess which of your tools are safe to let an agent use
@@ -712,7 +732,7 @@ export function App(): React.JSX.Element {
           <div className="thread">
             {messages.length === 0 ? (
               <div className="empty">
-                <Logo size={144} framed />
+                <Logo size={144} white />
                 <span className="eyebrow">A little room to change your mind</span>
                 <h2>Make a change.<br />Keep a way back.</h2>
                 <p>

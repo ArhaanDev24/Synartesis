@@ -1408,6 +1408,16 @@ details p {
     transform:none;
     transition:opacity .5s var(--ease) var(--d,0ms),clip-path .85s var(--ease-soft) var(--d,0ms),transform .85s var(--ease-soft) var(--d,0ms);
   }
+  /* The net, below, arriving somewhere that cannot animate: a suspended tab
+     freezes a transition where it stands, so the class alone would leave the
+     page exactly as blank as it was. This finishes instantly instead. */
+  html.js.settled .reveal,
+  html.js.settled .reveal-head {
+    opacity:1;
+    transform:none;
+    clip-path:none;
+    transition:none;
+  }
 }
 @media(prefers-reduced-motion:no-preference) {
   .gallery-controls button {
@@ -1839,6 +1849,26 @@ motion.addEventListener('change', () => { if (!motion.matches) document.querySel
   // area, so any threshold above nothing is a heading that waits forever.
   }, { rootMargin: '0px 0px -6% 0px', threshold: 0 });
   for (const el of marked) watcher.observe(el);
+
+  /*
+   * And a net under all of it.
+   *
+   * An observer only fires while the page is actually being rendered, and a
+   * page loaded in a tab nobody is looking at is not: the browser suspends
+   * the lifecycle, the callback never runs, and every hidden state stays
+   * hidden. That is fine when somebody switches to the tab, because it fires
+   * then. It is not fine for anything that renders a page without showing it.
+   * If three seconds pass and nothing at all has arrived, the page is shown
+   * whole and the observer is let go.
+   */
+  setTimeout(() => {
+    if (document.querySelector('.is-in')) return;
+    watcher.disconnect();
+    // `settled` rather than the arriving class: where this net is needed,
+    // nothing can animate, so the states are finished rather than started.
+    document.documentElement.classList.add('settled');
+    marked.forEach(show);
+  }, 3000);
 })();
 
 // The header stays, so the section links in it keep working six thousand

@@ -46,8 +46,8 @@ looking is cheaper than guessing.
 |---|---|
 | `renderer/App.tsx` | The whole window. Draws state, sends events, decides nothing. |
 | `renderer/theme.css` | Every colour, every animation. Tokens at the top. |
-| `renderer/Mark.tsx` | The mark, the meander, the full logo. |
-| `renderer/logo-art.ts` | **Generated.** Edit `build/make-logo.py`, run `pnpm app:logo`. |
+| `renderer/Mark.tsx` | Shows the logo, small and large, and the meander. |
+| `renderer/logo.png` | **The logo.** Shot from `brand/synartesis-logo.svg`, which `build/make-logo.py` generates. Nothing draws the mark by hand; one file, or there will be three again. |
 | `renderer/bridge.ts` | The typed view of what the preload exposes. |
 | `shared/ipc.ts` | Every type that crosses the process boundary. |
 | `shared/transcript.ts` | How events become messages. Used by **both** sides. |

@@ -2,6 +2,36 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.7 — 2026-09-13
+
+### Fixed
+
+- **A card no longer says a refused call cannot be undone.** A call that was
+  denied, or is still waiting for a person, changed nothing -- and the card
+  said "no way back recorded" about it, which reads as damage nobody can put
+  back. It now says nothing was applied, and why: refused before it reached
+  the system, or held and waiting for a decision. On this product, of all
+  products, that sentence has to be right.
+
+- **The site could render blank where nothing is looking at it.** Sections
+  arrive as they are scrolled to, which an IntersectionObserver decides -- and
+  an observer only fires while the page is actually being rendered. A tab
+  loaded in the background is not: the browser suspends the lifecycle, the
+  callback never runs, and every hidden state stays hidden. Harmless when
+  somebody switches to the tab, and not harmless for anything that renders a
+  page without showing it. Three seconds with nothing arrived now shows the
+  page whole, finishing the states rather than starting them, since a
+  suspended tab freezes a transition where it stands.
+
+### Changed
+
+- **The logo in the empty room is the pale one**, so it sits on the page
+  rather than on a dark tile stuck to it. Same artwork, same generator.
+
+- **A thousand lines of generated coordinates are gone.** Nothing had drawn
+  the mark from them since the logo became a file; the window, the icon and
+  the cards all show the picture now.
+
 ## 0.6.6 — 2026-09-13
 
 ### Changed

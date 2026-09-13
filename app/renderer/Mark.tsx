@@ -1,4 +1,5 @@
 import logo from "./logo.png";
+import logoWhite from "./logo-white.png";
 
 /**
  * The mark: a circle that does not quite close, and an arrow going back round.
@@ -52,17 +53,16 @@ export function Mark({
  */
 export function Logo({
   size = 200,
-  framed = false,
+  white = false,
 }: {
   size?: number;
-  /** Kept so callers read the same; the logo is framed either way now. */
-  framed?: boolean;
+  /** The same artwork on a pale ground, for a page that is already pale. */
+  white?: boolean;
 }): React.JSX.Element {
-  void framed;
   return (
     <img
       className="logo"
-      src={logo}
+      src={white ? logoWhite : logo}
       width={size}
       height={size}
       alt=""
