@@ -4,6 +4,10 @@ Read this before changing anything under `site/`. Most of it is the standing
 contract. The last section is a commission: **make this site beautiful, and you
 have a free hand doing it.**
 
+It lives in `docs/` rather than in `site/` because everything in `site/` is
+published verbatim, and a public page criticising the page next to it is not a
+good look.
+
 ## What this is
 
 Three static pages and two media files. No build step, no framework, no
@@ -18,10 +22,21 @@ site/undo-run.mp4  a real terminal recording, 896 kB
 site/undo-run.jpg  its poster frame
 ```
 
-`.github/workflows/pages.yml` copies `site/` to GitHub Pages on any push to
-`main` that touches it. Nothing compiles it, so whatever you commit is exactly
-what ships. There is no staging. Markdown in this directory is stripped before
-the upload, which is why this file can live next to the pages it is about.
+**It ships twice, from the same directory.** Vercel serves
+<https://synartesis.online> with `site/` as its root, on every push to `main`;
+`.github/workflows/pages.yml` puts the same directory on GitHub Pages at
+<https://arhaandev24.github.io/Synartesis/>. Nothing compiles either one, so
+whatever you commit is exactly what ships, at both addresses, with no staging
+step in between. Assume anything you leave in `site/` is public the moment it
+merges.
+
+`vercel.json` at the repository root holds what little configuration there is:
+`outputDirectory: site`, empty install and build commands, a `www` redirect,
+`nosniff` and a referrer policy on everything, and a seven-day cache on
+`mp4|jpg|png|svg|ico|woff2`. Two things follow. Images you add are cached for a
+week, so change the filename rather than the bytes. And self-hosted fonts get
+that cache for free if they are `.woff2`, which is most of the argument for
+self-hosting them.
 
 ## Looking at it
 

@@ -33,10 +33,10 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
-      # Notes for whoever is working on the site are for this repository, not
-      # for synartesis.online. Everything in site/ is published verbatim, so
-      # they come out before the upload rather than being trusted not to be
-      # found.
+      # site/ is published verbatim, so a note left in it is a public page at
+      # a guessable URL. Working notes belong in docs/; this is the guard for
+      # the day somebody forgets. Vercel serves the same directory and has no
+      # such guard, which is the better reason not to put them there.
       - name: Leave the working notes out of what ships
         run: rm -f site/*.md
 
