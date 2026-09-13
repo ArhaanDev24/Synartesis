@@ -88,8 +88,10 @@ Short list. Everything not on it is yours.
    comment in the file at the old font-size decision explaining why.
 5. **`prefers-reduced-motion: no-preference` guards every animation**, as it
    does now. Nothing moves for somebody who asked for nothing to move.
-6. **Keyboard focus stays visible.** There is exactly one `:focus-visible`
-   rule today; more would be better, none is not an option.
+6. **Keyboard focus stays visible.** There is a site-wide `:focus-visible`
+   ring now, deliberately outside the motion guard -- somebody who asked for
+   less movement still has to be able to see where they are. Restyle it if you
+   like; removing it is not an option.
 7. **Contrast.** Body text on the oxblood ground must hold 4.5:1, and large
    display type 3:1. If you change the palette, check it rather than eyeball
    it.
@@ -98,130 +100,157 @@ Short list. Everything not on it is yours.
 
 ## Where it stands now
 
-The last commission -- make it beautiful, free hand -- has been carried out.
-The site is not the page the faults below were written about, and that section
-has been deleted rather than left to mislead you. What exists today:
+Two commissions have been carried out: make it beautiful, and make it move.
+The fault lists both were written against described pages that no longer
+exist, so they have been deleted rather than left to send you fixing what is
+already fixed. What is true today:
 
-- A light ground (`--paper #f5efe5`) with the oxblood kept for the header, the
-  closing band and accents. The uniform six-thousand-pixel wine field is gone.
-- Seven sections with a real type hierarchy: hero, ledger, **the desktop
-  window with four screenshots**, mechanism, refusal, terminal, closing.
-- Self-hosted Cormorant and IBM Plex, so the page makes no external request.
-- 52 kB of HTML, down from 88.
+- A light ground (`--paper #f5efe5`) with oxblood kept for the header, the
+  closing band and accents.
+- Seven sections on the home page: hero, ledger, the desktop window with four
+  screenshots, mechanism, refusal, terminal, closing.
+- Self-hosted Cormorant and IBM Plex. The site makes no external request.
+- **Four things animate**, all on the home page.
+- `install.html` and `404.html` share the base -- sticky header, progress
+  rule, reveals, interaction transitions -- and have no scenes of their own.
+  `404.html` gets the meander and nothing else.
 
-## What I added after that, and why it is the way it is
+## What the last pass built, and what was wrong with it
 
-Read this before you touch any of it. Two of these cost a day to find.
+Read this before touching any of it.
 
-**One curve, two speeds.** `--ease` and `--ease-soft`, and nothing animates
-except `opacity`, `transform` and `clip-path` -- the three a browser can move
-without laying the page out again. Add a fourth property only with a reason.
+### The four scenes
 
-**A sticky header** that grows a shadow past the fold (`.is-scrolled`), and a
-2px `.scroll-progress` bar under it driven by `scaleX`.
+Each is an idea the page could previously only assert. Marked up as
+`[data-motion="..."]`, played by an IntersectionObserver, replayable by a
+button in `.motion-controls`:
 
-**A reveal system.** `.reveal` fades and lifts; `.reveal-head` wipes headings
-in with `clip-path`; both stagger through a `--d` custom property. Both hidden
-states live behind **`html.js` *and* the no-preference guard**, so a page with
-no JavaScript, or one belonging to somebody who asked for less movement, is
-the finished page immediately rather than a page waiting to be revealed.
+- **`undo`** -- a copy of the file travels to the journal, *then* the value
+  changes, then a copy travels back and the original returns. Seven animations
+  over 7.6 seconds.
+- **`proxy`** -- a call crosses the diagram and is marked as it passes.
+- **`class`** -- four tracks with a packet on each. Measured, and worth
+  keeping true if you rebuild it: read-only runs to the end and stays,
+  reversible goes and **comes back**, compensable stops part-way, and
+  irreversible stops *short of the gate* and waits. That last one is the whole
+  product, drawn.
+- **`meander`** -- twelve units of seven straight segments, each scaling from
+  its own origin so the pen turns its own corners. No dashoffset paint loop
+  and no library. It closes the home page and the 404.
 
-**The trap that makes this hard, number one.** Chrome's IntersectionObserver
-measures an element's own `clip-path`. A heading masked to nothing reports
-`intersectionRatio: 0` forever, so any `threshold` above zero never fires and
-the heading never appears. It looks exactly like a broken observer and is not.
+### Built on the Web Animations API, not on hidden CSS states
 
-**The trap that makes this hard, number two.** A backgrounded or suspended tab
-halts the rendering lifecycle: the observer never fires and any transition
-already running freezes where it stands. So there is a net -- a timer that,
-if nothing has revealed after three seconds, disconnects the observer and adds
-`settled` to `<html>`. Two things about it that are not optional. It must
-**finish** states, not start them, or a refocused tab animates a page the
-person has been looking at for a minute. And its rules must come **after** the
-heading rules in the file, or the specificity ties and the heading stays
-hidden.
+This is the part worth preserving even if you throw away everything else.
+There are **no hidden resting states**: the finished page is what the markup
+renders, and motion is added on top by script. Cancelling an animation
+therefore always lands on the finished page rather than stranding an element
+half-revealed. If you go back to `opacity:0` resting states you inherit both
+traps below, and they cost a day each.
 
-If you rewrite the motion system, you inherit both traps. Keep the net.
+**Trap one.** Chrome's IntersectionObserver measures an element's own
+`clip-path`. A heading masked to nothing reports `intersectionRatio: 0`
+forever, so any `threshold` above zero never fires and the heading never
+appears. It looks exactly like a broken observer and is not.
 
-## The commission: make it move like something expensive
+**Trap two.** A backgrounded or suspended tab halts the rendering lifecycle:
+the observer never fires, and any transition already running freezes where it
+stands. Hence the net -- a timer that settles everything after three seconds,
+plus handlers on `visibilitychange`, `pagehide`, `pageshow`, `freeze`,
+`resume`, and a blur-then-focus pair. It must **finish** states, not start
+them, and its rules must come **after** the heading rules or the specificity
+ties.
 
-**Add real animation. You have a free hand, and the same fence as last time.**
+### Three things it left behind, now fixed
 
-What is there now is competent and safe -- things fade up as you reach them.
-That is the floor, not the ceiling, and it is doing nothing for the argument.
+Said plainly because they are the kind of thing that happens again:
 
-What "professional" means for this product specifically, since it does not
-mean the same thing everywhere:
+1. All three pages had an empty `a, button { }` husk where their interaction
+   transitions used to be. Every link, button and the primary call to action
+   snapped between colours instead of easing -- a polish regression underneath
+   a commission about polish. The transitions are restored.
+2. There was no focus ring anywhere except on the new motion controls. There
+   is a site-wide one now.
+3. `404.html` carried the stylesheet for a progress bar it does not have.
 
-- **Motion that explains.** This product has an actual idea to animate: a
-  thing is copied *before* it is changed, and can be put back *after*. A
-  person who watches that happen understands the product; a person who reads
-  about it is still deciding whether to believe you. That is the animation
-  worth building, and nothing on the page does it today.
-- **Confident and quiet.** Slow, few, deliberate. It is a recovery tool for
-  people who have been burned by an agent, and it should feel like something
-  maintained by somebody careful. No bounce, no elastic, no confetti, nothing
-  that says startup landing page.
-- **The evidence must stay legible.** The terminal panels and journal rows are
-  the argument. Frame them, reveal them, never animate them into a smudge.
-- **The Greek thread is still underused.** The meander is a line that folds
-  back on itself, which is the product drawn as an ornament -- and it has
-  never once been drawn. A meander that traces itself as you arrive at the
-  closing band would be worth more than twenty fades.
+### How it was checked, and how to check yours
 
-Four places with something real to animate, in the order I would take them:
+- **No horizontal scroll in twelve of twelve**: three pages at 1440, 1024, 768
+  and 375.
+- **Reduce-motion**: the controls disappear, the play button creates *zero*
+  animations, the progress rule hides, and all three steps of the undo still
+  read as text.
+- **Hidden mid-sequence for three seconds**: on return nothing is half-faded,
+  no animation is left running, and replay still works.
 
-1. **The undo, as a sequence.** State, change, and the change coming back out.
-   There is a recording at `site/undo-run.mp4` already; it may deserve to
-   become a built thing rather than a video.
-2. **The proxy diagram.** "Synartesis sits between your agent and your
-   systems" -- a call travelling that path, and its snapshot being taken on
-   the way through, in one loop.
-3. **The four classes.** Read-only, reversible, compensable, cannot-be-undone
-   is a state machine with four states and it is currently a static list.
-4. **The held call.** Something arriving at a gate and stopping. This is the
-   product's whole promise and the page states it in prose.
+**A warning about your own harness.** Any embedded or backgrounded browser
+reports `document.hidden`, which freezes every animation on the page. Working
+motion looks completely dead there. Three separate "bugs" were found and
+dismissed that way in one evening. Verify motion in a real, visible, focused
+window or you will chase ghosts.
 
-### Rules for the motion itself
+## The commission: make it better. Anything.
 
-- **Compositor-only.** `opacity`, `transform`, `clip-path`. Animating `width`,
-  `top`, `margin` or `box-shadow` in a loop is an instant no.
-- **Nothing on the first paint.** The hero may reveal; it may not wait on a
-  script to become readable.
-- **No scroll-jacking, no hijacked wheel, no pinned sections that fight the
-  scrollbar, no parallax on the hero.** Scroll-*linked* is fine and welcome --
-  scroll-*driven* narrative that takes the scrollbar away from somebody is not.
-- **60fps on a laptop.** Check with the CPU throttled 4x in devtools, not on
-  your own machine at full speed.
-- **Anything that loops must stop when it is off screen.** An SVG animating
-  forever in a section nobody is looking at is a battery bug.
-- **`prefers-reduced-motion: reduce` removes all of it**, and the page must
-  still make every point it makes. If a diagram only works in motion, it needs
-  a still state that works too.
-- **Keyboard focus is never animated away.** Focus rings appear instantly.
+**You have a free hand, and the fence above is the only fence.** Restructure,
+repalette, rewrite the CSS from nothing, add pages, cut pages, replace the
+motion, throw out the layout, change the type. If you think the right answer
+is a different site, build the different site. Inside those eight constraints,
+your judgement beats anything that could be specified here.
+
+What "better" means for this product, so you are aiming at the same thing:
+
+- **Confident and quiet.** It is a recovery tool for people who have been
+  burned by an agent. Trust comes from looking like something maintained by
+  somebody careful, not from looking exciting.
+- **Evidence over decoration.** The screenshots, the journal rows, the four
+  classes -- those are the argument. Ornament frames them and never competes.
+- **The Greek thread is the identity.** The name means *a fastening together*.
+  The meander, the medal, the Cormorant display face all come from that, and
+  there is still more in it than a divider and a closing band.
+- **Legible at arm's length on a phone**, which is where at least half of the
+  people who hear about this will first see it.
+
+### What looks weakest to me today
+
+Observed, not guessed. Fix them, or make them moot, or disagree -- all three
+are fine answers.
+
+- **`install.html` is a left-hand column on a wide screen.** At 1440 the
+  content stops around 58% and the right side is empty. It is the page that
+  actually asks for the install, and it is the least designed of the three.
+- **`install.html` has no motion at all.** That was a judgement -- it is the
+  page somebody reads while typing a command, and movement beside the thing
+  you are copying competes with the reason you came. If you disagree, you are
+  allowed to; just say so when you hand it back.
+- **Four "Watch this call" buttons stack up on a phone**, one per class, in a
+  two-by-two grid. Four identical affordances in one screen is three too many.
+- **The home page is long.** Seven sections and about nine thousand pixels.
+  Nothing on it is obviously wrong, which is a different thing from every
+  section earning its place.
+- **Nothing on the site says what version it is**, and the desktop download
+  points at "latest" and hopes.
 
 ### Budget
 
-The whole site is about 1.1 MB, most of it one video. You have room for
-inline SVG and for CSS; you do not have room for a library, and a library is
-not permitted anyway (see constraint 2). If you find yourself wanting GSAP,
-what you actually want is about forty lines of Web Animations API.
+The whole site is about 1.1MB, most of it one video. There is room for inline
+SVG and for CSS. There is no room for a library, and a library is not
+permitted anyway -- see constraint 2. If you find yourself wanting GSAP, what
+you want is about forty lines of the Web Animations API.
 
 ## Before you hand it back
 
-- Screenshots at 1440, 1024, 768 and 375, all sections deep.
+- Screenshots at 1440, 1024, 768 and 375, all pages, top to bottom.
 - No horizontal scroll at any width. `document.documentElement.scrollWidth`
   must equal `clientWidth`.
-- **Load the page, switch to another tab for a minute, come back.** Everything
-  is visible and nothing is mid-animation. This is the failure mode that gets
-  shipped, because nobody tests it.
+- **Load a page, switch away for a minute, come back.** Everything visible,
+  nothing mid-animation. This is the failure that ships, because nobody tests
+  it -- and remember that a hidden harness makes working motion look dead.
 - Throttle the CPU 4x and scroll the whole page. Nothing stutters.
-- Set "reduce motion" in the OS and reload. Nothing moves, and nothing is
-  missing.
-- Tab through it once. Every interactive thing takes focus and shows it.
-- The install command still copies to the clipboard.
-- The last two `<script>` tags before `</body>` are still there.
-- Every link still resolves, including `install.html` and `404.html`.
+- Set reduce-motion and reload. Nothing moves, and nothing is missing.
+- Tab through every page. Every interactive thing takes focus and shows it.
+- The install command still copies.
+- The last two `<script>` tags on `index.html` and `install.html` are still
+  there.
+- Every link resolves, including `install.html` and `404.html`.
 - Say what you changed and why, in the same plain register as the rest of this
   repository. If you removed something on purpose, say that too -- silence
   reads as an accident.
