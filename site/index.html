@@ -1,19 +1,12 @@
 <!doctype html>
 <html lang="en">
-<!-- The doctype and the html element were both left implicit, which the
-     browser is happy to synthesise -- but a synthesised html element carries
-     no lang, so nothing told a screen reader what language to read this in,
-     and quirks mode was one stray byte away. Closing tags stay omitted;
-     HTML5 allows that and the rest of the file is written that way. -->
+
 <meta charset="utf-8">
-<title>Synartesis</title>
-<!-- Without this a phone lays the page out at 980px and then shrinks the whole
-     thing to fit, so every measurement below is right and nothing is legible. -->
+<title>Synartesis — an undo layer for AI agents</title>
+
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%235e1420'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%23f6e9e5' stroke-width='3.5' stroke-dasharray='41 16' transform='rotate(-58 16 16)'/%3E%3Cpath d='M19.2 3.6l4.6 5.2-6.6 2.2z' fill='%23f6e9e5'/%3E%3C/svg%3E">
-<!-- The page has an address now, so it needs to say what it is when the
-     address is pasted somewhere. Absolute URLs: a share card is fetched by
-     someone else's server, which has no idea what a relative path is. -->
+
 <meta name="description" content="An agent runs twenty steps and gets step seven wrong. Synartesis records every tool call with the state it replaced, puts that state back on one command, and refuses to let an agent do unsupervised what nobody can undo.">
 <link rel="canonical" href="https://synartesis.online/">
 <meta property="og:type" content="website">
@@ -24,2347 +17,1610 @@
 <meta property="og:image" content="https://synartesis.online/undo-run.jpg">
 <meta property="og:image:alt" content="A terminal mid-undo: a recorded agent run being walked backwards, one call at a time.">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
 
+<link rel="preload" href="assets/cormorant-garamond-latin-400-normal-v1.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-  /* A single committed visual world. The ground is a bright green, so the ink
-     is a deep green rather than white: white on this ground is about 2:1 and
-     unreadable. Every colour is painted explicitly so the page holds whatever
-     ground the viewer's theme paints behind it. */
-  :root {
-    /* Oxblood: a deep red ground with a warm off-white on it. Everything is
-       painted explicitly so the page holds whatever ground the viewer's own
-       theme paints behind it. */
-    --ground: #5e1420;
-    --ground-lift: #7a1c2b;
-    --ink: #f6e9e5;
-    --panel: #2c080f;
-    --panel-ink: #f0d3cc;
-    --panel-hit: #e8927f;
-
-    --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--ground));
-    --ink-faint: color-mix(in srgb, var(--ink) 52%, var(--ground));
-    --rule: color-mix(in srgb, var(--ink) 24%, var(--ground));
-    --panel-faint: color-mix(in srgb, var(--panel-ink) 62%, var(--panel));
-    --panel-rule: color-mix(in srgb, var(--panel-ink) 26%, var(--panel));
-
-    --display: "Cormorant Garamond", "Times New Roman", serif;
-    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
-    --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-
-    --gutter: clamp(1.1rem, 4vw, 2.5rem);
-    --max: 1140px;
-    --measure: 60ch;
-    /* Grows with the margin it sits in, so a wide display gets a plate
-       rather than a stamp, and 1440px still gets one that fits. */
-    /* Sized from the margin it hangs in: the visible 62% always clears the
-       text column by the same gap, whatever the display. */
-    --medal: clamp(200px, calc(((100vw - 1140px) / 2 - 1.6rem) / 0.62), 380px);
+@font-face {
+  font-family:Cormorant;
+  src:url("assets/cormorant-garamond-latin-400-normal-v1.woff2") format("woff2");
+  font-weight:400;
+  font-style:normal;
+  font-display:swap;
+}
+@font-face {
+  font-family:Cormorant;
+  src:url("assets/cormorant-garamond-latin-400-italic-v1.woff2") format("woff2");
+  font-weight:400;
+  font-style:italic;
+  font-display:swap;
+}
+@font-face {
+  font-family:Plex;
+  src:url("assets/ibm-plex-sans-latin-400-normal-v1.woff2") format("woff2");
+  font-weight:400;
+  font-display:swap;
+}
+@font-face {
+  font-family:PlexMono;
+  src:url("assets/ibm-plex-mono-latin-400-normal-v1.woff2") format("woff2");
+  font-weight:400;
+  font-display:swap;
+}
+:root {
+  --wine:#5e1420;
+  --paper:#f5efe5;
+  --white:#fffaf3;
+  --ink:#361c20;
+  --muted:#715d5d;
+  --line:#d7c9ba;
+  --dark:#260e15;
+  --pale:#d8bdb7;
+  --accent:#f1b696;
+  --green:#315c44;
+  --serif:Cormorant,Georgia,serif;
+  --sans:Plex,system-ui,sans-serif;
+  --mono:PlexMono,monospace;
+  --gutter:clamp(22px,5vw,80px);
+}
+* {
+  box-sizing:border-box;
+}
+body {
+  margin:0;
+  background:var(--paper);
+  color:var(--ink);
+  font:16px/1.6 var(--sans);
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,p,figure {
+  margin:0;
+}
+h1,h2 {
+  font-family:var(--serif);
+  font-weight:400;
+  line-height:.98;
+  letter-spacing:-.035em;
+}
+h1 {
+  font-size:clamp(56px,6.9vw,100px);
+}
+h2 {
+  font-size:clamp(44px,4.6vw,66px);
+}
+h3 {
+  font-size:20px;
+  line-height:1.3;
+  font-weight:400;
+}
+p {
+  max-width:65ch;
+}
+a {
+  color:inherit;
+  text-underline-offset:5px;
+  text-decoration-thickness:1px;
+}
+a:hover {
+  text-decoration-color:currentColor;
+}
+button {
+  font:inherit;
+  color:inherit;
+  cursor:pointer;
+}
+button,a {
+  -webkit-tap-highlight-color:transparent;
+}
+button:disabled {
+  cursor:default;
+}
+button:focus-visible,a:focus-visible,summary:focus-visible,[tabindex]:focus-visible,video:focus-visible, .media:focus-within {
+  outline:3px solid currentColor;
+  outline-offset:5px;
+}
+::selection {
+  background:#dcb59b;
+  color:var(--dark);
+}
+[hidden] {
+  display:none!important;
+}
+img,video {
+  display:block;
+  max-width:100%;
+  height:auto;
+}
+code,pre {
+  font-family:var(--mono);
+}
+code {
+  font-size:.9em;
+  overflow-wrap:anywhere;
+}
+pre {
+  margin:0;
+  overflow:auto;
+  font-size:16px;
+  line-height:1.75;
+  tab-size:2;
+}
+pre code {
+  font-size:inherit;
+  overflow-wrap:normal;
+}
+.wrap {
+  max-width:1320px;
+  margin:auto;
+  padding-inline:var(--gutter);
+}
+.eyebrow,.label {
+  font:12px/1.5 var(--mono);
+  letter-spacing:.12em;
+  text-transform:uppercase;
+}
+.eyebrow {
+  display:block;
+  margin-bottom:22px;
+}
+.muted {
+  color:var(--muted);
+}
+.skip {
+  position:absolute;
+  top:12px;
+  left:20px;
+  z-index:20;
+  padding:12px 18px;
+  background:var(--paper);
+  color:var(--wine);
+  transform:translateY(-150%);
+}
+.skip:focus {
+  transform:none;
+}
+.dark {
+  background:var(--wine);
+  color:var(--paper);
+}
+.masthead {
+  height:88px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  border-bottom:1px solid #ffffff30;
+  gap:24px;
+}
+.brand {
+  display:inline-flex;
+  align-items:center;
+  gap:13px;
+  text-decoration:none;
+  font:15px var(--mono);
+  letter-spacing:.23em;
+  text-transform:uppercase;
+}
+.brand svg {
+  width:29px;
+  height:29px;
+  flex:none;
+}
+.masthead nav {
+  display:flex;
+  gap:28px;
+  align-items:center;
+}
+.masthead nav a {
+  font-size:14px;
+  text-decoration:none;
+  padding-block:10px;
+}
+.masthead nav a:hover {
+  text-decoration:underline;
+}
+.nav-cta {
+  border-bottom:1px solid #d8bdb7;
+}
+.hero {
+  display:grid;
+  grid-template-columns:1.12fr 1fr;
+  gap:clamp(35px,6vw,90px);
+  align-items:center;
+  padding-block:66px 62px;
+}
+.hero .eyebrow {
+  color:var(--pale);
+  font-size:11px;
+}
+.hero h1 em {
+  color:var(--accent);
+  font-weight:400;
+}
+.hero .intro {
+  font-size:18px;
+  line-height:1.6;
+  color:#ead8d1;
+  max-width:40ch;
+  margin:26px 0 30px;
+}
+.install-command {
+  border:1px solid #b17c7b;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:6px 6px 6px 16px;
+  max-width:445px;
+  background:#43101b;
+}
+.install-command code {
+  white-space:nowrap;
+  font-size:15px;
+  color:var(--paper);
+}
+.install-command button {
+  margin-left:auto;
+  border:0;
+  background:var(--paper);
+  color:var(--wine);
+  padding:11px 15px;
+  font-size:14px;
+  min-width:70px;
+}
+.install-command button:hover {
+  background:var(--accent);
+}
+.install-note {
+  display:flex;
+  gap:20px;
+  flex-wrap:wrap;
+  margin-top:13px;
+  font-size:13px;
+  color:var(--pale);
+}
+.example {
+  position:relative;
+  border:1px solid #ad7371;
+  background:var(--paper);
+  color:var(--ink);
+  box-shadow:14px 14px 0 #43101b;
+}
+.example-top {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:17px 22px;
+  border-bottom:1px solid var(--line);
+}
+.example-top .label {
+  font-size:11px;
+}
+.example-body {
+  padding:26px;
+}
+.file-title {
+  display:flex;
+  align-items:center;
+  gap:9px;
+  font:15px var(--mono);
+  margin-bottom:24px;
+}
+.file-icon {
+  display:inline-grid;
+  place-items:center;
+  width:25px;
+  height:29px;
+  border:1px solid #b8a496;
+  font-size:12px;
+}
+.diff {
+  font:15px/2 var(--mono);
+  padding:16px 18px;
+  background:#e9dfd2;
+  border-left:2px solid #a87869;
+}
+.diff .removed {
+  color:#82524e;
+  text-decoration:line-through;
+}
+.diff .added {
+  color:var(--wine);
+}
+.recovery {
+  display:flex;
+  align-items:center;
+  gap:9px;
+  color:var(--green);
+  font-size:14px;
+  margin:22px 0 7px;
+}
+.dot {
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  background:currentColor;
+  flex:none;
+}
+.example-note {
+  font-size:14px;
+  color:var(--muted);
+}
+.example-bottom {
+  border-top:1px solid var(--line);
+  padding:16px 22px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.example-bottom .label {
+  font-size:10px;
+}
+.text-button {
+  background:none;
+  border:0;
+  padding:8px 0;
+  color:var(--wine);
+  text-decoration:underline;
+  text-underline-offset:5px;
+  font-size:14px;
+}
+.example-plan {
+  border-top:1px solid var(--line);
+  margin-top:18px;
+  padding-top:16px;
+  font-size:14px;
+}
+.example-plan p+p {
+  margin-top:8px;
+}
+.example-plan .actions {
+  display:flex;
+  gap:20px;
+}
+.primary {
+  display:inline-flex;
+  justify-content:center;
+  align-items:center;
+  gap:18px;
+  text-decoration:none;
+  background:var(--wine);
+  color:var(--paper);
+  border:1px solid var(--wine);
+  padding:13px 22px;
+  min-height:48px;
+  font-size:15px;
+}
+.primary:hover {
+  background:#7a2634;
+}
+.architecture {
+  padding-block:26px 28px;
+  display:flex;
+  align-items:center;
+  gap:30px;
+  border-top:1px solid #ffffff30;
+}
+.architecture .label {
+  color:var(--pale);
+  font-size:10px;
+  width:150px;
+  flex:none;
+}
+.flow {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:25px;
+  flex:1;
+  font-size:15px;
+}
+.flow .proxy {
+  display:flex;
+  gap:13px;
+  align-items:center;
+}
+.flow .proxy strong {
+  font-weight:400;
+  color:var(--accent);
+}
+.flow .arrow {
+  color:#c69d94;
+  flex:1;
+  border-top:1px solid #ad7371;
+  position:relative;
+  min-width:25px;
+}
+.flow .arrow:after {
+  content:'›';
+  position:absolute;
+  right:-1px;
+  top:-15px;
+  font-size:20px;
+}
+.section {
+  padding-block:88px;
+}
+.section-head {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:70px;
+  align-items:end;
+  margin-bottom:38px;
+}
+.section-head .lede {
+  color:var(--muted);
+  font-size:18px;
+}
+.section-head h2 {
+  max-width:14ch;
+}
+.proof-layout {
+  display:grid;
+  grid-template-columns:.65fr 1.35fr;
+  gap:58px;
+  align-items:center;
+}
+.proof-copy h2 {
+  margin-bottom:22px;
+}
+.proof-copy p {
+  color:var(--muted);
+}
+.proof-copy .text-link {
+  display:inline-block;
+  margin-top:24px;
+}
+.media {
+  border:1px solid var(--line);
+  background:var(--dark);
+}
+.media video,.media>img {
+  width:100%;
+  aspect-ratio:16/9;
+  object-fit:contain;
+}
+.media figcaption {
+  padding:13px 18px;
+  background:#eae1d6;
+  color:var(--muted);
+  font-size:13px;
+  display:flex;
+  justify-content:space-between;
+  gap:16px;
+}
+.media figcaption a {
+  white-space:nowrap;
+}
+.motion-poster {
+  display:none;
+}
+.fret {
+  height:12px;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='12' viewBox='0 0 32 12'%3E%3Cpath d='M0 11h31V1H9v7h15V5H15' fill='none' stroke='%235e1420' stroke-opacity='.3'/%3E%3C/svg%3E") repeat-x;
+}
+.desktop-section {
+  background:#eae1d6;
+  border-top:1px solid var(--line);
+  border-bottom:1px solid var(--line);
+}
+.desktop-section .section-head {
+  align-items:center;
+}
+.desktop-section h2 {
+  max-width:16ch;
+}
+.desktop-section .lede p {
+  margin-bottom:20px;
+}
+.gallery-controls {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:20px;
+}
+.gallery-controls button {
+  border:1px solid #b9a89c;
+  background:transparent;
+  padding:10px 16px;
+  font-size:14px;
+  min-height:44px;
+}
+.gallery-controls button[aria-pressed=true] {
+  background:var(--wine);
+  border-color:var(--wine);
+  color:var(--paper);
+}
+.gallery-controls button:hover {
+  border-color:var(--wine);
+}
+.gallery-image {
+  border:1px solid #b5a196;
+  box-shadow:0 12px 38px #361c2010;
+  background:var(--paper);
+  aspect-ratio:1600/1112;
+  overflow:hidden;
+}
+.gallery-image img {
+  width:100%;
+  aspect-ratio:1600/1112;
+  object-fit:contain;
+}
+.gallery-caption {
+  display:grid;
+  grid-template-columns:auto 1fr auto;
+  align-items:baseline;
+  gap:24px;
+  padding-top:20px;
+  min-height:84px;
+}
+.gallery-caption .label {
+  color:var(--wine);
+  white-space:nowrap;
+}
+.gallery-caption p {
+  font-size:16px;
+  color:var(--muted);
+}
+.gallery-caption a {
+  font-size:14px;
+  white-space:nowrap;
+}
+.desktop-foot {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:70px;
+  border-top:1px solid #cbbcad;
+  padding-top:28px;
+  margin-top:24px;
+}
+.desktop-foot h3 {
+  font-size:18px;
+  margin-bottom:10px;
+}
+.desktop-foot p {
+  color:var(--muted);
+  font-size:16px;
+}
+.desktop-foot .platforms {
+  font:12px var(--mono);
+  color:var(--wine);
+  margin-bottom:16px;
+}
+.desktop-foot .unsigned {
+  border-left:2px solid #ae796b;
+  padding-left:20px;
+}
+.mechanism {
+  background:var(--white);
+}
+.classifications {
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  border:1px solid var(--line);
+  margin-top:40px;
+}
+.classification {
+  padding:27px 22px;
+  min-width:0;
+}
+.classification+.classification {
+  border-left:1px solid var(--line);
+}
+.class-symbol {
+  font:40px/1 var(--serif);
+  color:var(--wine);
+  display:block;
+  height:55px;
+}
+.classification h3 {
+  margin-bottom:13px;
+}
+.classification p {
+  font-size:16px;
+  color:var(--muted);
+}
+.classification b {
+  display:block;
+  font-size:14px;
+  font-weight:400;
+  color:var(--wine);
+  margin-top:20px;
+}
+.classification:last-child {
+  background:#ece0d5;
+}
+.sequence {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:70px;
+  padding-top:66px;
+}
+.sequence h3 {
+  font:36px/1.05 var(--serif);
+  max-width:14ch;
+}
+.sequence-intro p {
+  margin-top:20px;
+  color:var(--muted);
+  max-width:38ch;
+}
+.steps {
+  list-style:none;
+  margin:0;
+  padding:0;
+  counter-reset:step;
+}
+.steps li {
+  counter-increment:step;
+  position:relative;
+  padding:0 0 22px 45px;
+  margin-bottom:22px;
+  border-bottom:1px solid var(--line);
+}
+.steps li:last-child {
+  margin:0;
+  border:0;
+  padding-bottom:0;
+}
+.steps li:before {
+  content:'0' counter(step);
+  position:absolute;
+  left:0;
+  top:2px;
+  font:12px var(--mono);
+  color:var(--wine);
+}
+.steps h4 {
+  font-size:17px;
+  font-weight:400;
+  margin:0 0 7px;
+}
+.steps p {
+  font-size:16px;
+  color:var(--muted);
+}
+.refusal {
+  background:var(--dark);
+  color:var(--paper);
+}
+.refusal .proof-layout {
+  grid-template-columns:1fr 1fr;
+}
+.refusal .eyebrow {
+  color:var(--accent);
+}
+.refusal h2 {
+  font-size:clamp(46px,4.5vw,66px);
+  margin-bottom:25px;
+}
+.refusal p {
+  color:#d8bdb7;
+}
+.terminal {
+  background:var(--dark);
+  color:var(--paper);
+  border:1px solid #725158;
+  min-width:0;
+}
+.terminal-bar {
+  padding:12px 20px;
+  display:flex;
+  justify-content:space-between;
+  gap:20px;
+  border-bottom:1px solid #725158;
+  font:11px/1.5 var(--mono);
+  color:#d8bdb7;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+}
+.terminal pre {
+  padding:24px;
+  color:#ead8d1;
+}
+.terminal .hit {
+  color:#f1b696;
+}
+.terminal .dim {
+  color:#c4a7a6;
+}
+.terminal .prompt {
+  color:#c4a7a6;
+}
+.terminal .plate {
+  background:#5e1420;
+  color:var(--paper);
+}
+.terminal-summary {
+  border-top:1px solid #725158;
+  padding:14px 20px;
+  font:12px var(--mono);
+  color:#f1b696;
+}
+.cli-grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:70px;
+}
+.cli-grid .commands {
+  margin-top:26px;
+}
+.command {
+  display:grid;
+  grid-template-columns:180px 1fr;
+  gap:20px;
+  border-top:1px solid var(--line);
+  padding:17px 0;
+}
+.command code {
+  color:var(--wine);
+  font-size:14px;
+}
+.command p {
+  color:var(--muted);
+  font-size:16px;
+}
+.limits {
+  border-top:1px solid var(--line);
+}
+details {
+  border-bottom:1px solid var(--line);
+  padding:18px 0;
+}
+summary {
+  cursor:pointer;
+  font-size:17px;
+  list-style:none;
+  display:flex;
+  justify-content:space-between;
+  gap:20px;
+}
+summary::-webkit-details-marker {
+  display:none;
+}
+summary:after {
+  content:'+';
+  font:24px/1 var(--mono);
+  color:var(--wine);
+}
+details[open] summary:after {
+  content:'−';
+}
+details p {
+  padding-top:14px;
+  color:var(--muted);
+  font-size:16px;
+}
+.closing {
+  padding-block:64px;
+}
+.closing-inner {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  align-items:center;
+  gap:60px;
+}
+.closing h2 {
+  font-size:clamp(45px,4.5vw,66px);
+}
+.closing .eyebrow {
+  color:var(--pale);
+}
+.closing p {
+  color:var(--pale);
+  margin-top:16px;
+}
+.closing .install-command {
+  margin-left:auto;
+}
+.closing .closing-links {
+  display:flex;
+  gap:24px;
+  justify-content:flex-end;
+  margin-top:18px;
+  font-size:14px;
+}
+.colophon {
+  display:flex;
+  justify-content:space-between;
+  gap:24px;
+  flex-wrap:wrap;
+  border-top:1px solid var(--line);
+  padding-block:25px;
+  font-size:12px;
+  color:var(--muted);
+}
+.colophon nav {
+  display:flex;
+  gap:20px;
+  flex-wrap:wrap;
+}
+.colophon a {
+  padding-block:6px;
+}
+.sr-only {
+  position:absolute;
+  width:1px;
+  height:1px;
+  padding:0;
+  margin:-1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+  border:0;
+}
+/* Content is visible without JavaScript. Motion only decorates an already complete page. */
+@media(prefers-reduced-motion:no-preference) {
+  a,button {
+    transition:background-color .18s,color .18s,border-color .18s;
   }
-
-  *, *::before, *::after { box-sizing: border-box; }
-
-  /* --- movement ------------------------------------------------------- */
-  /* One easing curve everywhere, so nothing feels like it came from a
-     different page. Everything here is opacity and transform only: those are
-     the two properties a browser can animate without laying the page out
-     again, which is the difference between smooth and nearly smooth. */
-  :root { --ease: cubic-bezier(0.22, 0.61, 0.36, 1); }
-
-  @media (prefers-reduced-motion: no-preference) {
-    .reveal {
-      opacity: 0;
-      transform: translateY(14px);
-      transition:
-        opacity 0.55s var(--ease),
-        transform 0.55s var(--ease);
+  .example {
+    animation:arrive .6s ease-out both;
+  }
+  @keyframes arrive {
+    from {
+      opacity:.4;
+      transform:translateY(10px);
     }
-
-    .reveal[data-shown="true"] { opacity: 1; transform: none; }
-
-    .command,
-    .command-line button,
-    .masthead a.label {
-      transition:
-        background-color 0.2s var(--ease),
-        color 0.2s var(--ease),
-        border-color 0.2s var(--ease);
+    to {
+      opacity:1;
+      transform:none;
     }
-
-    .command-line button:active { transform: translateY(1px); }
-
-    /* The journal rows rise as they land, and the added line fades with the
-       write that made it. Both are opacity and transform, like everything
-       else here. */
-    .ledger-row {
-      transition:
-        opacity 0.4s var(--ease),
-        transform 0.4s var(--ease),
-        border-color 0.35s var(--ease);
-    }
-
-    .ledger-row[data-state="pending"] { transform: translateY(6px); }
-    .ledger-added, .ledger-empty { transition: opacity 0.5s var(--ease); }
-    .ledger-act { transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease); }
   }
-
-  /* One column, centred, rather than text running the full width of a big
-     display. The gutter grows into the margin instead of the content. */
-  .masthead, .hero, section, .colophon {
-    padding-inline: max(var(--gutter), (100% - var(--max)) / 2);
+}
+@media(prefers-reduced-motion:reduce) {
+  .media video {
+    display:none;
   }
-
-  body {
-    margin: 0;
-    background: var(--ground);
-    color: var(--ink);
-    font-family: var(--sans);
-    /* Body never reached 16px at any width: this clamp bottomed out at 14.4px
-     on a phone and topped out at 15.5px on a desktop. 16px is the floor
-     below which body text is small type, and a phone is exactly where it
-     cannot be. Now 16.05px at 375 and 17.1px from 1140 up. */
-  font-size: clamp(1rem, 0.97rem + 0.14vw, 1.07rem);
-    line-height: 1.62;
-    -webkit-font-smoothing: antialiased;
+  .motion-poster {
+    display:block;
   }
-
-  a { color: inherit; }
-  a:focus-visible, button:focus-visible {
-    outline: 2px solid var(--ink);
-    outline-offset: 3px;
+}
+@media(min-width:1440px) {
+  .wrap {
+    padding-inline:40px;
   }
-
-  /* --- shared type roles -------------------------------------------- */
-
-  .label {
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    font-weight: 500;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--ink-faint);
-  }
-
-  .display {
-    font-family: var(--display);
-    font-weight: 300;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    line-height: 0.94;
-    text-wrap: balance;
-    margin: 0;
-  }
-
-  .lede { max-width: var(--measure); color: var(--ink-soft); }
-
-  /* The claim above it is what the product does; this is why it matters. Set
-     in the display face so it reads as part of the same statement rather than
-     as body copy, but small enough that the headline still leads. */
-  .thesis {
-    font-family: var(--display);
-    font-weight: 300;
-    font-size: clamp(1.25rem, 0.95rem + 1.35vw, 1.7rem);
-    line-height: 1.2;
-    /* The break is written into the markup, the way the headline above does
-       it. Left to itself the line balanced by length and broke after
-       "without", splitting the phrase it is about; the sentence hinges after
-       "reversibility". Narrow screens still re-wrap each half. */
-    max-width: 34ch;
-    color: var(--ink-soft);
-    margin: clamp(1rem, 2vw, 1.4rem) 0 0;
-  }
-
-  .rule { border: 0; border-top: 1px solid var(--rule); margin: 0; }
-
-  /* A meander: one line that turns back on itself without ever breaking,
-     which is what the name means. It divides the page rather than decorating
-     the margins of it. */
-  .fret {
-    height: 24px;
-    /* Masked rather than drawn: a data-uri cannot read a custom property, and
-       the fret has to follow whichever ink the palette is using. */
-    background-color: var(--ink);
-    opacity: 0.32;
-    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
-    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
-    -webkit-mask-repeat: repeat-x;
-    mask-repeat: repeat-x;
-    -webkit-mask-position: center;
-    mask-position: center;
-  }
-
-  /* --- masthead ------------------------------------------------------ */
-
-  .masthead {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 1rem;
-    padding-block: 1rem;
-    border-bottom: 1px solid var(--rule);
-    flex-wrap: wrap;
-  }
-
-  .wordmark {
-    font-family: var(--mono);
-    font-weight: 500;
-    font-size: 0.78rem;
-    letter-spacing: 0.42em;
-    text-transform: uppercase;
-  }
-
-  .masthead .label { text-decoration: none; }
-  .masthead a.label:hover { color: var(--ink); }
-
-  /* A text link is only as tall as its text, which on a phone is a target of
-     about eighteen pixels -- under what a thumb reliably hits. The hit area is
-     grown with an absolutely positioned pseudo-element rather than padding, so
-     what responds to a touch gets bigger and nothing on the page moves. */
-  .masthead a, .colophon a, .hero-next a { position: relative; }
-  .masthead a::after, .colophon a::after, .hero-next a::after {
-    content: "";
-    position: absolute;
-    inset-block: -0.5rem;
-    inset-inline: -0.4rem;
-  }
-
-  /* --- hero ---------------------------------------------------------- */
-
+}
+@media(max-width:1050px) {
   .hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-    gap: clamp(1.5rem, 3.5vw, 3rem);
-    align-items: center;
-    padding-block: clamp(2.2rem, 4.5vw, 3.4rem);
+    gap:35px;
   }
-
-  /* A grid item will not shrink below its content, and the terminal below
-     holds a pre whose longest line is about 480px. Without this the hero
-     column refuses to go narrower than that line, the whole page is laid out
-     at 480px on a 390px phone, and the terminal's own overflow-x never gets
-     the chance to do its job. */
-  .hero > div { min-width: 0; }
-
-  .hero h1 { font-size: clamp(2.1rem, 6.4vw, 4.4rem); }
-
-  .etymology {
-    margin: 1.4rem 0 0;
-    padding-left: 1rem;
-    border-left: 1px solid var(--rule);
-    max-width: 46ch;
-    color: var(--ink-soft);
+  .hero h1 {
+    font-size:76px;
   }
-
-  .etymology em {
-    font-family: var(--display);
-    font-style: italic;
-    font-size: 1.25em;
-    color: var(--ink);
+  .example-body {
+    padding:22px;
   }
-
-  .greek {
-    display: block;
-    font-family: var(--display);
-    font-size: clamp(1.3rem, 2.4vw, 1.75rem);
-    letter-spacing: 0.32em;
-    color: var(--ink);
-    margin-bottom: 0.55rem;
+  .architecture {
+    gap:25px;
   }
-
-  .hero-side {
-    display: grid;
-    gap: clamp(1.1rem, 2.4vw, 1.7rem);
-    min-width: 0;
+  .architecture .label {
+    width:115px;
   }
-
-  .hero-figure { position: relative; aspect-ratio: 1; width: 100%; max-width: 21rem; justify-self: center; }
-  .hero-figure canvas { display: block; width: 100%; height: 100%; }
-
-  /* --- the journal, playing itself ----------------------------------- */
-  /* The other half of the hero was the one place a stranger had nothing to
-     look at while deciding whether to keep reading. What fills it is not a
-     picture of the product: it is the product's own output. Four calls of a
-     real run arrive, the fourth is held because it cannot be undone, and then
-     the whole run is taken back while the file underneath changes with it.
-     Every string in it was copied out of an actual session rather than
-     written for the page, which is the only version worth showing. */
-
-  .ledger {
-    background: var(--panel);
-    color: var(--panel-ink);
-    font-family: var(--mono);
-    font-size: clamp(0.66rem, 0.6rem + 0.22vw, 0.76rem);
-    line-height: 1.5;
-    min-width: 0;
+  .flow {
+    gap:18px;
   }
-
-  .ledger-bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.5rem 0.85rem;
-    border-bottom: 1px solid var(--panel-rule);
-    font-size: 0.66rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--panel-faint);
+  .flow .proxy {
+    display:block;
   }
-
-  .ledger-title {
-    background: var(--ground);
-    color: var(--ink);
-    font-weight: 500;
-    padding: 0.1rem 0.5rem;
-    letter-spacing: 0.2em;
+  .section-head,.desktop-foot,.sequence,.cli-grid {
+    gap:40px;
   }
-
-  /* The mode line is the one piece of text here that changes length as the
-     run proceeds. Right-aligning it in the space left over means the panel
-     never rewraps around it. */
-  .ledger-mode {
-    flex: 1;
-    min-width: 0;
-    text-align: right;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .proof-layout {
+    gap:35px;
   }
-
-  .ledger-stage { position: relative; }
-
-  .ledger-rows {
-    list-style: none;
-    margin: 0;
-    padding: 0.7rem 0.85rem;
-    display: grid;
-    gap: 0.45rem;
+  .classification {
+    padding:24px 17px;
   }
-
-  /* An empty journal is four rows of nothing, which is a hole in the page
-     rather than a state. It gets the sentence the program itself prints on a
-     journal no agent has reached yet, laid over the space the rows are
-     holding open. */
-  .ledger-empty {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    align-content: center;
-    padding-inline: 1.2rem;
-    margin: 0;
-    text-align: center;
-    text-wrap: balance;
-    color: var(--panel-faint);
-    pointer-events: none;
-    opacity: 0;
-  }
-
-  .ledger[data-phase="empty"] .ledger-empty { opacity: 1; }
-
-  /* A fixed final column rather than monospace padding: the status word
-     changes from applied to revert to skip as the run is undone, and a column
-     sized to its content would shove the tool name sideways each time. */
-  .ledger-row {
-    display: grid;
-    grid-template-columns: 1.5rem 1rem minmax(0, 1fr) 9ch;
-    align-items: baseline;
-    column-gap: 0.5rem;
-    padding-left: 0.45rem;
-    border-left: 1px solid transparent;
-  }
-
-  .ledger-seq, .ledger-glyph { color: var(--panel-faint); }
-  .ledger-tool { color: var(--panel-ink); font-weight: 500; }
-  .ledger-status { color: var(--panel-faint); text-align: right; }
-
-  .ledger-tool, .ledger-status, .ledger-line {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .ledger-line {
-    grid-column: 3 / -1;
-    min-width: 0;
-    color: var(--panel-faint);
-  }
-
-  /* Hidden but still holding its place, so nothing below it moves as the run
-     fills in. A row that collapsed would make the whole panel jump four
-     times on the way through. */
-  .ledger-row[data-state="pending"] { opacity: 0; visibility: hidden; }
-
-  .ledger-row[data-state="gated"],
-  .ledger-row[data-state="revert"] { border-left-color: var(--panel-hit); }
-
-  .ledger-row[data-state="gated"] .ledger-status,
-  .ledger-row[data-state="gated"] .ledger-glyph,
-  .ledger-row[data-state="gated"] .ledger-line,
-  .ledger-row[data-state="revert"] .ledger-status { color: var(--panel-hit); }
-
-  .ledger-row[data-state="skip"] { opacity: 0.5; }
-
-  /* Rewinding to an empty journal is bookkeeping, not something to watch:
-     the rows leave at once rather than fading out one by one, so the only
-     motion the eye is given is the run arriving. */
-  .ledger[data-snap="true"] .ledger-row,
-  .ledger[data-snap="true"] .ledger-added { transition: none; }
-
-  .ledger-disk {
-    border-top: 1px solid var(--panel-rule);
-    padding: 0.7rem 0.85rem;
-  }
-
-  .ledger-path {
-    margin: 0;
-    font-size: 0.64rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--panel-faint);
-  }
-
-  /* The label is set in capitals; the path it names is not, because a path
-     that has been shouted is a different path. */
-  .ledger-path span {
-    letter-spacing: 0;
-    text-transform: none;
-    margin-left: 0.5rem;
-  }
-
-  .ledger-body {
-    margin: 0.4rem 0 0;
-    white-space: pre;
-    overflow-x: auto;
-    color: var(--panel-ink);
-  }
-
-  /* Opacity rather than display, so the line the agent added leaves its space
-     behind when it goes and the panel keeps one height throughout. */
-  .ledger-added { color: var(--panel-hit); }
-  .ledger-added[data-on="false"] { opacity: 0; }
-
-  .ledger-foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.6rem 0.85rem;
-    border-top: 1px solid var(--panel-rule);
-  }
-
-  .ledger-verdict { margin: 0; min-width: 0; color: var(--panel-faint); }
-  .ledger-verdict b { color: var(--panel-hit); font-weight: 500; }
-
-  .ledger-act {
-    font: inherit;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    background: transparent;
-    color: var(--panel-ink);
-    border: 1px solid var(--panel-rule);
-    padding: 0.4rem 0.75rem;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-
-  .ledger-act:hover:enabled { background: var(--ground-lift); border-color: var(--ground-lift); color: var(--ink); }
-  .ledger-act:disabled { opacity: 0.4; cursor: default; }
-
-  /* The way on, under the one command. Everything the install used to say in
-     the hero now lives on its own page; this is the door to it. */
-  .hero-next { margin: 1rem 0 0; font-family: var(--mono); font-size: 0.8rem; }
-  .hero-next a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); padding-bottom: 0.15rem; }
-  .hero-next a:hover { border-bottom-color: var(--ink); }
-
-  /* The name, explained after you have seen what it does rather than before.
-     It was competing with the headline in the hero; here it closes the page. */
-  .naming { padding-block: clamp(2.6rem, 6vw, 4.4rem); }
-  .naming .greek { margin-bottom: 0.8rem; }
-  /* The cap goes here, not on the section: every section already carries a
-     padding-inline that centres the column, and a max-width on the box fights
-     it -- at 2000px the padding wants more room than the cap allows and the
-     text collapses to one word per line. */
-  .naming p { margin: 0; max-width: 40rem; color: var(--ink-soft); }
-
-  /* --- the run, recorded ---------------------------------------------- */
-  /* The page argues that an agent's writes can be taken back. This is the one
-     place it simply shows it happening, so it gets the width. */
-
-  .showreel-frame { margin: 0; }
-
-  .showreel-frame video {
-    display: block;
-    width: 100%;
-    height: auto;
-    background: var(--panel);
-    border: 1px solid var(--panel-rule);
-  }
-
-  /* --- terminal ------------------------------------------------------ */
-
-  .terminal {
-    background: var(--panel);
-    color: var(--panel-ink);
-    border: 1px solid var(--panel);
-    font-family: var(--mono);
-    font-size: 0.8rem;
-    line-height: 1.75;
-    overflow-x: auto;
-  }
-
-  .terminal-bar {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 0.5rem 1rem;
-    border-bottom: 1px solid var(--panel-rule);
-    color: var(--panel-faint);
-    font-size: 0.68rem;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-  }
-
-  .terminal pre { margin: 0; padding: 1rem; white-space: pre; }
-  .terminal .prompt { color: var(--panel-faint); }
-  .terminal .dim { color: var(--panel-faint); }
-  .terminal .hit { color: var(--panel-hit); font-weight: 500; }
-  .terminal .plate {
-    background: var(--ground);
-    color: var(--ink);
-    font-weight: 500;
-    padding: 0 0.35em;
-  }
-
-  .install { margin-top: 1.75rem; max-width: 40rem; }
-
-  /* The button that takes the one command. */
-  .command-line button {
-    font-family: var(--mono);
-    font-size: 0.68rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    background: none;
-    border: 1px solid var(--panel-rule);
-    color: var(--panel-faint);
-    padding: 0.35rem 0.7rem;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .command-line button:hover { color: var(--panel-ink); border-color: var(--panel-ink); }
-
-  /* The one command, and the button that takes it. The pre keeps its own
-     padding so the command sits exactly where it did before there was a button
-     beside it, and it scrolls inside itself rather than pushing the button off
-     a narrow screen. */
-  .command-line { display: flex; align-items: center; gap: 1rem; padding-right: 1rem; }
-  .command-line pre { flex: 1; min-width: 0; overflow-x: auto; }
-
-  .inline {
-    font-family: var(--mono);
-    font-size: 0.88em;
-    background: var(--ground-lift);
-    padding: 0.1em 0.4em;
-  }
-
-  /* --- generic section ----------------------------------------------- */
-
-  section { padding-block: clamp(2rem, 4vw, 3.1rem); }
-
-  .section-head {
-    display: flex;
-    align-items: baseline;
-    gap: 1.5rem;
-    margin-bottom: 1.6rem;
-    flex-wrap: wrap;
-  }
-
-  .section-head h2 { font-size: clamp(1.35rem, 2.9vw, 2.05rem); }
-
-  /* --- the four classes, as plates ----------------------------------- */
-
-  .plates {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-    gap: clamp(1.25rem, 2.5vw, 2rem);
-  }
-
-  .plate-card { display: flex; flex-direction: column; gap: 0.6rem; margin: 0; }
-
-  .plate-head {
-    display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
-    border-bottom: 1px solid var(--rule);
-    padding-bottom: 0.5rem;
-  }
-
-  .plate-mark {
-    font-family: var(--mono);
-    font-size: 1.1rem;
-    color: var(--ink-faint);
-    width: 1.1rem;
-  }
-
-  .plate-card[data-emphasis="true"] .plate-mark { color: var(--ink); }
-
-  .plate-head h3 {
-    margin: 0;
-    font-family: var(--display);
-    font-weight: 300;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    font-size: 1.3rem;
-    line-height: 1;
-  }
-
-  .plate-card canvas {
-    display: block;
-    width: 100%;
-    aspect-ratio: 1;
-    border: 1px solid var(--rule);
-  }
-
-  .plate-card figcaption {
-    font-family: var(--mono);
-    font-size: 0.78rem;
-    line-height: 1.7;
-    color: var(--ink-soft);
-  }
-
-  .plate-card figcaption b { color: var(--ink); font-weight: 500; }
-
-  /* --- ordered path --------------------------------------------------- */
-
-  /* The rules are row dividers, so they were running the full width of the
-     page while the text they divide stops at its measure -- 485px of hairline
-     per row, pointing at nothing, which read as a table missing a column.
-     Capped so the list ends where the lede above it does: the section head and
-     the list share one right margin instead of having two. */
-  .path { display: grid; gap: 0; counter-reset: step; max-width: 53rem; }
-
-  .step {
-    display: grid;
-    grid-template-columns: 4.5rem minmax(0, 1fr);
-    gap: 1.5rem;
-    padding: 0.95rem 0;
-    border-bottom: 1px solid var(--rule);
-  }
-
-  .step:first-child { border-top: 1px solid var(--rule); }
-
-  .step::before {
-    counter-increment: step;
-    content: counter(step, decimal-leading-zero);
-    font-family: var(--mono);
-    font-size: 0.78rem;
-    letter-spacing: 0.12em;
-    color: var(--ink-faint);
-    padding-top: 0.25rem;
-  }
-
-  .step h3 {
-    margin: 0 0 0.3rem;
-    font-family: var(--mono);
-    font-weight: 500;
-    font-size: 0.85rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-
-  .step p { margin: 0; color: var(--ink-soft); max-width: var(--measure); }
-
-  /* --- refusal spread -------------------------------------------------- */
-
-  .refusal {
-    display: grid;
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-    gap: clamp(2rem, 5vw, 3.5rem);
-    align-items: center;
-  }
-
-  .refusal h2 { font-size: clamp(1.35rem, 2.9vw, 2.05rem); }
-
-  /* --- commands -------------------------------------------------------- */
-
-  /* Rules on the cards, not the container. A container painted rule-colour
-     shows through wherever the last row is short -- nine cards in a grid of
-     four left one card beside a solid block of it. Bordering each card means
-     an empty cell is simply nothing. */
-  .commands {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-    border-top: 1px solid var(--rule);
-    border-left: 1px solid var(--rule);
-  }
-
   .command {
-    background: var(--ground);
-    padding: 1.1rem;
-    border-right: 1px solid var(--rule);
-    border-bottom: 1px solid var(--rule);
+    grid-template-columns:1fr;
+    gap:6px;
   }
-  .command:hover { background: var(--ground-lift); }
-
-  .command code {
-    font-family: var(--mono);
-    font-size: 0.82rem;
-    font-weight: 500;
-    display: block;
-    margin-bottom: 0.5rem;
+}
+@media(max-width:800px) {
+  .masthead nav {
+    gap:18px;
   }
-
-  .command span { color: var(--ink-soft); font-size: 0.9rem; }
-
-  /* --- limits ---------------------------------------------------------- */
-
-  .limits { display: grid; gap: 1.1rem; max-width: var(--measure); }
-  .limits p { margin: 0; color: var(--ink-soft); }
-  .limits strong { color: var(--ink); font-weight: 500; }
-
-  /* --- colophon --------------------------------------------------------- */
-
+  .hero {
+    grid-template-columns:1fr 1fr;
+    gap:28px;
+    padding-top:48px;
+  }
+  .hero h1 {
+    font-size:60px;
+  }
+  .hero .intro {
+    font-size:16px;
+  }
+  .install-command {
+    flex-wrap:wrap;
+    padding:10px;
+    gap:8px;
+  }
+  .install-command code {
+    font-size:14px;
+  }
+  .install-command button {
+    padding:8px 10px;
+  }
+  .example-body {
+    padding:20px;
+  }
+  .example-top,.example-bottom {
+    padding:14px 18px;
+  }
+  .example-top .label {
+    font-size:10px;
+  }
+  .example-bottom {
+    align-items:flex-start;
+    flex-direction:column;
+    gap:4px;
+  }
+  .file-title,.diff {
+    font-size:13px;
+  }
+  .diff {
+    padding:12px;
+  }
+  .example-note,.recovery {
+    font-size:13px;
+  }
+  .flow {
+    font-size:13px;
+    gap:12px;
+  }
+  .architecture .label {
+    font-size:9px;
+    width:105px;
+  }
+  .section {
+    padding-block:65px;
+  }
+  .section-head .lede {
+    font-size:16px;
+  }
+  .proof-layout {
+    grid-template-columns:1fr;
+  }
+  .proof-copy {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:0 35px;
+    align-items:start;
+  }
+  .proof-copy .eyebrow {
+    grid-column:1/-1;
+  }
+  .proof-copy p {
+    padding-top:5px;
+  }
+  .proof-copy .text-link {
+    grid-column:2;
+    margin-top:12px;
+  }
+  .classifications {
+    grid-template-columns:1fr 1fr;
+  }
+  .classification:nth-child(3) {
+    border-left:0;
+    border-top:1px solid var(--line);
+  }
+  .classification:nth-child(4) {
+    border-top:1px solid var(--line);
+  }
+  .refusal .proof-layout {
+    grid-template-columns:1fr;
+  }
+  .gallery-caption {
+    gap:14px;
+  }
+  .gallery-caption .label {
+    display:none;
+  }
+  .gallery-caption {
+    grid-template-columns:1fr auto;
+  }
+  .desktop-foot {
+    gap:30px;
+  }
+  .cli-grid {
+    grid-template-columns:1fr;
+  }
+  .cli-grid h2 {
+    max-width:18ch;
+  }
+  .closing-inner {
+    gap:30px;
+  }
+  .closing .install-command code {
+    font-size:13px;
+  }
+}
+@media(max-width:600px) {
+  .masthead {
+    height:72px;
+    gap:14px;
+  }
+  .brand {
+    font-size:12px;
+    letter-spacing:.15em;
+    gap:9px;
+  }
+  .brand svg {
+    width:24px;
+    height:24px;
+  }
+  .masthead nav {
+    gap:12px;
+  }
+  .masthead nav a {
+    font-size:13px;
+  }
+  .masthead .desktop-nav,.masthead .how-nav {
+    display:none;
+  }
+  .hero {
+    grid-template-columns:1fr;
+    padding-block:38px 40px;
+    gap:36px;
+  }
+  .hero .eyebrow {
+    font-size:10px;
+    margin-bottom:18px;
+    letter-spacing:.08em;
+  }
+  .hero h1 {
+    font-size:54px;
+    max-width:none;
+  }
+  .hero .intro {
+    font-size:16px;
+    margin:20px 0 24px;
+    max-width:34ch;
+  }
+  .install-command {
+    padding:6px 6px 6px 12px;
+    flex-wrap:nowrap;
+    gap:6px;
+  }
+  .install-command code {
+    font-size:13px;
+    letter-spacing:-.025em;
+  }
+  .install-command button {
+    font-size:13px;
+    min-width:57px;
+    padding:10px;
+  }
+  .install-note {
+    font-size:12px;
+    gap:16px;
+  }
+  .example {
+    box-shadow:7px 7px 0 #43101b;
+  }
+  .example-top .label {
+    font-size:10px;
+  }
+  .example-body {
+    padding:22px;
+  }
+  .file-title,.diff {
+    font-size:16px;
+  }
+  .example-note,.recovery,.example-plan,.text-button {
+    font-size:16px;
+  }
+  .example-bottom {
+    flex-direction:row;
+    align-items:center;
+  }
+  .example-bottom .label {
+    font-size:9px;
+  }
+  .architecture {
+    align-items:flex-start;
+    gap:16px;
+    padding-block:24px;
+    flex-direction:column;
+  }
+  .architecture .label {
+    width:auto;
+    font-size:10px;
+  }
+  .flow {
+    width:100%;
+    font-size:12px;
+    gap:10px;
+  }
+  .flow .proxy strong {
+    display:block;
+  }
+  .flow .arrow {
+    min-width:12px;
+  }
+  .flow .proxy span {
+    display:none;
+  }
+  .section {
+    padding-block:52px;
+  }
+  .section-head {
+    grid-template-columns:1fr;
+    gap:22px;
+    margin-bottom:28px;
+  }
+  .section-head h2 {
+    max-width:15ch;
+  }
+  .section-head .lede {
+    font-size:16px;
+  }
+  .eyebrow {
+    font-size:11px;
+    margin-bottom:18px;
+  }
+  .proof-copy {
+    display:block;
+  }
+  .proof-copy h2 {
+    margin-bottom:20px;
+    max-width:12ch;
+  }
+  .proof-copy .text-link {
+    margin-top:20px;
+  }
+  .proof-layout {
+    gap:28px;
+  }
+  .media figcaption {
+    font-size:12px;
+    flex-direction:column;
+    gap:6px;
+    padding:12px 14px;
+  }
+  .gallery-controls {
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    margin-bottom:16px;
+  }
+  .gallery-controls button {
+    font-size:13px;
+    padding:10px 8px;
+  }
+  .gallery-caption {
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    padding-top:18px;
+    min-height:0;
+  }
+  .gallery-caption p {
+    font-size:16px;
+  }
+  .gallery-caption a {
+    font-size:14px;
+  }
+  .desktop-foot {
+    grid-template-columns:1fr;
+    gap:28px;
+    margin-top:28px;
+  }
+  .desktop-foot .platforms {
+    font-size:16px;
+    line-height:1.7;
+  }
+  .classification {
+    padding:23px 16px;
+  }
+  .classification h3 {
+    font-size:18px;
+  }
+  .classification p {
+    font-size:16px;
+  }
+  .classification b {
+    font-size:16px;
+  }
+  .class-symbol {
+    height:44px;
+    font-size:33px;
+  }
+  .sequence {
+    grid-template-columns:1fr;
+    gap:30px;
+    padding-top:42px;
+  }
+  .sequence h3 {
+    font-size:38px;
+    max-width:18ch;
+  }
+  .sequence-intro p {
+    margin-top:16px;
+  }
+  .steps li {
+    padding-left:36px;
+  }
+  .terminal pre {
+    padding:20px 16px;
+    font-size:16px;
+  }
+  .terminal-bar {
+    padding:12px 16px;
+    font-size:10px;
+    flex-wrap:wrap;
+    gap:6px;
+  }
+  .terminal-summary {
+    padding-inline:16px;
+  }
+  .cli-grid {
+    gap:45px;
+  }
+  .command {
+    grid-template-columns:1fr;
+    gap:6px;
+  }
+  .closing {
+    padding-block:48px;
+  }
+  .closing-inner {
+    grid-template-columns:1fr;
+    gap:28px;
+  }
+  .closing h2 {
+    font-size:48px;
+  }
+  .closing .install-command {
+    margin:0;
+    max-width:none;
+  }
+  .closing .install-command code {
+    font-size:13px;
+  }
+  .closing .closing-links {
+    justify-content:flex-start;
+    font-size:14px;
+  }
   .colophon {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    flex-wrap: wrap;
-    padding-block: 1.4rem 2rem;
-    border-top: 1px solid var(--rule);
+    gap:16px;
+    font-size:12px;
+    padding-block:24px;
   }
-
-
-  /* --- the pantheon ----------------------------------------------------- */
-  /* Eight gods as outline medallions, each one pressed half into the edge of
-     the page. Cropping them is not a compromise: a roundel cut by the margin
-     can be three times the size of one sitting politely inside it, and half a
-     medal pressed into an edge is an old habit rather than a new idea.
-
-     They are not ornament for its own sake. Each is named for the part of this
-     system it stands for, so the margin says something the column would
-     otherwise have to repeat. */
-
-  main { position: relative; }
-
-  .pantheon {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    display: none;
+  .colophon nav {
+    gap:18px;
   }
-
-  .niche {
-    position: absolute;
-    top: var(--at);
-    width: var(--medal);
-    margin: 0;
+  .primary {
+    font-size:15px;
   }
-
-  /* The fraction of the medal that hangs off the page. */
-  .niche { --cut: 0.38; }
-  .niche.left { left: calc(var(--medal) * var(--cut) * -1); }
-  .niche.right { right: calc(var(--medal) * var(--cut) * -1); }
-
-  .niche canvas {
-    display: block;
-    width: var(--medal);
-    height: var(--medal);
-    opacity: 0.42;
-  }
-
-  /* Only once the margin can hold one without crowding the column, and sized
-     from the margin itself so the visible part always clears the text by the
-     same amount. */
-  @media (min-width: 1440px) {
-    .pantheon { display: block; }
-  }
-
-  @media (max-width: 860px) {
-    .hero { grid-template-columns: 1fr; }
-    .hero-figure { max-width: 15rem; margin-inline: auto; }
-    /* The verdict and its button stop sharing a line once there is not
-       enough width for both to keep their own. */
-    .ledger-foot { flex-wrap: wrap; }
-
-    /* Capitals set this wide cost more than they are worth once the bar has
-       only a phone's width to hold both halves. */
-    .ledger-bar { font-size: 0.6rem; letter-spacing: 0.07em; }
-    .refusal { grid-template-columns: 1fr; }
-    .class-row { grid-template-columns: 2rem 1fr; row-gap: 0.5rem; }
-    .class-what, .class-does { grid-column: 2; }
-  }
+}
 </style>
-
-<header class="masthead">
-  <span class="label">Undo layer</span>
-  <span class="wordmark">Synartesis</span>
-  <a class="label" href="https://github.com/ArhaanDev24/Synartesis">GitHub &rarr;</a>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="dark">
+<div class="wrap">
+<header class="masthead"><a class="brand" href="./" aria-label="Synartesis home"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M25 11a10 10 0 1 0 0 11" stroke="currentColor" stroke-width="3"/><path d="m20 18 8 2-5 7" fill="currentColor"/></svg>Synartesis</a>
+<nav aria-label="Main navigation"><a class="how-nav" href="#how-it-works">How it works</a><a class="desktop-nav" href="#desktop">Desktop</a><a href="https://github.com/ArhaanDev24/Synartesis">GitHub ↗</a><a class="nav-cta" href="install.html">Get started ↗</a>
+</nav>
 </header>
-
-<main>
-<div class="pantheon" role="presentation">
-  <figure class="niche left" style="--at: 4%">
-    <canvas data-god="hermes" aria-hidden="true"></canvas>
-  </figure>
-  <figure class="niche right" style="--at: 16%">
-    <canvas data-god="athena" data-flip="true" aria-hidden="true"></canvas>
-  </figure>
-  <figure class="niche left" style="--at: 28%">
-    <canvas data-god="hephaistos" aria-hidden="true"></canvas>
-  </figure>
-  <figure class="niche right" style="--at: 40%">
-    <canvas data-god="apollo" data-flip="true" aria-hidden="true"></canvas>
-  </figure>
-  <figure class="niche left" style="--at: 52%">
-    <canvas data-god="zeus" aria-hidden="true"></canvas>
-  </figure>
-  <figure class="niche right" style="--at: 64%">
-    <canvas data-god="poseidon" data-flip="true" aria-hidden="true"></canvas>
-  </figure>
-  <figure class="niche left" style="--at: 76%">
-    <canvas data-god="atlas" aria-hidden="true"></canvas>
-  </figure>
-  <figure class="niche right" style="--at: 86%">
-    <canvas data-god="hades" data-flip="true" aria-hidden="true"></canvas>
-  </figure>
 </div>
-  <section class="hero">
-    <div>
-      <p class="label">Model Context Protocol proxy &middot; SQLite journal</p>
-      <h1 class="display">Every action<br>bound to the<br>one that<br>undoes it</h1>
-      <p class="thesis">Autonomy without reversibility<br>isn&rsquo;t trustworthy.</p>
-      <div class="install">
-        <div class="terminal">
-          <div class="terminal-bar"><span>one command</span><span>node 22 or newer</span></div>
-          <div class="command-line">
-<pre><span class="prompt">$</span> <span class="hit" id="install-command">npm install -g synartesis</span></pre>
-            <button type="button" id="install-copy">Copy</button>
-          </div>
-        </div>
-        <p class="hero-next">
-          <a href="install.html">Point a client at it &rarr;</a>
-        </p>
-      </div>
-    </div>
+</div>
+<main id="main">
+<div class="dark">
+<div class="wrap">
+<div>
+<section class="hero" aria-labelledby="hero-title">
+<div><span class="eyebrow">An undo layer for AI agents</span>
+<h1 id="hero-title">Let agents act.<br><em>Keep a<br>way back.</em>
+</h1>
+<p class="intro">Synartesis records what your agent changes, keeps the state it replaced, and asks you first when there’s no way back.</p>
+<div class="install-command"><code id="install-command">npm install -g synartesis</code><button type="button" data-copy="install-command" aria-label="Copy npm install command">Copy</button>
+</div>
+<div class="install-note"><span>Node.js 22+</span><a href="install.html">Install &amp; connect your agent ↗</a>
+</div>
+</div>
+<div class="example" aria-label="Interactive undo example">
+<div class="example-top"><span class="label">A change, with its way back</span><span aria-hidden="true">↶</span>
+</div>
+<div class="example-body">
+<div class="file-title"><span class="file-icon" aria-hidden="true">≡</span> report.txt</div>
+<div class="diff" id="example-diff">
+<div class="removed">− North&nbsp; 412,800</div>
+<div class="added">+ North&nbsp; 0</div>
+<div>&nbsp; South&nbsp; 288,400</div>
+</div>
+<p class="recovery" id="example-status" role="status"><span class="dot" aria-hidden="true"></span> Prior state captured</p>
+<p class="example-note" id="example-note">This change can be put back.</p>
+<div class="example-plan" id="example-plan" hidden>
+<p>Restore North to 412,800. South stays as it is.</p>
+<p>In a real run, the plan checks for later changes before it writes.</p>
+<div class="actions"><button class="text-button" id="example-confirm" type="button">Apply example undo ↶</button><button class="text-button" id="example-cancel" type="button">Cancel</button>
+</div>
+</div>
+</div>
+<div class="example-bottom"><span class="label">Interactive example<br>Nothing runs on your disk</span><button class="text-button" id="example-undo" type="button" aria-expanded="false" aria-controls="example-plan">Preview the undo ↶</button>
+</div>
+</div>
+</section>
+<div class="architecture" aria-label="Your agent sends MCP calls through Synartesis to your tools. Synartesis keeps a local SQLite journal."><span class="label">Between intent<br>and consequence</span>
+<div class="flow" aria-hidden="true"><span>Your agent</span><span class="arrow"></span><span class="proxy"><strong>Synartesis</strong><span>+ local journal</span></span><span class="arrow"></span><span>Your tools &amp; systems</span>
+</div>
+</div>
+</div>
+</div>
+</div>
 
-    <div class="hero-side">
-      <figure class="hero-figure" aria-label="An engraved loop returning on itself">
-        <canvas id="engraving" width="720" height="720" role="img"
-                aria-label="A ring of fine engraved lines closing back on itself"></canvas>
-      </figure>
+<section class="section wrap" id="proof">
+<div class="proof-layout">
+<div class="proof-copy"><span class="eyebrow">01 / The proof</span>
+<h2>Twenty steps.<br>Taken back.</h2>
+<p>A real run against a toy CRM. Wrong records edited. A record deleted. The reversible calls put back. The invoice email held for approval, because nobody can un-send it.</p><a class="text-link" href="undo-run.mp4">Watch the original recording ↗</a>
+</div>
+<figure class="media"><video controls playsinline preload="none" data-poster="undo-run.jpg" width="1920" height="1080" aria-label="Recorded CRM demonstration of undo and an invoice email held for approval"><source src="undo-run.mp4" type="video/mp4"></video><img class="motion-poster" src="undo-run.jpg" alt="Terminal recording: reversible CRM calls are taken back, and an invoice email is held for approval." loading="lazy" width="1920" height="1080">
+<figcaption><span>Real tools. A real journal. A toy CRM.</span><a href="undo-run.mp4">Open recording ↗</a>
+</figcaption>
+</figure>
+</div>
+</section>
+<section class="section desktop-section" id="desktop">
+<div class="wrap">
+<div class="section-head">
+<div><span class="eyebrow">02 / The desktop window</span>
+<h2>A conversation.<br>A visible way back.</h2>
+</div>
+<div class="lede">
+<p>Talk to a model. See every tool call, what it changed, and whether it can be put back. The window and the CLI share the same journal and undo engine.</p><a class="primary" href="https://github.com/ArhaanDev24/Synartesis/releases/latest">Download desktop <span aria-hidden="true">↗</span></a>
+</div>
+</div>
+<div class="gallery-controls" role="group" aria-label="Desktop screenshots"><button type="button" data-screen="capture" aria-pressed="true" aria-controls="desktop-image">01 · The change</button><button type="button" data-screen="approval" aria-pressed="false" aria-controls="desktop-image">02 · The approval</button><button type="button" data-screen="undo" aria-pressed="false" aria-controls="desktop-image">03 · The undo</button><button type="button" data-screen="dark" aria-pressed="false" aria-controls="desktop-image">04 · After dark</button>
+</div>
+<figure>
+<div class="gallery-image"><img id="desktop-image" src="assets/synartesis-desktop-v1.png" loading="lazy" decoding="async" width="1600" height="1112" alt="Synartesis desktop: a report.txt write is marked reversible, prior state captured, and can be put back. The header ledger counts one change with one way back.">
+</div>
+<figcaption class="gallery-caption"><span class="label" id="screen-label">01 / Captured</span>
+<p id="screen-caption">The tool card shows “Prior state captured”. The ledger counts one change, with one that can be put back.</p><a id="screen-full" href="assets/synartesis-desktop-v1.png" target="_blank" rel="noopener">Open full-size ↗</a>
+</figcaption>
+</figure>
+<p class="sr-only" id="gallery-announcement" role="status">
+</p>
+<div class="desktop-foot">
+<div>
+<h3>Your model. Including a local one.</h3>
+<p>Claude, Gemini, Mistral, OpenAI, or a compatible <code>/v1/chat/completions</code> endpoint. Run models locally with Ollama or LM Studio, without paid API calls or sending prompts to a model provider.</p>
+</div>
+<div>
+<p class="platforms">macOS · Apple silicon &amp; Intel<br>Windows · Linux</p>
+<p>After installing the desktop app, open it with <code>synartesis desktop</code> on any platform.</p>
+<p class="unsigned" style="margin-top:18px"><strong>The builds are unsigned.</strong> macOS Gatekeeper and Windows SmartScreen will block or warn on first launch. <a href="install.html#desktop-install">Read before installing ↗</a>
+</p>
+</div>
+</div>
+</div>
+</section>
+<section class="section mechanism" id="how-it-works">
+<div class="wrap">
+<div class="section-head">
+<div><span class="eyebrow">03 / The contract</span>
+<h2>Know what can<br>come back.</h2>
+</div>
+<p class="lede">You define what each tool does and how to take it back. Synartesis enforces that policy. An unknown tool is treated as irreversible, so it waits for a person.</p>
+</div>
+<div class="classifications">
+<article class="classification"><span class="class-symbol" aria-hidden="true">◦</span>
+<h3>Readonly</h3>
+<p>A lookup, a search, a list. Nothing changes.</p><b>Recorded and forwarded.</b>
+</article>
+<article class="classification"><span class="class-symbol" aria-hidden="true">↶</span>
+<h3>Reversible</h3>
+<p>The state before the write is captured and kept.</p><b>Prior state restored on undo.</b>
+</article>
+<article class="classification"><span class="class-symbol" aria-hidden="true">≈</span>
+<h3>Compensable</h3>
+<p>A second action offsets the first. It is not an exact rewind.</p><b>Offset on undo.</b>
+</article>
+<article class="classification"><span class="class-symbol" aria-hidden="true">⊣</span>
+<h3>Irreversible</h3>
+<p>An email sent. A message seen. No honest inverse.</p><b>Held for human approval.</b>
+</article>
+</div>
+<div class="sequence">
+<div class="sequence-intro">
+<h3>The order is<br>the guarantee.</h3>
+<p>The old state has to be read before the new state is written. A recovery plan worked out afterwards may already be too late.</p>
+</div>
+<ol class="steps">
+<li>
+<h4>Classify. Ask if it cannot be undone.</h4>
+<p>Match the tool against your policy. Calls that need approval stop before they reach the system.</p>
+</li>
+<li>
+<h4>Capture before changing anything.</h4>
+<p>Read what is about to be overwritten. If capture fails, the write does not silently go through.</p>
+</li>
+<li>
+<h4>Journal, then forward.</h4>
+<p>Record the call before sending it. Store its reversing call while the old value is still available.</p>
+</li>
+<li>
+<h4>Check again before putting it back.</h4>
+<p>Undo walks newest first and checks for later changes. It stops at a conflict, with the steps already restored left in place.</p>
+</li>
+</ol>
+</div>
+</div>
+</section>
+<section class="section refusal" id="refusal">
+<div class="wrap proof-layout">
+<div><span class="eyebrow">The refusal is part of the promise</span>
+<h2>Someone changed it<br>since? Stop.</h2>
+<p>Undo re-reads the resource and compares it with the state your run left behind. If somebody has been there since, Synartesis shows the difference and stops on that step.</p>
+<p style="margin-top:18px">Resolve the conflict, then <code>undo --replan</code> can continue. Work already put back stays put back.</p>
+</div>
+<div class="terminal">
+<div class="terminal-bar"><span>synartesis undo · excerpt</span><span>drift detected · exit 1</span>
+</div><pre tabindex="0" aria-label="Undo output showing a conflict"><span class="dim">$</span> synartesis undo
 
-      <!-- The markup below is the run as it stands when it has finished: four
-           calls recorded, one of them held. That is what a reader sees with no
-           javascript, with motion turned off, or if the script never runs at
-           all -- a true state rather than an empty box. The script starts from
-           here, rewinds to nothing and plays it. -->
-      <div class="ledger" id="ledger">
-        <div class="ledger-bar">
-          <span class="ledger-title">Synartesis</span>
-          <span class="ledger-mode" id="ledger-mode">one run, as it happened</span>
-        </div>
+<span class="hit">halt</span>  crm.update_customer
+<span class="dim">the resource has changed since this run.</span>
 
-        <div class="ledger-stage">
-          <p class="ledger-empty" aria-hidden="true">
-            One appears the first time an agent calls a tool through the proxy.
-          </p>
-          <ol class="ledger-rows">
-            <li class="ledger-row" data-state="applied">
-              <span class="ledger-seq">1</span>
-              <span class="ledger-glyph" aria-hidden="true">&middot;</span>
-              <span class="ledger-tool">fs.read_text_file</span>
-              <span class="ledger-status">applied</span>
-              <span class="ledger-line">{"path":"~/notes/roadmap.md"}</span>
-            </li>
-            <li class="ledger-row" data-state="applied">
-              <span class="ledger-seq">2</span>
-              <span class="ledger-glyph" aria-hidden="true">&larr;</span>
-              <span class="ledger-tool">fs.write_file</span>
-              <span class="ledger-status">applied</span>
-              <span class="ledger-line">undo: write_file &#123;"content":"# Roadmap\n\n- ship 0.3\n"&#125;</span>
-            </li>
-            <li class="ledger-row" data-state="applied">
-              <span class="ledger-seq">3</span>
-              <span class="ledger-glyph" aria-hidden="true">&larr;</span>
-              <span class="ledger-tool">fs.write_file</span>
-              <span class="ledger-status">applied</span>
-              <span class="ledger-line">undo: write_file &#123;"content":"draft\n"&#125;</span>
-            </li>
-            <li class="ledger-row" data-state="gated">
-              <span class="ledger-seq">4</span>
-              <span class="ledger-glyph" aria-hidden="true">!</span>
-              <span class="ledger-tool">fs.create_directory</span>
-              <span class="ledger-status">gated</span>
-              <span class="ledger-line">note: this action cannot be undone</span>
-            </li>
-          </ol>
-        </div>
+<span class="dim">− churn risk</span>
+<span class="hit">+ spoke to her Tuesday</span>
 
-        <div class="ledger-disk">
-          <p class="ledger-path">on disk <span>~/notes/roadmap.md</span></p>
-<pre class="ledger-body"># Roadmap
-
-- ship 0.3<span class="ledger-added" id="ledger-added" data-on="true">
-- rewrite the parser</span></pre>
-        </div>
-
-        <div class="ledger-foot">
-          <p class="ledger-verdict">
-            <b id="ledger-key">1 call</b>
-            <span id="ledger-rest">is waiting on a person</span>
-          </p>
-          <button type="button" class="ledger-act" id="ledger-act" data-role="undo">Undo this run</button>
-        </div>
-      </div>
-    </div>
-  </section>
-
-
-  <section class="showreel">
-    <div class="section-head">
-      <h2 class="display">Twenty steps,<br>taken back</h2>
-      <p class="lede">
-        One real run against a toy CRM. The agent edits the wrong records and deletes one,
-        <code class="inline">synartesis undo</code> puts every reversible call back, and the
-        invoice email is held rather than sent, because that is the one thing nobody can
-        take back.
-      </p>
-    </div>
-    <figure class="showreel-frame">
-      <video
-        src="undo-run.mp4"
-        poster="undo-run.jpg"
-        muted
-        loop
-        playsinline
-        preload="metadata"
-        aria-label="A recorded session: an agent makes twenty calls through Synartesis, undo reverses the reversible ones against the CRM on disk, and a send_invoice_email call is held for approval because it cannot be undone."
-      ></video>
-    </figure>
-  </section>
-
-  <div class="fret" role="presentation"></div>
-
-  <section>
-    <div class="section-head">
-      <h2 class="display">Four ways<br>a call can go</h2>
-      <p class="lede">
-        You write down, once, what each tool does and how to take it back. Anything you
-        have not written down is treated as irreversible &mdash; a silent passthrough on an
-        unknown destructive call is the one outcome worth avoiding most.
-      </p>
-    </div>
-
-    <div class="plates">
-      <figure class="plate-card">
-        <div class="plate-head"><span class="plate-mark">&middot;</span><h3>Readonly</h3></div>
-        <canvas data-plate="readonly" width="440" height="440" role="img"
-                aria-label="A hatched record passing under a lens, unaltered"></canvas>
-        <figcaption>Changes nothing. A lookup, a search, a list.<br><b>Recorded, forwarded.</b></figcaption>
-      </figure>
-
-      <figure class="plate-card">
-        <div class="plate-head"><span class="plate-mark">&#8592;</span><h3>Reversible</h3></div>
-        <canvas data-plate="reversible" width="440" height="440" role="img"
-                aria-label="Two states joined by an arc returning to the earlier one"></canvas>
-        <figcaption>The prior state was read before the write went out.<br><b>Written back on undo.</b></figcaption>
-      </figure>
-
-      <figure class="plate-card">
-        <div class="plate-head"><span class="plate-mark">&#8776;</span><h3>Compensable</h3></div>
-        <canvas data-plate="compensable" width="440" height="440" role="img"
-                aria-label="Two opposed hatchings crossing where they cancel"></canvas>
-        <figcaption>Cannot be reversed, but a second call neutralises it.<br><b>Offset on undo.</b></figcaption>
-      </figure>
-
-      <figure class="plate-card" data-emphasis="true">
-        <div class="plate-head"><span class="plate-mark">!</span><h3>Irreversible</h3></div>
-        <canvas data-plate="irreversible" width="440" height="440" role="img"
-                aria-label="A hatched record stopping at a bar and dispersing beyond it"></canvas>
-        <figcaption>An email that has been read. A message somebody kept.<br><b>Held until a person says yes.</b></figcaption>
-      </figure>
-    </div>
-
-  </section>
-
-
-  <section>
-    <div class="section-head">
-      <h2 class="display">What happens<br>on every call</h2>
-      <p class="lede">
-        In this order, because the order is the guarantee. A pre-read that runs after the
-        write would capture nothing worth having.
-      </p>
-    </div>
-
-    <div class="path">
-      <div class="step">
-        <div>
-          <h3>Classify</h3>
-          <p>The tool name is matched against your policy. No match means irreversible.</p>
-        </div>
-      </div>
-      <div class="step">
-        <div>
-          <h3>Ask, if it cannot be undone</h3>
-          <p>
-            The call is refused at once with the command that approves it, rather than left
-            hanging. Every window a person needs is longer than a client will wait.
-          </p>
-        </div>
-      </div>
-      <div class="step">
-        <div>
-          <h3>Read what is about to be overwritten</h3>
-          <p>
-            If that read fails, the write does not happen. A reversible action without a
-            snapshot is only silently irreversible.
-          </p>
-        </div>
-      </div>
-      <div class="step">
-        <div>
-          <h3>Journal, then forward</h3>
-          <p>
-            The row lands before the call goes out. A row still marked pending means the
-            process died mid-call and the outcome is genuinely unknown.
-          </p>
-        </div>
-      </div>
-      <div class="step">
-        <div>
-          <h3>Resolve the undo now, not later</h3>
-          <p>
-            The reversing call is worked out and stored while the old value is still
-            readable. At undo time it may not be readable anywhere.
-          </p>
-        </div>
-      </div>
-    </div>
-  </section>
-
-
-  <section class="refusal">
-    <div>
-      <p class="label">The part that matters</p>
-      <h2 class="display">It refuses</h2>
-      <p class="lede" style="margin-top:1.5rem">
-        Anything can write an old value back. Declining to is the hard part. Before undoing
-        a step, Synartesis re-reads the record and compares it against the state that step
-        left behind. If somebody has been there since, it stops on that step and shows the
-        lines that differ. It is not all-or-nothing: undo walks newest first, so whatever it had
-        already put back stays put back. Resolve the conflict and
-        <code class="inline">undo --replan</code> carries on from there.
-      </p>
-    </div>
-
-    <div class="terminal">
-      <div class="terminal-bar"><span>synartesis undo</span><span>exit 1</span></div>
-<pre><span class="prompt">$</span> synartesis undo
-
-  <span class="dim">U N D O</span>  7b3db59c
-
-    1  <span class="hit">halt</span>       crm.update_customer  <span class="dim">drift detected</span>
-
-  <span class="hit">halted</span> <span class="dim">at sequence 1</span>  drift detected
-  <span class="dim">the resource is not in the state this run left it in.</span>
-  <span class="dim">  at line 1:</span>
-  <span class="dim">  - churn risk</span>
-  <span class="hit">  + spoke to her Tuesday</span>
-  <span class="dim">  1 removed, 1 added.</span>
-
-  <span class="dim">R E S U L T</span>  <span class="hit">partial</span></pre>
-    </div>
-  </section>
-
-  <div class="fret" role="presentation"></div>
-
-  <section>
-    <div class="section-head">
-      <h2 class="display">The whole<br>interface</h2>
-      <p class="lede">
-        One screen, and the commands underneath it for anything that is really a script.
-        Synartesis keeps one policy and one journal in <code class="inline">~/.synartesis</code>,
-        so none of this needs a flag, a path, or a directory to be standing in.
-      </p>
-    </div>
-
-    <div class="terminal reveal">
-      <div class="terminal-bar"><span>synartesis</span><span>no arguments, from anywhere</span></div>
-<pre><span class="prompt">$</span> <span class="hit">synartesis</span>
-
-  <span class="plate"> S Y N A R T E S I S </span> <span class="dim">~/.synartesis/journal.db</span>
-
-  <span class="dim">everything an agent has done through this journal</span>
-
-  <span class="hit">&#10095;</span> <span class="hit">claude-code</span>          <span class="dim">2026-08-22 05:00:31  complete    3 actions</span>  <span class="hit">1 awaiting approval</span>
-    <span class="dim">claude-code           2026-08-22 04:41:09  rolled_back 2 actions</span>
-
-  <span class="hit">[enter]</span> <span class="dim">open</span>   <span class="hit">[l]</span> <span class="dim">check now</span>   <span class="hit">[u]</span> <span class="dim">undo</span>   <span class="hit">[j/k]</span> <span class="dim">move</span>   <span class="hit">[g]</span> <span class="dim">held</span>   <span class="hit">[q]</span> <span class="dim">quit</span></pre>
-    </div>
-
-    <p class="lede reveal">
-      Everything acts on whatever the cursor is on, so no id is ever carried from one
-      command to the next by hand. <b>g</b> shows what is held, where <b>a</b> and <b>d</b>
-      answer it. <b>l</b> reads every resource a session touched as it is now, without
-      sending anything. <b>u</b> asks once more before it goes, because undo is the one
-      direction that cannot itself be undone.
-    </p>
-
-    <div class="commands">
-      <div class="command">
-        <code>synartesis install</code>
-        <span>Find what Claude Code, Claude Desktop, Cursor and Codex already list, write one policy covering it, and put this behind every entry. Your config is copied aside first.</span>
-      </div>
-      <div class="command">
-        <code>synartesis status</code>
-        <span>Which AI on this machine is covered, which is not, and when anything last came through.</span>
-      </div>
-      <div class="command">
-        <code>synartesis init</code>
-        <span>Ask a server what it can do, and draft a policy with everything guarded.</span>
-      </div>
-      <div class="command">
-        <code>synartesis check</code>
-        <span>Confirm the policy calls tools that exist, before wiring it into a client.</span>
-      </div>
-      <div class="command">
-        <code>synartesis list</code>
-        <span>Every run an agent has made, most recent first.</span>
-      </div>
-      <div class="command">
-        <code>synartesis show</code>
-        <span>One run, step by step, each with the exact call that would reverse it.</span>
-      </div>
-      <div class="command">
-        <code>synartesis gates</code>
-        <span>What is waiting on a person right now.</span>
-      </div>
-      <div class="command">
-        <code>synartesis watch</code>
-        <span>The live view on its own, for a second terminal you leave open.</span>
-      </div>
-      <div class="command">
-        <code>synartesis approve --all</code>
-        <span>Let it through. The agent makes the same call again and it goes.</span>
-      </div>
-      <div class="command">
-        <code>synartesis show --live</code>
-        <span>Read every resource a session touched as it is now, and say which still match. Writes nothing, sends nothing, and does not stop at the first conflict.</span>
-      </div>
-      <div class="command">
-        <code>synartesis undo</code>
-        <span>Walk a run backwards, newest first, stopping at anything it cannot honestly reverse.</span>
-      </div>
-      <div class="command">
-        <code>synartesis undo --force</code>
-        <span>Somebody changed the resource since. This prints every line it would write over and stops; <code class="inline">--yes</code> goes ahead.</span>
-      </div>
-      <div class="command">
-        <code>synartesis deny</code>
-        <span>Refuse it, with a reason that stays on the record.</span>
-      </div>
-      <div class="command">
-        <code>synartesis proxy</code>
-        <span>What your agent runs. Not something you type, except to see why it will not start.</span>
-      </div>
-      <div class="command">
-        <code>synartesis close</code>
-        <span>End a run left open by a proxy that was killed. Nothing guesses at this: several proxies can share one journal.</span>
-      </div>
-      <div class="command">
-        <code>synartesis prune</code>
-        <span>Keeping what was in a file is what puts it back, so the journal grows. This deletes runs finished more than 30 days ago and reclaims the space.</span>
-      </div>
-    </div>
-  </section>
-
-
-  <section>
-    <div class="section-head">
-      <h2 class="display">What it<br>will not do</h2>
-    </div>
-    <div class="limits">
-      <p>
-        <strong>It cannot un-send what has been seen.</strong> An email that was read, a
-        message somebody screenshotted, a file deleted where nothing keeps backups. That is
-        why the gate exists rather than a promise it could not keep.
-      </p>
-      <p>
-        <strong>It only sees what goes through MCP.</strong> An agent making its own HTTP
-        calls, running a shell command, or driving a browser outside the protocol is
-        invisible to it. Synartesis intercepts a protocol, not an intention.
-      </p>
-      <p>
-        <strong>It stops rather than guessing.</strong> Undo halts at the first step it
-        cannot reverse honestly, leaving a clean partial state and telling you exactly where
-        it stopped.
-      </p>
-      <p>
-        <strong>It cannot snapshot something very large.</strong> Past a few megabytes a
-        resource cannot be read back through a stdio connection &mdash; the reply is too large
-        to carry. Synartesis says so, and refuses the write rather than applying a change it
-        could not capture. Nothing is lost; the call does not go through.
-      </p>
-      <p>
-        <strong>It can only undo what the system underneath allows.</strong> GitHub has no
-        delete for issues, so creating one is guarded, not reversible. That is the shape of
-        the world, and the job is to be honest about it.
-      </p>
-    </div>
-  </section>
-  <div class="fret" role="presentation"></div>
-
-  <section class="naming">
-    <span class="greek">&Sigma;&Upsilon;&Nu;&Alpha;&Rho;&Tau;&Eta;&Sigma;&Iota;&Sigma;</span>
-    <p>
-      <em>sunartesis</em> &mdash; a fastening together. An agent writes to your systems
-      through Synartesis, and Synartesis keeps hold of the other end.
-    </p>
-  </section>
+<span class="dim">1 removed, 1 added.</span></pre><div class="terminal-summary">RESULT · partial — stopped at the conflict</div>
+</div>
+</div>
+</section>
+<section class="section wrap">
+<div class="cli-grid">
+<div><span class="eyebrow">04 / Under the window</span>
+<h2>The terminal<br>is still home.</h2>
+<p class="muted" style="margin-top:24px">Run <code>synartesis</code> for the interactive journal. Or use the commands directly, from wherever you work.</p>
+<div class="commands">
+<div class="command"><code>synartesis install</code>
+<p>Connect the clients already on your machine. Their configs are backed up first.</p>
+</div>
+<div class="command"><code>synartesis status</code>
+<p>See which clients are covered, and when calls last came through.</p>
+</div>
+<div class="command"><code>synartesis show --live</code>
+<p>Check touched resources against their recorded state, without writing.</p>
+</div>
+<div class="command"><code>synartesis undo</code>
+<p>Walk the run backwards, stopping where it cannot safely continue.</p>
+</div>
+</div>
+<p style="margin-top:20px"><a href="install.html">The complete setup guide ↗</a>
+</p>
+</div>
+<div><span class="eyebrow">Honest limits</span>
+<h2 style="margin-bottom:28px">Where protection<br>ends.</h2>
+<div class="limits">
+<details open>
+<summary>Only calls through the proxy</summary>
+<p>Direct HTTP calls, shell commands, and browser actions outside MCP are invisible to Synartesis. If your agent bypasses the proxy, those changes are not recorded.</p>
+</details>
+<details>
+<summary>Some actions cannot be undone</summary>
+<p>It cannot un-send an email or undo more than the system underneath allows. Those calls need human approval. A compensating action offsets a change; it does not erase history.</p>
+</details>
+<details>
+<summary>Captures have limits</summary>
+<p>A resource too large to capture, or one that cannot be read, cannot silently be treated as recoverable. The write is refused or held for approval with the reason shown.</p>
+</details>
+<details>
+<summary>Undo is not all-or-nothing</summary>
+<p>It walks newest first. If it stops at a conflict, changes already restored stay restored. A call still marked pending has an unknown outcome; the journal does not pretend otherwise.</p>
+</details>
+<details>
+<summary>The journal needs looking after</summary>
+<p>The prior state is what makes undo possible, so the local SQLite journal grows. Pruning old runs removes their recovery data too. Keep it for as long as you need a way back.</p>
+</details>
+</div>
+</div>
+</div>
+</section>
+<div class="fret" aria-hidden="true">
+</div>
+<section class="dark closing">
+<div class="wrap closing-inner">
+<div><span class="eyebrow">ΣΥΝΑΡΤΗΣΙΣ · A fastening together</span>
+<h2>Keep hold of<br>the other end.</h2>
+<p>An agent acts. Synartesis keeps the record.</p>
+</div>
+<div>
+<div class="install-command"><code id="footer-command">npm install -g synartesis</code><button type="button" data-copy="footer-command" aria-label="Copy npm install command">Copy</button>
+</div>
+<div class="closing-links"><a href="install.html">Set up the proxy ↗</a><a href="https://github.com/ArhaanDev24/Synartesis/releases/latest">Get the desktop app ↗</a>
+</div>
+</div>
+</div>
+</section>
 </main>
-
-<footer class="colophon">
-  <span class="label">&copy; 2026 Synartesis &middot; <a href="https://www.linkedin.com/in/arhaankhan143" rel="me">Arhaan Khan</a> &middot; MIT licence &middot; open source &middot; <a href="https://www.npmjs.com/package/synartesis">npm</a> &middot; <a href="https://www.instagram.com/synartesis_in/" rel="me">Instagram</a></span>
-  <span class="label">Built on the Model Context Protocol</span>
+<footer class="wrap colophon"><span>© 2026 Synartesis · MIT licence · Open source</span>
+<nav aria-label="Footer"><a href="https://github.com/ArhaanDev24/Synartesis">GitHub</a><a href="https://www.npmjs.com/package/synartesis">npm</a><a href="https://www.linkedin.com/in/arhaankhan143" rel="me">Arhaan Khan</a><a href="https://www.instagram.com/synartesis_in/" rel="me">Instagram</a>
+</nav>
 </footer>
-
+<p class="sr-only" id="copy-status" role="status">
+</p>
 <script>
-  // An engraved return-loop: fine radial strokes whose length and weight are
-  // modulated around the circle, leaving the gap an undo arrow needs. Drawn
-  // rather than illustrated, because the shape is the product.
-  (function () {
-    const canvas = document.getElementById("engraving");
-    if (!(canvas instanceof HTMLCanvasElement)) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
 
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    // Read rather than hardcoded, so the drawing follows the palette.
-    function ink(alpha) {
-      const value = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim();
-      return "color-mix(in srgb, " + value + " " + Math.round(alpha * 100) + "%, transparent)";
+// Clipboard failures leave selectable text and an honest, announced fallback.
+for (const button of document.querySelectorAll('[data-copy]')) {
+  let reset;
+  button.addEventListener('click', async () => {
+    const code = document.getElementById(button.dataset.copy);
+    const status = document.getElementById('copy-status');
+    try {
+      await navigator.clipboard.writeText(code.textContent);
+      button.textContent = 'Copied';
+      status.textContent = 'Install command copied.';
+    } catch {
+      const range = document.createRange(); range.selectNodeContents(code);
+      const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      button.textContent = 'Selected';
+      status.textContent = 'Clipboard unavailable. Command selected; press Control C or Command C to copy.';
     }
-    const SIZE = 720;
-    const CENTRE = SIZE / 2;
-    const GAP_FROM = -0.42;
-    const GAP_TO = 0.42;
-    const STROKES = 460;
-
-    // One repeat of a Greek key, drawn along +x from the origin. Straight
-    // segments only, so it stays crisp at any size.
-    function fretRun(length, unit) {
-      const repeats = Math.floor(length / unit);
-      const inset = (length - repeats * unit) / 2;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(length, 0);
-      for (let i = 0; i < repeats; i++) {
-        const x = inset + i * unit;
-        const u = unit;
-        ctx.moveTo(x + u * 0.16, 0);
-        ctx.lineTo(x + u * 0.16, -u * 0.78);
-        ctx.lineTo(x + u * 0.84, -u * 0.78);
-        ctx.lineTo(x + u * 0.84, -u * 0.26);
-        ctx.lineTo(x + u * 0.42, -u * 0.26);
-        ctx.lineTo(x + u * 0.42, -u * 0.52);
-        ctx.lineTo(x + u * 0.63, -u * 0.52);
-      }
-      ctx.stroke();
-    }
-
-    // The border: the same run turned through each quarter, so the fret
-    // continues the whole way round. Named for what it draws, not `frame`,
-    // which is already the animation callback below.
-    function fretBorder(side, unit) {
-      const half = side / 2;
-      ctx.save();
-      ctx.strokeStyle = ink(0.48);
-      ctx.lineWidth = 2;
-      ctx.lineJoin = "miter";
-      for (let quarter = 0; quarter < 4; quarter++) {
-        ctx.save();
-        ctx.translate(CENTRE, CENTRE);
-        ctx.rotate((quarter * Math.PI) / 2);
-        ctx.translate(-half, -half);
-        fretRun(side, unit);
-        ctx.restore();
-      }
-      ctx.restore();
-    }
-
-    function draw(reveal) {
-      ctx.clearRect(0, 0, SIZE, SIZE);
-      ctx.lineCap = "round";
-      fretBorder(580, 72.5);
-
-      for (let i = 0; i < STROKES; i++) {
-        const t = i / STROKES;
-        if (t > reveal) break;
-
-        // Anticlockwise, the direction undo turns. Clockwise would read as
-        // redo, which is the opposite of what this is for.
-        const angle = GAP_FROM - t * (Math.PI * 2 - (GAP_TO - GAP_FROM));
-
-        // Two overlaid harmonics give the band the uneven weight of a burin
-        // line rather than the evenness of a printed ring.
-        const swell =
-          0.78 + 0.14 * Math.sin(angle * 3 + 0.6) + 0.07 * Math.sin(angle * 7 - 1.2);
-        // Sized to sit clear of the fret frame around it.
-        const inner = 138;
-        const outer = inner + 72 * swell;
-
-        ctx.beginPath();
-        ctx.moveTo(CENTRE + Math.cos(angle) * inner, CENTRE + Math.sin(angle) * inner);
-        ctx.lineTo(CENTRE + Math.cos(angle) * outer, CENTRE + Math.sin(angle) * outer);
-        ctx.strokeStyle = ink(0.3 + 0.45 * swell);
-        ctx.lineWidth = 0.75 + 0.7 * swell;
-        ctx.stroke();
-
-        // A sparse outer field of shorter marks, the way hatching fades out.
-        if (i % 3 === 0) {
-          const far = outer + 16 + 40 * Math.abs(Math.sin(angle * 5));
-          ctx.beginPath();
-          ctx.moveTo(CENTRE + Math.cos(angle) * (outer + 12), CENTRE + Math.sin(angle) * (outer + 12));
-          ctx.lineTo(CENTRE + Math.cos(angle) * far, CENTRE + Math.sin(angle) * far);
-          ctx.strokeStyle = ink(0.2);
-          ctx.lineWidth = 0.7;
-          ctx.stroke();
-        }
-      }
-
-      // The arrowhead, drawn only once the band has reached it.
-      if (reveal > 0.985) {
-        const tipAngle = GAP_TO;
-        const r = 178;
-        const tipX = CENTRE + Math.cos(tipAngle) * r;
-        const tipY = CENTRE + Math.sin(tipAngle) * r;
-        ctx.save();
-        ctx.translate(tipX, tipY);
-        // Along the arc's direction of travel, which is what makes it read as
-        // a return rather than an ornament.
-        ctx.rotate(tipAngle);
-        ctx.beginPath();
-        ctx.moveTo(0, -34);
-        ctx.lineTo(30, 26);
-        ctx.lineTo(-30, 26);
-        ctx.closePath();
-        ctx.fillStyle = ink(0.92);
-        ctx.fill();
-        ctx.restore();
-      }
-    }
-
-    if (still) {
-      draw(1);
-      return;
-    }
-
-    const started = performance.now();
-    const DURATION = 1500;
-    function frame(now) {
-      const linear = Math.min(1, (now - started) / DURATION);
-      const eased = 1 - Math.pow(1 - linear, 3);
-      draw(eased);
-      if (linear < 1) requestAnimationFrame(frame);
-    }
-    requestAnimationFrame(frame);
-  })();
-</script>
-
-<script>
-  // Four plates, each drawing what its class actually does. Engraved schematics
-  // rather than photographs: the subject here is a mechanism, and a mechanism
-  // is better drawn than illustrated.
-  (function () {
-    const SIZE = 440;
-
-    function ink(alpha) {
-      const value = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim();
-      return "color-mix(in srgb, " + value + " " + Math.round(alpha * 100) + "%, transparent)";
-    }
-
-    /**
-     * Parallel burin lines filling a box, the way a plate is shaded. The
-     * canvas is rotated rather than the lines skewed, so coverage is complete
-     * at any angle instead of leaving a wedge at the corners.
-     */
-    function hatch(ctx, x, y, w, h, spacing, angle, alpha) {
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(x, y, w, h);
-      ctx.clip();
-      ctx.translate(x + w / 2, y + h / 2);
-      ctx.rotate(angle);
-      ctx.strokeStyle = ink(alpha);
-      ctx.lineWidth = 1.4;
-      const reach = Math.hypot(w, h) / 2 + spacing;
-      for (let offset = -reach; offset <= reach; offset += spacing) {
-        ctx.beginPath();
-        ctx.moveTo(-reach, offset);
-        ctx.lineTo(reach, offset);
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    function arrowHead(ctx, x, y, angle, size, alpha) {
-      ctx.save();
-      ctx.translate(x, y);
-      ctx.rotate(angle);
-      ctx.beginPath();
-      ctx.moveTo(size, 0);
-      ctx.lineTo(-size * 0.8, size * 0.62);
-      ctx.lineTo(-size * 0.8, -size * 0.62);
-      ctx.closePath();
-      ctx.fillStyle = ink(alpha);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    const plates = {
-      // Looked at, and unchanged by the looking.
-      readonly(ctx) {
-        hatch(ctx, 70, 150, 300, 140, 9, 0.38, 0.5);
-        ctx.strokeStyle = ink(0.75);
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.arc(220, 220, 86, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(282, 282);
-        ctx.lineTo(340, 340);
-        ctx.stroke();
-        ctx.strokeStyle = ink(0.55);
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(46, 360);
-        ctx.lineTo(360, 360);
-        ctx.stroke();
-        arrowHead(ctx, 366, 360, 0, 11, 0.7);
-      },
-
-      // Two states, and an arc back to the earlier one.
-      reversible(ctx) {
-        hatch(ctx, 70, 96, 300, 92, 9, 0.42, 0.68);
-        hatch(ctx, 70, 260, 300, 92, 9, -0.42, 0.34);
-        ctx.strokeStyle = ink(0.8);
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(360, 306);
-        ctx.bezierCurveTo(430, 306, 430, 142, 372, 142);
-        ctx.stroke();
-        arrowHead(ctx, 366, 142, Math.PI, 12, 0.9);
-      },
-
-      // Two opposed marks, crossing where one cancels the other.
-      compensable(ctx) {
-        hatch(ctx, 58, 120, 190, 200, 10, 0.7, 0.55);
-        hatch(ctx, 192, 120, 190, 200, 10, -0.7, 0.55);
-        ctx.strokeStyle = ink(0.85);
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(192, 120);
-        ctx.lineTo(192, 320);
-        ctx.moveTo(248, 120);
-        ctx.lineTo(248, 320);
-        ctx.stroke();
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(96, 366); ctx.lineTo(140, 366);
-        ctx.moveTo(118, 344); ctx.lineTo(118, 388);
-        ctx.moveTo(300, 366); ctx.lineTo(344, 366);
-        ctx.stroke();
-      },
-
-      // Everything past the bar disperses, and cannot be gathered again.
-      irreversible(ctx) {
-        hatch(ctx, 46, 130, 176, 180, 9, 0.3, 0.62);
-        ctx.fillStyle = ink(0.9);
-        ctx.fillRect(228, 96, 12, 248);
-        ctx.fillStyle = ink(0.45);
-        let seed = 7;
-        const random = () => {
-          seed = (seed * 1103515245 + 12345) % 2147483648;
-          return seed / 2147483648;
-        };
-        for (let i = 0; i < 190; i += 1) {
-          const t = random();
-          const x = 256 + t * 150;
-          const y = 120 + random() * 200;
-          const r = 2.6 * (1 - t) + 0.5;
-          ctx.beginPath();
-          ctx.arc(x, y, r, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      },
-    };
-
-    for (const canvas of document.querySelectorAll("canvas[data-plate]")) {
-      const ctx = canvas.getContext("2d");
-      const kind = canvas.dataset.plate;
-      if (!ctx || !(kind in plates)) continue;
-      ctx.clearRect(0, 0, SIZE, SIZE);
-      plates[kind](ctx);
-    }
-  })();
-</script>
-
-<script>
-  // Reveal on scroll.
-  //
-  // Hiding content and waiting for an observer to give it back is a bargain
-  // worth making only if the giving back cannot fail. So anything already in
-  // view is shown at once without waiting to be told, and a timer shows
-  // everything regardless a moment later. If the observer never fires, the
-  // page is merely unanimated rather than blank.
-  (function () {
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduced || !("IntersectionObserver" in window)) return;
-
-    const groups = [
-      ...document.querySelectorAll(
-        ".section-head, .plate-card, .step, .command, .limits p, .refusal .terminal",
-      ),
-    ];
-    if (groups.length === 0) return;
-
-    for (const element of groups) {
-      element.classList.add("reveal");
-    }
-
-    // Everything wearing the class, not only what the selector above found.
-    // The class is what the stylesheet hides on, so an element marked up by
-    // hand was hidden by the css and then never shown by the script, and even
-    // the safety net below could not reach it: it is a way of writing markup
-    // that silently deletes it from the page.
-    const all = [...document.querySelectorAll(".reveal")];
-
-    const show = (element, index) => {
-      if (element.dataset.shown === "true") return;
-      // A short stagger within a row, capped, so a wide grid ripples rather
-      // than arriving all at once or crawling in one at a time.
-      element.style.transitionDelay = `${String(Math.min(index, 5) * 60)}ms`;
-      element.dataset.shown = "true";
-    };
-
-    const positionIn = (element) => {
-      const siblings = [...(element.parentElement?.children ?? [])];
-      return Math.max(0, siblings.indexOf(element));
-    };
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          show(entry.target, positionIn(entry.target));
-          observer.unobserve(entry.target);
-        }
-      },
-      { rootMargin: "0px 0px -10% 0px", threshold: 0.05 },
-    );
-
-    requestAnimationFrame(() => {
-      for (const element of all) {
-        const box = element.getBoundingClientRect();
-        if (box.top < window.innerHeight && box.bottom > 0) {
-          show(element, positionIn(element));
-        } else {
-          observer.observe(element);
-        }
-      }
-    });
-
-    // The safety net. Whatever happened, nothing stays hidden -- and it does
-    // not ask a transition to do it. A transition is itself a thing that can
-    // fail to happen: these were seen sitting at playState "running" with a
-    // currentTime of zero, so the element had been told to become visible and
-    // simply never advanced. Cutting the transition first means the last word
-    // on whether content appears is a style change, not an animation.
-    setTimeout(() => {
-      for (const element of all) {
-        element.style.transition = "none";
-        element.style.transitionDelay = "0ms";
-        element.dataset.shown = "true";
-      }
-      observer.disconnect();
-    }, 2500);
-  })();
-</script>
-
-<script>
-/* The gods, as outline medallions cut in half by the edge of the page.
- *
- * Drawn rather than embedded: the page carries every asset inline, and line
- * art is a set of curves, which is a thing a canvas is good at. Outline only,
- * no fills: these are engravings after the sun-and-face plates, where every
- * value is carried by the weight and spacing of the line itself.
- *
- * They hang off the edge on purpose. A roundel cropped by the margin can be
- * three times the size one sitting politely inside it could, and a half medal
- * pressed into the edge of a page is an old habit rather than a new idea.
- */
-(() => {
-  const INK = "#f6e9e5";
-  /* Drawn in a 300 by 300 square, scaled to whatever it is given. */
-  const S = 300;
-  const C = 150;
-  /** Where the portrait sits inside the field, and how big. */
-  const HEAD = { x: C - 26, y: C + 8, scale: 1.34 };
-
-  function seeded(seed) {
-    let n = seed >>> 0;
-    return () => {
-      n = (n * 1664525 + 1013904223) >>> 0;
-      return n / 4294967296;
-    };
-  }
-
-  function ring(g, radius, width, alpha) {
-    g.globalAlpha = alpha;
-    g.lineWidth = width;
-    g.beginPath();
-    g.arc(C, C, radius, 0, Math.PI * 2);
-    g.stroke();
-    g.globalAlpha = 1;
-  }
-
-  /**
-   * The corona: long tapering spikes with a curl of flame between each pair,
-   * which is what the sun-and-face plates do and what makes the outer edge
-   * read as light rather than as a cog.
-   */
-  function corona(g, seed) {
-    const random = seeded(seed);
-    const spikes = 16;
-    for (let i = 0; i < spikes; i += 1) {
-      const angle = (i / spikes) * Math.PI * 2 - Math.PI / 2;
-      const long = i % 2 === 0;
-      const reach = long ? 146 : 126;
-      const half = long ? 0.055 : 0.042;
-      const base = 102;
-
-      g.globalAlpha = 0.9;
-      g.lineWidth = 1.5;
-      g.beginPath();
-      g.moveTo(C + Math.cos(angle - half) * base, C + Math.sin(angle - half) * base);
-      g.lineTo(C + Math.cos(angle) * reach, C + Math.sin(angle) * reach);
-      g.lineTo(C + Math.cos(angle + half) * base, C + Math.sin(angle + half) * base);
-      g.stroke();
-
-      // The shading inside a spike: a few lines along its length, never across.
-      g.globalAlpha = 0.5;
-      g.lineWidth = 0.8;
-      for (const t of [-0.4, 0, 0.4]) {
-        g.beginPath();
-        g.moveTo(C + Math.cos(angle + half * t) * (base + 4), C + Math.sin(angle + half * t) * (base + 4));
-        g.lineTo(C + Math.cos(angle + half * t * 0.2) * (reach - 14), C + Math.sin(angle + half * t * 0.2) * (reach - 14));
-        g.stroke();
-      }
-
-      // A curl of flame in the gap to the next spike.
-      const between = angle + Math.PI / spikes;
-      const spin = random() > 0.5 ? 1 : -1;
-      g.globalAlpha = 0.85;
-      g.lineWidth = 1.3;
-      spiral(g, C + Math.cos(between) * 120, C + Math.sin(between) * 120, between, spin);
-    }
-    g.globalAlpha = 1;
-  }
-
-  /** A wave that runs out and finishes in a curl, the way flame is engraved. */
-  function spiral(g, x, y, direction, spin) {
-    const nx = Math.cos(direction);
-    const ny = Math.sin(direction);
-    const px = -ny * spin;
-    const py = nx * spin;
-    g.beginPath();
-    g.moveTo(x - nx * 18, y - ny * 18);
-    g.bezierCurveTo(
-      x - nx * 6 + px * 9, y - ny * 6 + py * 9,
-      x + nx * 6 - px * 9, y + ny * 6 - py * 9,
-      x + nx * 15, y + ny * 15,
-    );
-    g.stroke();
-    // The curl itself, an inward turn of about one and a quarter revolutions.
-    const cx = x + nx * 21 + px * 5;
-    const cy = y + ny * 21 + py * 5;
-    g.beginPath();
-    for (let t = 0; t <= 1; t += 0.05) {
-      const a = direction + Math.PI * 2.2 * t * spin;
-      const r = 8 * (1 - t * 0.82);
-      const ax = cx + Math.cos(a) * r;
-      const ay = cy + Math.sin(a) * r;
-      if (t === 0) g.moveTo(ax, ay);
-      else g.lineTo(ax, ay);
-    }
-    g.stroke();
-  }
-
-  /**
-   * A head in profile, facing right, in outline.
-   *
-   * The one line that has to be right is the forehead running into the bridge
-   * of the nose without a dip; that continuous line is what makes a profile
-   * read as antique rather than as a person.
-   */
-  function profile(g, x, y, scale) {
-    g.save();
-    g.translate(x, y);
-    g.scale(scale, scale);
-    g.lineWidth = 2 / scale;
-    g.lineJoin = "round";
-    g.lineCap = "round";
-
-    g.beginPath();
-    g.moveTo(-6, -46);              // crown, where the hair takes over
-    g.bezierCurveTo(12, -46, 20, -34, 21, -22);   // forehead
-    g.bezierCurveTo(22, -14, 24, -8, 27, -2);     // bridge, straight into it
-    g.lineTo(29, 4);                               // tip of the nose
-    g.bezierCurveTo(26, 7, 22, 7, 18, 7);          // under the nose
-    g.bezierCurveTo(21, 10, 21, 11, 19, 13);       // upper lip
-    g.bezierCurveTo(22, 15, 22, 17, 18, 19);       // lower lip
-    g.bezierCurveTo(20, 23, 20, 28, 15, 32);       // chin
-    g.bezierCurveTo(8, 37, -2, 38, -10, 34);       // jaw
-    g.stroke();
-
-    // Eye: a lid, a lower line, and the iris as a short arc under the lid.
-    g.lineWidth = 1.6 / scale;
-    g.beginPath();
-    g.moveTo(6, -10);
-    g.bezierCurveTo(12, -14, 18, -12, 20, -8);
-    g.stroke();
-    g.beginPath();
-    g.moveTo(7, -8);
-    g.bezierCurveTo(12, -4, 17, -5, 20, -8);
-    g.stroke();
-    g.beginPath();
-    g.arc(14, -8, 3, 0.1, Math.PI - 0.1);
-    g.stroke();
-    // Brow.
-    g.beginPath();
-    g.moveTo(4, -17);
-    g.bezierCurveTo(11, -20, 18, -18, 21, -14);
-    g.stroke();
-    // Mouth, ear, neck.
-    g.beginPath();
-    g.moveTo(12, 16);
-    g.bezierCurveTo(15, 15, 17, 15, 19, 16);
-    g.stroke();
-    g.beginPath();
-    g.moveTo(-2, 2);
-    g.bezierCurveTo(-8, -2, -12, 4, -6, 10);
-    g.stroke();
-    g.beginPath();
-    g.moveTo(-10, 34);
-    g.lineTo(-14, 48);
-    g.moveTo(12, 34);
-    g.bezierCurveTo(10, 42, 8, 46, 6, 52);
-    g.stroke();
-    g.restore();
-  }
-
-  /**
-   * Waved hair, drawn the way the plates draw it: locks lying along the skull
-   * from the brow back, each one waving. The first attempt sent strands
-   * radially outward from the head, which is not hair, it is a second and
-   * smaller sunburst.
-   */
-  function hair(g, x, y, scale, seed, covered) {
-    const random = seeded(seed);
-    g.save();
-    g.translate(x, y);
-    g.scale(scale, scale);
-    g.lineWidth = 1.4 / scale;
-    g.lineCap = "round";
-    const skull = { x: -1, y: -15 };
-    // Kept off the brow and off the crown: locks that carry on round to the
-    // front hide the one line that makes a profile antique, and a hair mass
-    // that reaches the top of the skull leaves nowhere for a helm to sit.
-    // Under a helm or a crown there is no mane to draw: a few locks escaping at
-    // the nape, and the rest of the skull belongs to the thing worn on it.
-    // Drawing both put the hair and the headgear in the same narrow ring, where
-    // neither could be told from the other or from the rim.
-    const locks = covered === true ? 5 : 9;
-    for (let i = 0; i < locks; i += 1) {
-      const radius = (covered === true ? 26 : 25) + i * 2.1 + random() * 1.4;
-      const from = Math.PI * ((covered === true ? 0.72 : 0.94) + random() * 0.05);
-      const to = Math.PI * ((covered === true ? 1.14 : 1.9) + random() * 0.07);
-      const waves = 3 + (i % 3);
-      const depth = 1.6 + random() * 1.8;
-      g.beginPath();
-      for (let t = 0; t <= 1.0001; t += 0.04) {
-        const a = from + (to - from) * t;
-        const r = radius + Math.sin(t * Math.PI * waves) * depth;
-        const px = skull.x + Math.cos(a) * r;
-        const py = skull.y + Math.sin(a) * r * 1.06;
-        if (t === 0) g.moveTo(px, py);
-        else g.lineTo(px, py);
-      }
-      g.stroke();
-    }
-    // The knot at the nape, which is where all of it ends up.
-    g.lineWidth = 1.5 / scale;
-    for (let i = 0; i < 4; i += 1) {
-      g.beginPath();
-      g.moveTo(-22 - i * 2, 12 + i * 3);
-      g.bezierCurveTo(-38 - i * 3, 16 + i * 2, -36 - i * 3, 34 + i * 3, -20 - i * 2, 36 + i * 3);
-      g.stroke();
-    }
-    g.restore();
-  }
-
-  function laurel(g, x, y, scale) {
-    g.save();
-    g.translate(x, y);
-    g.scale(scale, scale);
-    g.lineWidth = 1.6 / scale;
-    g.beginPath();
-    g.moveTo(-26, -30);
-    g.quadraticCurveTo(0, -48, 24, -32);
-    g.stroke();
-    for (let i = 0; i < 7; i += 1) {
-      const t = i / 6;
-      const bx = -26 + t * 50;
-      const by = -30 - Math.sin(Math.PI * t) * 16;
-      g.beginPath();
-      g.ellipse(bx, by - 5, 7, 3.4, -0.5 + t * 1.1, 0, Math.PI * 2);
-      g.stroke();
-    }
-    g.restore();
-  }
-
-  /**
-   * Where the skull sits in the field, and how far the hair reaches from it.
-   * Anything worn on the head has to clear that, which the first version did
-   * not: a helm drawn smaller than the hair mass sits inside it and reads as a
-   * comb.
-   */
-  const SKULL = { x: C - 27, y: C - 12 };
-  /** Nothing may cross the rim: an emblem that does reads as a mistake. */
-  const FIELD = 84;
-  /** Where anything worn on the head sits, measured from the skull. */
-  const WORN = 46;
-
-  const GODS = {
-    apollo(g) {
-      // Laurel, over the hair rather than in it.
-      g.lineWidth = 2.4;
-      g.beginPath();
-      g.moveTo(SKULL.x - WORN - 12, SKULL.y - 8);
-      g.bezierCurveTo(SKULL.x - 40, SKULL.y - WORN - 34, SKULL.x + 28, SKULL.y - WORN - 36, SKULL.x + WORN + 6, SKULL.y - 18);
-      g.stroke();
-      g.lineWidth = 1.6;
-      for (let i = 0; i < 10; i += 1) {
-        const t = i / 9;
-        const a = Math.PI * (1.06 + t * 0.78);
-        const bx = SKULL.x + Math.cos(a) * (WORN + 12);
-        const by = SKULL.y + Math.sin(a) * (WORN + 12);
-        g.save();
-        g.translate(bx, by);
-        g.rotate(a + Math.PI / 2);
-        g.beginPath();
-        g.ellipse(0, -7, 9, 4, 0, 0, Math.PI * 2);
-        g.stroke();
-        g.restore();
-      }
-    },
-
-    hermes(g) {
-      // The winged cap: a skullcap clear of the hair, and a swept fan each side.
-      g.lineWidth = 2.6;
-      g.beginPath();
-      g.arc(SKULL.x, SKULL.y, WORN, Math.PI * 1.02, Math.PI * 1.98);
-      g.stroke();
-      g.lineWidth = 1.4;
-      for (let i = 1; i < 4; i += 1) {
-        g.beginPath();
-        g.arc(SKULL.x, SKULL.y, WORN - i * 5, Math.PI * 1.1, Math.PI * 1.9);
-        g.stroke();
-      }
-      g.lineWidth = 2;
-      for (const side of [-1, 1]) {
-        for (let f = 0; f < 4; f += 1) {
-          g.beginPath();
-          g.moveTo(SKULL.x + side * (WORN - 10), SKULL.y - 14);
-          g.quadraticCurveTo(
-            SKULL.x + side * (WORN + 12 + f * 4), SKULL.y - 28 - f * 4,
-            SKULL.x + side * (WORN + 15 + f * 5), SKULL.y - 8 - f * 7,
-          );
-          g.stroke();
-        }
-      }
-    },
-
-    athena(g) {
-      // Dome, brow band and crest, all outside the hair.
-      const r = WORN;
-      g.lineWidth = 2.6;
-      g.beginPath();
-      g.arc(SKULL.x, SKULL.y, r, Math.PI * 1.02, Math.PI * 1.98);
-      g.stroke();
-      g.lineWidth = 2;
-      g.beginPath();
-      g.arc(SKULL.x, SKULL.y, r - 9, Math.PI * 1.02, Math.PI * 1.98);
-      g.stroke();
-      g.lineWidth = 2.4;
-      g.beginPath();
-      g.moveTo(SKULL.x - r + 6, SKULL.y - 22);
-      g.bezierCurveTo(SKULL.x - 30, SKULL.y - r - 26, SKULL.x + 24, SKULL.y - r - 26, SKULL.x + r - 10, SKULL.y - 24);
-      g.stroke();
-      g.lineWidth = 1.5;
-      for (let i = 0; i < 12; i += 1) {
-        const t = i / 11;
-        const a = Math.PI * (1.08 + t * 0.84);
-        const bx = SKULL.x + Math.cos(a) * (r + 12);
-        const by = SKULL.y + Math.sin(a) * (r + 12) - 8;
-        g.beginPath();
-        g.moveTo(bx, by + 10);
-        g.quadraticCurveTo(bx - 7, by - 4, bx + 4, by - 12);
-        g.stroke();
-      }
-    },
-
-    hades(g) {
-      // A spiked crown standing off the hair.
-      const r = WORN;
-      g.lineWidth = 2.6;
-      g.beginPath();
-      g.arc(SKULL.x, SKULL.y, r, Math.PI * 1.1, Math.PI * 1.9);
-      g.stroke();
-      for (let i = 0; i <= 5; i += 1) {
-        const a = Math.PI * (1.1 + (i / 5) * 0.8);
-        const bx = SKULL.x + Math.cos(a) * r;
-        const by = SKULL.y + Math.sin(a) * r;
-        g.beginPath();
-        g.moveTo(bx - Math.cos(a + 1.4) * 9, by - Math.sin(a + 1.4) * 9);
-        g.lineTo(SKULL.x + Math.cos(a) * (r + 22), SKULL.y + Math.sin(a) * (r + 22));
-        g.lineTo(bx + Math.cos(a + 1.4) * 9, by + Math.sin(a + 1.4) * 9);
-        g.stroke();
-      }
-      beard(g);
-    },
-
-    zeus(g) {
-      // The bolt, in front of him and clear of the rim.
-      g.lineWidth = 3;
-      g.lineJoin = "miter";
-      g.beginPath();
-      g.moveTo(C + 30, C - 52);
-      g.lineTo(C + 62, C - 18);
-      g.lineTo(C + 42, C - 10);
-      g.lineTo(C + 72, C + 40);
-      g.stroke();
-      g.lineWidth = 1.6;
-      g.beginPath();
-      g.moveTo(C + 42, C - 36);
-      g.lineTo(C + 66, C - 4);
-      g.stroke();
-      beard(g);
-    },
-
-    poseidon(g) {
-      const x = C + 52;
-      g.lineWidth = 3;
-      g.beginPath();
-      g.moveTo(x, C - 32);
-      g.lineTo(x, C + 62);
-      g.stroke();
-      g.lineWidth = 2.6;
-      g.beginPath();
-      g.moveTo(x - 20, C - 32);
-      g.lineTo(x + 20, C - 32);
-      g.stroke();
-      g.beginPath();
-      g.moveTo(x, C - 32);
-      g.lineTo(x, C - 68);
-      g.stroke();
-      for (const side of [-1, 1]) {
-        g.beginPath();
-        g.moveTo(x + side * 20, C - 32);
-        g.bezierCurveTo(x + side * 24, C - 52, x + side * 16, C - 63, x + side * 8, C - 65);
-        g.stroke();
-      }
-      beard(g);
-    },
-
-    hephaistos(g) {
-      g.lineWidth = 3;
-      g.beginPath();
-      g.moveTo(C + 22, C + 56);
-      g.lineTo(C + 56, C - 26);
-      g.stroke();
-      g.save();
-      g.translate(C + 56, C - 40);
-      g.rotate(1.2);
-      g.lineWidth = 2.6;
-      g.strokeRect(-19, -9.5, 38, 19);
-      g.beginPath();
-      g.moveTo(6, -9.5);
-      g.lineTo(6, 9.5);
-      g.stroke();
-      g.restore();
-      beard(g);
-    },
-
-    atlas(g) {
-      // The sphere as an emblem beside the head rather than a burden over it.
-      // Drawn overhead it sat outside the rim, which reads as an accident.
-      const gx = C + 50;
-      const gy = C - 22;
-      g.lineWidth = 2.4;
-      g.beginPath();
-      g.arc(gx, gy, 34, 0, Math.PI * 2);
-      g.stroke();
-      g.lineWidth = 1;
-      g.globalAlpha = 0.85;
-      for (const r of [11, 23]) {
-        g.beginPath();
-        g.ellipse(gx, gy, r, 34, 0, 0, Math.PI * 2);
-        g.stroke();
-      }
-      for (const dy of [-17, 0, 17]) {
-        const rx = Math.sqrt(Math.max(1, 34 * 34 - dy * dy));
-        g.beginPath();
-        g.ellipse(gx, gy + dy, rx, 4, 0, 0, Math.PI * 2);
-        g.stroke();
-      }
-      g.globalAlpha = 1;
-      // The shoulder taking its weight.
-      g.lineWidth = 2.6;
-      g.lineCap = "round";
-      g.beginPath();
-      g.moveTo(C + 16, C + 62);
-      g.quadraticCurveTo(C + 40, C + 42, gx - 22, gy + 26);
-      g.stroke();
-      g.lineCap = "butt";
-    },
-  };
-
-  /** Zeus, Poseidon, Hades and Hephaistos are the bearded four. */
-  function beard(g) {
-    g.lineWidth = 1.5;
-    g.lineCap = "round";
-    for (let i = 0; i < 9; i += 1) {
-      const t = i / 8;
-      const sx = HEAD.x - 10 + t * 12;
-      const sy = HEAD.y + 12 + t * 10;
-      g.beginPath();
-      g.moveTo(sx, sy);
-      g.bezierCurveTo(sx - 6, sy + 14, sx + 6, sy + 22, sx - 4 + t * 6, sy + 34);
-      g.stroke();
-    }
-  }
-
-  /** The four who wear something on the head, and so keep their hair under it. */
-  const COVERED = new Set(["athena", "hades", "hermes", "apollo"]);
-
-  const SEEDS = {
-    hermes: 11, athena: 29, hephaistos: 47, apollo: 61,
-    zeus: 83, poseidon: 97, atlas: 113, hades: 131,
-  };
-
-  function draw(canvas) {
-    const key = canvas.dataset.god;
-    const god = GODS[key];
-    if (god === undefined) return;
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
-    if (width === 0 || height === 0) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
-    const g = canvas.getContext("2d");
-    if (g === null) return;
-    g.scale((width / S) * dpr, (height / S) * dpr);
-    // Mirrored for one rail, so both of them look into the page rather than
-    // out of it, and the emblem is never the half that got cut off.
-    if (canvas.dataset.flip === "true") {
-      g.translate(S, 0);
-      g.scale(-1, 1);
-    }
-    g.strokeStyle = INK;
-    g.fillStyle = INK;
-
-    const seed = SEEDS[key] ?? 7;
-    corona(g, seed);
-    ring(g, 100, 1.7, 0.9);
-    ring(g, 93, 1, 0.55);
-    // The head fills the field, the way a portrait fills a medal. Drawn small
-    // and centred it read as a coin with a pinhead stamped on it.
-    hair(g, HEAD.x, HEAD.y, HEAD.scale, seed, COVERED.has(key));
-    profile(g, HEAD.x, HEAD.y, HEAD.scale);
-    // Last, so the thing that says which god this is never ends up underneath
-    // his own hair.
-    god(g);
-  }
-
-  const all = document.querySelectorAll("canvas[data-god]");
-  const drawAll = () => { for (const canvas of all) draw(canvas); };
-  drawAll();
-
-  let settle;
-  addEventListener("resize", () => {
-    clearTimeout(settle);
-    settle = setTimeout(drawAll, 180);
+    clearTimeout(reset); reset = setTimeout(() => { button.textContent = 'Copy'; }, 2200);
   });
-})();
-</script>
-
-<script>
-  // The journal in the hero, playing a real run.
-  //
-  // Everything the panel says came out of an actual session against the
-  // bundled filesystem policy: the four calls, the class of each one, the
-  // reason the fourth is held, and the four verdicts the undo prints on the
-  // way back out. Writing plausible-looking output instead would have been
-  // easier and would have made the most prominent thing on the page the one
-  // thing that was not true.
-  //
-  // The markup already holds the finished run. This script only ever moves
-  // between states that are true of it, so the worst thing a failure here can
-  // do is leave the panel sitting on the state it was served with.
-  (function () {
-    const ledger = document.getElementById("ledger");
-    if (ledger === null) return;
-
-    const rows = [...ledger.querySelectorAll(".ledger-row")];
-    const mode = document.getElementById("ledger-mode");
-    const added = document.getElementById("ledger-added");
-    const key = document.getElementById("ledger-key");
-    const rest = document.getElementById("ledger-rest");
-    const act = document.getElementById("ledger-act");
-    if (rows.length !== 4 || [mode, added, key, rest, act].includes(null)) return;
-
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    // What undo prints for each call, in the order the calls were made. It
-    // works backwards through them, which is why the panel does too.
-    const REVERSAL = [
-      { state: "skip", status: "skip", line: "readonly" },
-      { state: "revert", status: "revert", line: "state matches; applying inverse" },
-      { state: "revert", status: "revert", line: "state matches; applying inverse" },
-      { state: "skip", status: "skip", line: "never applied (awaiting approval)" },
-    ];
-
-    // The served markup, read once, so replaying is a matter of putting back
-    // what was there rather than a second copy of it kept in this file.
-    const AS_RUN = rows.map((row) => ({
-      state: row.dataset.state ?? "applied",
-      status: row.querySelector(".ledger-status").textContent,
-      line: row.querySelector(".ledger-line").textContent,
-    }));
-
-    let timers = [];
-    const after = (ms, fn) => { timers.push(setTimeout(fn, ms)); };
-    const stop = () => { for (const timer of timers) clearTimeout(timer); timers = []; };
-
-    const put = (row, step) => {
-      row.dataset.state = step.state;
-      row.querySelector(".ledger-status").textContent = step.status;
-      row.querySelector(".ledger-line").textContent = step.line;
-    };
-
-    const say = (which, word, tail) => {
-      mode.textContent = which;
-      key.textContent = word;
-      rest.textContent = tail;
-    };
-
-    // The three states worth landing on. Each is complete in itself: whenever
-    // the panel stops, for whatever reason, it stops on one of these.
-    const asRun = () => {
-      ledger.dataset.phase = "run";
-      rows.forEach((row, index) => { put(row, AS_RUN[index]); });
-      added.dataset.on = "true";
-      say("one run, as it happened", "1 call", "is waiting on a person");
-      act.textContent = "Undo this run";
-      act.dataset.role = "undo";
-      act.disabled = false;
-    };
-
-    const rolledBack = () => {
-      ledger.dataset.phase = "run";
-      rows.forEach((row, index) => { put(row, REVERSAL[index]); });
-      added.dataset.on = "false";
-      say("the run was taken back", "rolled_back", "\u2014 roadmap.md is back to what it was");
-      act.textContent = "Run it again";
-      act.dataset.role = "replay";
-      act.disabled = false;
-    };
-
-    const emptied = () => {
-      // Cut, rather than dissolve. Getting back to the start of the loop is
-      // not part of what the panel is showing.
-      ledger.dataset.snap = "true";
-      ledger.dataset.phase = "empty";
-      for (const row of rows) { row.dataset.state = "pending"; }
-      added.dataset.on = "false";
-      void ledger.offsetHeight;
-      // A frame is the right moment to put the transitions back, but a hidden
-      // tab is never given one, and the flag left behind would go on
-      // suppressing every animation in the panel after the tab came back. The
-      // timer is not there to be precise, only to be certain: it is untracked
-      // on purpose, so nothing that cancels the run can cancel it too.
-      requestAnimationFrame(() => { delete ledger.dataset.snap; });
-      setTimeout(() => { delete ledger.dataset.snap; }, 120);
-      say("waiting for an agent", "nothing", "has been recorded yet");
-      act.textContent = "Undo this run";
-      act.dataset.role = "undo";
-      act.disabled = true;
-    };
-
-    const reverse = () => {
-      stop();
-      say("undoing the run", "undo", "works backwards, newest call first");
-      act.disabled = true;
-      let at = 0;
-      for (let index = rows.length - 1; index >= 0; index -= 1) {
-        const step = REVERSAL[index];
-        after(at, () => {
-          put(rows[index], step);
-          // The write that added the line is call 2, so the line goes when
-          // its inverse does. The file and the journal agree at every frame.
-          if (index === 1) added.dataset.on = "false";
-        });
-        at += 560;
-      }
-      after(at + 350, rolledBack);
-      after(at + 5600, play);
-    };
-
-    function play() {
-      stop();
-      emptied();
-      let at = 450;
-      rows.forEach((row, index) => {
-        after(at, () => {
-          ledger.dataset.phase = "run";
-          put(row, AS_RUN[index]);
-          if (index === 1) added.dataset.on = "true";
-          if (index === rows.length - 1) asRun();
-        });
-        at += 780;
-      });
-      after(at + 2400, reverse);
+}
+const screens = {
+ capture: {file:'synartesis-desktop',label:'01 / Captured',caption:'The tool card shows “Prior state captured”. The ledger counts one change, with one that can be put back.',alt:'Synartesis desktop: a report.txt write is marked reversible, prior state captured, and can be put back. The header ledger counts one change with one way back.'},
+ approval: {file:'synartesis-desktop-approval',label:'02 / Held',caption:'When the prior state cannot be captured, the call waits. You see why it cannot be undone before choosing to allow or deny it.',alt:'Synartesis desktop approval card: a file write is held because prior state could not be captured. Allow once and Deny are explicit choices.'},
+ undo: {file:'synartesis-desktop-undo',label:'03 / Put back',caption:'The real plan comes first, then your confirmation. The undo result distinguishes the call it skipped from the change it put back.',alt:'Synartesis desktop undo plan and result: one readonly call skipped and one file write reverted.'},
+ dark: {file:'synartesis-desktop-dark',label:'04 / After dark',caption:'The same recovery information in a dark setting. What can be put back stays visible in the card and the ledger.',alt:'Synartesis desktop in its dark appearance with the change ledger and reversible tool card visible.'}
+};
+for (const button of document.querySelectorAll('[data-screen]')) {
+ button.addEventListener('click', () => {
+   const screen = screens[button.dataset.screen];
+   for (const other of document.querySelectorAll('[data-screen]')) other.setAttribute('aria-pressed',String(other === button));
+   const image = document.getElementById('desktop-image');
+   image.src = 'assets/'+screen.file+'-v1.png'; image.alt = screen.alt;
+   document.getElementById('screen-full').href = image.getAttribute('src');
+   document.getElementById('screen-label').textContent = screen.label;
+   document.getElementById('screen-caption').textContent = screen.caption;
+   document.getElementById('gallery-announcement').textContent = screen.label+'. '+screen.caption;
+ });
+}
+const undo = document.getElementById('example-undo');
+const plan = document.getElementById('example-plan');
+let restored = false;
+function closePlan() { plan.hidden = true; undo.setAttribute('aria-expanded','false'); undo.focus(); }
+undo.addEventListener('click', () => {
+ if (restored) {
+   document.getElementById('example-diff').innerHTML = '<div class="removed">− North&nbsp; 412,800</div><div class="added">+ North&nbsp; 0</div><div>&nbsp; South&nbsp; 288,400</div>';
+   document.getElementById('example-status').innerHTML = '<span class="dot" aria-hidden="true"></span> Prior state captured';
+   document.getElementById('example-note').textContent = 'This change can be put back.';
+   undo.textContent = 'Preview the undo ↶'; restored = false; return;
+ }
+ plan.hidden = !plan.hidden; undo.setAttribute('aria-expanded',String(!plan.hidden));
+ if (!plan.hidden) document.getElementById('example-confirm').focus();
+});
+document.getElementById('example-cancel').addEventListener('click',closePlan);
+plan.addEventListener('keydown',event => { if (event.key === 'Escape') { event.preventDefault(); closePlan(); } });
+document.getElementById('example-confirm').addEventListener('click',() => {
+ document.getElementById('example-diff').innerHTML = '<div class="added">&nbsp; North&nbsp; 412,800</div><div>&nbsp; South&nbsp; 288,400</div>';
+ document.getElementById('example-status').innerHTML = '<span class="dot" aria-hidden="true"></span> Example change restored';
+ document.getElementById('example-note').textContent = 'The captured value is back in place.';
+ restored = true; undo.textContent = 'Reset example ↻'; closePlan();
+});
+// Defer the recording's poster until its section approaches the viewport.
+const recording = document.querySelector('video');
+if ('IntersectionObserver' in window) {
+  const posterObserver = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) {
+      recording.poster = recording.dataset.poster;
+      posterObserver.disconnect();
     }
+  }, { rootMargin: '200px' });
+  posterObserver.observe(recording);
+} else {
+  recording.poster = recording.dataset.poster;
+}
 
-    act.addEventListener("click", () => {
-      const replaying = act.dataset.role === "replay";
-      if (still) {
-        // No motion means no timers: the button moves straight to the other
-        // end, which is the whole of what it promises anyway.
-        stop();
-        if (replaying) asRun(); else rolledBack();
-        return;
-      }
-      if (replaying) play(); else reverse();
-    });
-
-    if (still) return;
-
-    if (!("IntersectionObserver" in window)) { play(); return; }
-
-    // A loop nobody is looking at is a timer running for no one, and on a
-    // phone that is battery. It runs while it is on screen and stops when it
-    // is not -- and stopping means going back to a state that reads correctly
-    // if it is never started again.
-    let running = false;
-    const watcher = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting && !running) {
-            running = true;
-            play();
-          } else if (!entry.isIntersecting && running) {
-            running = false;
-            stop();
-            asRun();
-          }
-        }
-      },
-      { threshold: 0.3 },
-    );
-    watcher.observe(ledger);
-
-    // Coming back to a tab whose timers were throttled while it was hidden
-    // would otherwise mean finding the run half drawn.
-    document.addEventListener("visibilitychange", () => {
-      if (!running) return;
-      if (document.hidden) { stop(); asRun(); } else { play(); }
-    });
-  })();
-</script>
-
-<script>
-  // The recorded run. Muted and looping like every silent product video, but
-  // playing only while it is actually on screen: a 28-second loop running
-  // behind five screens of scroll is a phone battery and a fan for nobody.
-  //
-  // Reduced motion gets the poster and nothing else. There is no soundtrack to
-  // miss, and the caption plus the aria-label carry what it shows.
-  (function () {
-    const video = document.querySelector(".showreel-frame video");
-    if (!(video instanceof HTMLVideoElement)) return;
-
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    if (!("IntersectionObserver" in window)) {
-      // No observer is not a reason to show a dead frame.
-      video.play().catch(() => {});
-      return;
-    }
-
-    const watcher = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            // A rejected play promise is the browser declining autoplay, which
-            // is its right; the poster stays and nothing is broken.
-            video.play().catch(() => {});
-          } else {
-            video.pause();
-          }
-        }
-      },
-      { threshold: 0.25 },
-    );
-    watcher.observe(video);
-  })();
-</script>
-
-<script>
-  // Copy the one command. The text taken is the command alone -- the prompt is
-  // a separate span, so a reader never pastes a dollar sign into their shell.
-  (function () {
-    const code = document.getElementById("install-command");
-    const copy = document.getElementById("install-copy");
-    if (!code || !copy) return;
-
-    let restore;
-    copy.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(code.textContent ?? "");
-        copy.textContent = "Copied";
-      } catch {
-        // The clipboard is refused outside a secure context and in some framed
-        // views. Selecting the text leaves the reader one keystroke away
-        // rather than stuck with a button that did nothing.
-        const range = document.createRange();
-        range.selectNodeContents(code);
-        const selection = window.getSelection();
-        selection?.removeAllRanges();
-        selection?.addRange(range);
-        copy.textContent = "Selected";
-      }
-      clearTimeout(restore);
-      restore = setTimeout(() => { copy.textContent = "Copy"; }, 1600);
-    });
-  })();
+// No autoplay. Reduced motion shows a still poster, even if the preference changes mid-play.
+const motion = window.matchMedia('(prefers-reduced-motion: no-preference)');
+motion.addEventListener('change', () => { if (!motion.matches) document.querySelector('video').pause(); });
 </script>
 
 <!-- Vercel Web Analytics and Speed Insights. Both are served by the platform
@@ -2374,3 +1630,4 @@
      nothing on the page. No cookies, no cross-site identifier. -->
 <script defer src="/_vercel/insights/script.js"></script>
 <script defer src="/_vercel/speed-insights/script.js"></script>
+</body></html>
