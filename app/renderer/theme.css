@@ -136,13 +136,8 @@ button:disabled {
 
 .mark {
   display: block;
-  color: var(--rail-ink);
   flex-shrink: 0;
-}
-
-.mark-turn {
-  /* The box the mark is generated in, not the box it used to be drawn in. */
-  transform-origin: 512px 512px;
+  border-radius: 2px;
 }
 
 /*
@@ -1115,17 +1110,27 @@ kbd { font: 0.62rem var(--mono); border: 1px solid var(--rule); border-radius: 3
    * wait. This is meant to read as something working, which is a different
    * feeling and worth the extra keyframe.
    */
-  .mark[data-working="true"] .mark-turn {
+  .mark[data-working="true"] {
     animation: work 2.4s var(--ease) infinite;
   }
 
-  .mark[data-working="true"] {
-    animation: breathe 2.4s ease-in-out infinite;
-  }
-
+  /*
+   * It breathes rather than spins.
+   *
+   * The mark is framed now -- a border of meanders around a square -- and a
+   * frame going round and round reads as a broken image, not as work. So the
+   * whole thing swells and settles instead, on the same eased two and a half
+   * seconds the spin used, which was always the half that made it feel like
+   * something working rather than something loading.
+   */
   @keyframes work {
-    to {
-      transform: rotate(360deg);
+    0%, 100% {
+      transform: scale(1);
+      opacity: 0.72;
+    }
+    45% {
+      transform: scale(1.09);
+      opacity: 1;
     }
   }
 

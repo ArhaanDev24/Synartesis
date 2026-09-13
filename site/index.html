@@ -5,7 +5,9 @@
 <title>Synartesis — an undo layer for AI agents</title>
 
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect width='1024' height='1024' fill='%235e1420'/%3E%3Cg transform='translate(512 512) scale(1.72) translate(-512 -512)'%3E%3Cpath d='M663.7 331.2 A236.0 236.0 0 1 0 644.0 707.7 L597.0 638.0 A152.0 152.0 0 1 1 609.7 395.6 Z' fill='%23f6e9e5'/%3E%3Cpolygon points='663.2,633.6 582.5,616.5 656.3,725.9' fill='%23f6e9e5'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="icon" href="assets/synartesis-logo-32.png" sizes="32x32">
+<link rel="icon" href="assets/synartesis-logo-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="assets/synartesis-logo-180.png">
 
 <meta name="description" content="An agent runs twenty steps and gets step seven wrong. Synartesis records every tool call with the state it replaced, puts that state back on one command, and refuses to let an agent do unsupervised what nobody can undo.">
 <link rel="canonical" href="https://synartesis.online/">
@@ -199,10 +201,11 @@ pre code {
   letter-spacing:.23em;
   text-transform:uppercase;
 }
-.brand svg {
-  width:29px;
-  height:29px;
+.brand img {
+  width:30px;
+  height:30px;
   flex:none;
+  border-radius:3px;
 }
 .masthead nav {
   display:flex;
@@ -1444,7 +1447,7 @@ details p {
 <a class="skip" href="#main">Skip to content</a>
 <div class="site-header">
 <div class="wrap">
-<header class="masthead"><a class="brand" href="./" aria-label="Synartesis home"><svg viewBox="0 0 1024 1024" fill="none" aria-hidden="true"><g transform="translate(512 512) scale(1.72) translate(-512 -512)"><path d="M663.7 331.2 A236.0 236.0 0 1 0 644.0 707.7 L597.0 638.0 A152.0 152.0 0 1 1 609.7 395.6 Z" fill="currentColor"/><polygon points="663.2,633.6 582.5,616.5 656.3,725.9" fill="currentColor"/></g></svg>Synartesis</a>
+<header class="masthead"><a class="brand" href="./" aria-label="Synartesis home"><img src="assets/synartesis-logo-64.png" width="30" height="30" alt="" decoding="async">Synartesis</a>
 <nav aria-label="Main navigation"><a class="how-nav" href="#how-it-works">How it works</a><a class="desktop-nav" href="#desktop">Desktop</a><a href="https://github.com/ArhaanDev24/Synartesis">GitHub ↗</a><a class="nav-cta" href="install.html">Get started ↗</a>
 </nav>
 </header>

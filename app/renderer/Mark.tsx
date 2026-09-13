@@ -1,16 +1,18 @@
-import { ARROWHEAD, BOX, FRINGE, KEY, SOLID, SQUARE, STROKES, TILE, TILES } from "./logo-art.js";
+import logo from "./logo.png";
 
 /**
  * The mark: a circle that does not quite close, and an arrow going back round.
  *
- * The same glyph as the site's favicon, drawn rather than fetched so it can
- * take the ink colour of wherever it is put and move when there is something
- * to move about. `currentColor` throughout for that reason.
+ * One file, shown rather than drawn. It used to be drawn here from generated
+ * coordinates, which is a reasonable thing to do right up until the drawing
+ * and the logo are no longer the same object -- and by then there were three
+ * of them, each nearly right. `logo.png` is the logo; this shows it small and
+ * `Logo` shows it large, and neither has an opinion of its own.
  *
- * While a turn is running it goes round, slowly and unevenly -- it eases into
- * each revolution rather than sweeping at a constant rate, which reads as
- * something working rather than something loading. The two are different
- * feelings and a spinner only ever gives you the second.
+ * While a turn is running it breathes: it swells and settles on an eased two
+ * and a half seconds, which reads as something working rather than something
+ * loading. It used to spin, which stopped making sense the moment the mark
+ * acquired a frame -- a border going round and round reads as a fault.
  */
 export function Mark({
   working = false,
@@ -20,29 +22,27 @@ export function Mark({
   size?: number;
 }): React.JSX.Element {
   return (
-    <svg
+    <img
       className="mark"
       data-working={working}
-      viewBox={`0 0 ${String(BOX)} ${String(BOX)}`}
+      src={logo}
       width={size}
       height={size}
+      alt=""
       aria-hidden="true"
-      focusable="false"
-    >
-      <g className="mark-turn">
-        {/* Pulled up to fill its box: the glyph is generated at the size that
-            sits inside the meander frame, which on its own is far too timid. */}
-        <g transform="translate(512 512) scale(1.72) translate(-512 -512)">
-          <path d={SOLID} fill="currentColor" />
-          <polygon points={ARROWHEAD} fill="currentColor" />
-        </g>
-      </g>
-    </svg>
+      draggable={false}
+    />
   );
 }
 
 /**
- * The mark at full detail: the same glyph drawn as a fan of fine lines.
+ * The mark, large.
+ *
+ * The same file as `Mark`, at a size where the fringe and the frame are
+ * legible. It was drawn here from the generated coordinates until the drawing
+ * and the picture of the drawing stopped being the same thing in anybody's
+ * mind but mine -- so there is one logo now, it is a file, and both of these
+ * show it.
  *
  * One glyph, two weights, chosen by size. At twenty-two pixels five hundred
  * hairlines are a smudge, so `Mark` fills the same band instead of combing
@@ -55,52 +55,20 @@ export function Logo({
   framed = false,
 }: {
   size?: number;
+  /** Kept so callers read the same; the logo is framed either way now. */
   framed?: boolean;
 }): React.JSX.Element {
+  void framed;
   return (
-    <svg
+    <img
       className="logo"
-      viewBox={`0 0 ${String(BOX)} ${String(BOX)}`}
+      src={logo}
       width={size}
       height={size}
+      alt=""
       aria-hidden="true"
-      focusable="false"
-    >
-      {framed ? (
-        <g fill="none" stroke="currentColor" opacity="0.45">
-          <rect
-            x={SQUARE.at}
-            y={SQUARE.at}
-            width={SQUARE.side}
-            height={SQUARE.side}
-            strokeWidth="4"
-          />
-          {TILES.map(([x, y], at) => (
-            <path
-              key={at}
-              d={KEY}
-              transform={`translate(${String(x)} ${String(y)}) scale(${String(TILE)})`}
-              strokeWidth={5 / TILE}
-            />
-          ))}
-        </g>
-      ) : null}
-      <g transform={framed ? "translate(512 512) scale(0.62) translate(-512 -512)" : ""}>
-        {/* The hairs first and lighter, so the crescent sits on top of them
-            rather than being lost in them. */}
-        <g stroke="currentColor" strokeWidth="1.4" fill="none" opacity="0.3">
-          {FRINGE.map(([x1, y1, x2, y2], at) => (
-            <line key={at} x1={x1} y1={y1} x2={x2} y2={y2} />
-          ))}
-        </g>
-        <g stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.5">
-          {STROKES.map(([x1, y1, x2, y2], at) => (
-            <line key={at} x1={x1} y1={y1} x2={x2} y2={y2} />
-          ))}
-        </g>
-        <polygon points={ARROWHEAD} fill="currentColor" />
-      </g>
-    </svg>
+      draggable={false}
+    />
   );
 }
 

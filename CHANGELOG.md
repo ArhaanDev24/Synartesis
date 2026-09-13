@@ -2,6 +2,19 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.6 — 2026-09-13
+
+### Changed
+
+- **The logo is a file now, and every surface shows that file.** 0.6.5 made
+  the drawings agree; this stops there being drawings. `brand/synartesis-mark-1080.png`
+  is the logo -- the framed mark with its fringe, on its ground -- and the
+  window, the site masthead, the favicon, the touch icon and the cards all
+  display it rather than rendering their own version at their own weight.
+
+  The window's mark stops spinning while a turn runs and breathes instead: a
+  frame going round and round reads as a fault rather than as work.
+
 ## 0.6.5 — 2026-09-13
 
 ### Changed
