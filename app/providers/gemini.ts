@@ -118,6 +118,10 @@ export function toContents(history: readonly Exchange[]): Content[] {
           name: call.name,
           args: call.args,
         },
+        // On the part, not inside the call: it signs the thinking that led to
+        // the call, and this API validates its presence rather than ignoring
+        // it. Without it the second round of any tool use is a 400.
+        ...(call.signature === undefined ? {} : { thoughtSignature: call.signature }),
       });
     }
     if (parts.length > 0) {
@@ -162,16 +166,23 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
           text += said;
           ask.onText?.(said);
         }
-        for (const call of chunk.functionCalls ?? []) {
+        // The parts rather than `chunk.functionCalls`, which is the same calls
+        // with the part they arrived on thrown away -- and the signature lives
+        // on the part.
+        for (const part of chunk.candidates?.[0]?.content?.parts ?? []) {
+          const call = part.functionCall;
           // A call with no name is not a call. Gemini sends partial function
           // calls in some streaming modes, which is not a mode we ask for.
-          if (call.name === undefined) {
+          if (call?.name === undefined) {
             continue;
           }
           calls.push({
             id: call.id ?? `${INVENTED}${String(calls.length)}`,
             name: call.name,
             args: call.args ?? {},
+            ...(part.thoughtSignature === undefined
+              ? {}
+              : { signature: part.thoughtSignature }),
           });
         }
         const counted = chunk.usageMetadata;

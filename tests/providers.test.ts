@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import type Anthropic from "@anthropic-ai/sdk";
 
 import {
   anthropicEvent,
@@ -7,7 +8,12 @@ import {
   openAIEvent,
   type FakeModel,
 } from "./helpers/fake-model.js";
-import { createAnthropicProvider, toMessages as toAnthropic } from "../app/providers/anthropic.js";
+import {
+  createAnthropicProvider,
+  toMessages as toAnthropic,
+  toThoughts,
+  toTurn,
+} from "../app/providers/anthropic.js";
 import { cleanSchema, createGeminiProvider, toContents } from "../app/providers/gemini.js";
 import {
   createOpenAICompatibleProvider,
@@ -116,6 +122,85 @@ describe("Claude", () => {
     expect(isRecord(Array.isArray(blocks) ? blocks[0] : undefined) ? "tool_use" : "").toBe(
       "tool_use",
     );
+  });
+
+  it("gives the thinking back with the tool call it led to", () => {
+    // Required, not optional: with tools in play the API verifies that the
+    // thinking behind a call comes back when the call's result does. An
+    // assistant turn rebuilt without it is a 400 on the round after the first
+    // tool call -- the same failure Gemini has, in a different dialect.
+    const message: Anthropic.Message = {
+      id: "msg_1",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-5",
+      stop_reason: "tool_use",
+      stop_sequence: null,
+      stop_details: null,
+      container: null,
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_creation: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        inference_geo: null,
+        output_tokens_details: null,
+        server_tool_use: null,
+        service_tier: null,
+      },
+      content: [
+        { type: "thinking", thinking: "The file is the one to change.", signature: "sig-xyz" },
+        { type: "redacted_thinking", data: "encrypted-blob" },
+        { type: "text", text: "Writing it.", citations: null },
+        {
+          type: "tool_use",
+          id: "toolu_1",
+          name: "fs__write_file",
+          input: { path: "/x" },
+          caller: { type: "direct" },
+        },
+      ],
+    };
+
+    expect(toThoughts(message)).toEqual([
+      { kind: "thinking", text: "The file is the one to change.", signature: "sig-xyz" },
+      { kind: "redacted", data: "encrypted-blob" },
+    ]);
+
+    const turn = toTurn(message);
+    expect(turn.thoughts).toHaveLength(2);
+    // And the thinking is not mistaken for something the person should read.
+    expect(turn.text).toBe("Writing it.");
+
+    const messages = toAnthropic([
+      { role: "user", text: "change it" },
+      {
+        role: "assistant",
+        text: turn.text,
+        calls: turn.calls,
+        ...(turn.thoughts === undefined ? {} : { thoughts: turn.thoughts }),
+      },
+      { role: "tool", callId: "toolu_1", name: "fs__write_file", text: "written", failed: false },
+    ]);
+    const blocks = messages[1]?.content;
+    const kinds = (Array.isArray(blocks) ? blocks : []).map((block) =>
+      isRecord(block) ? block["type"] : "",
+    );
+    // First, and in the order they were produced. The API checks the
+    // signature against the block, so nothing may be reordered or edited.
+    expect(kinds).toEqual(["thinking", "redacted_thinking", "text", "tool_use"]);
+    const first = Array.isArray(blocks) ? blocks[0] : undefined;
+    expect(isRecord(first) ? first["signature"] : "").toBe("sig-xyz");
+  });
+
+  it("sends no thinking for a turn that did none", () => {
+    const messages = toAnthropic(AFTER_TOOLS);
+    const blocks = messages[1]?.content;
+    const kinds = (Array.isArray(blocks) ? blocks : []).map((block) =>
+      isRecord(block) ? block["type"] : "",
+    );
+    expect(kinds).not.toContain("thinking");
   });
 
   it("streams text and returns the tool call it was asked for", async () => {
@@ -272,6 +357,81 @@ describe("Gemini", () => {
     expect(JSON.stringify(back)).not.toContain("gemini-call-");
     expect(back[1]?.parts?.[0]?.functionCall?.id).toBeUndefined();
     expect(back[2]?.parts?.[0]?.functionResponse?.id).toBeUndefined();
+  });
+
+  it("hands a call's thought signature back with the call", async () => {
+    // Gemini 3 signs the reasoning behind every function call and refuses the
+    // next request outright if the signature does not come back on the part
+    // it arrived on. Drop it and a conversation dies on the round after its
+    // first successful tool call, with a 400 about thought_signature.
+    let round = 0;
+    const server = await serving(() => {
+      round += 1;
+      if (round === 1) {
+        return {
+          sse: [
+            geminiEvent({
+              candidates: [
+                {
+                  content: {
+                    role: "model",
+                    parts: [
+                      {
+                        functionCall: { name: "fs__write_file", args: { path: "/x" } },
+                        thoughtSignature: "Ct4BAdHtim9-signed",
+                      },
+                    ],
+                  },
+                },
+              ],
+            }),
+          ],
+        };
+      }
+      return {
+        sse: [geminiEvent({ candidates: [{ content: { role: "model", parts: [{ text: "done" }] } }] })],
+      };
+    });
+
+    const provider = createGeminiProvider({ apiKey: "k", baseURL: server.url });
+    const turn = await provider.respond(ask([{ role: "user", text: "write it" }]));
+    expect(turn.calls[0]?.signature).toBe("Ct4BAdHtim9-signed");
+
+    // The round that would have died: the call goes back as history, and the
+    // signature has to be on the part beside it.
+    await provider.respond(
+      ask([
+        { role: "user", text: "write it" },
+        { role: "assistant", text: "", calls: turn.calls },
+        {
+          role: "tool",
+          callId: turn.calls[0]?.id ?? "",
+          name: "fs__write_file",
+          text: "written",
+          failed: false,
+        },
+      ]),
+    );
+
+    const second = JSON.stringify(server.sent[1]);
+    expect(second).toContain("Ct4BAdHtim9-signed");
+    // On the part, not buried inside the call, which is where this API looks.
+    const contents = toContents([
+      { role: "assistant", text: "", calls: turn.calls },
+    ]);
+    expect(contents[0]?.parts?.[0]?.thoughtSignature).toBe("Ct4BAdHtim9-signed");
+    expect(contents[0]?.parts?.[0]?.functionCall?.name).toBe("fs__write_file");
+  });
+
+  it("invents nothing when there is no signature", () => {
+    const contents = toContents([
+      {
+        role: "assistant",
+        text: "",
+        calls: [{ id: "gemini-call-0", name: "fs__read_file", args: {} }],
+      },
+    ]);
+    expect(contents[0]?.parts?.[0]?.thoughtSignature).toBeUndefined();
   });
 
   it("streams text and counts thinking as output", async () => {

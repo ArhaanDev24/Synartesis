@@ -2,6 +2,30 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.11 — 2026-09-13
+
+### Fixed
+
+- **A conversation with Gemini died on the round after its first tool call.**
+  Gemini 3 signs the reasoning behind every function call it makes, and
+  refuses the next request outright if that signature does not come back on
+  the part it arrived on: `Function call is missing a thought_signature in
+  functionCall parts`. Nothing here was keeping it. The signature is now
+  carried through the loop and handed back untouched -- opaque, unread, and
+  never shown to anybody.
+- **The same failure was waiting in the Claude adapter.** Passing thinking
+  blocks back is required when tools are in play, and the adapter was
+  rebuilding each assistant turn out of its text and its tool calls alone --
+  so the first tool call would have worked and the round after it would have
+  been a 400. The thinking blocks are kept in the order they were produced,
+  signature intact, and go back at the front of the turn they belong to.
+- The loop between the two is what actually lost them, and now has a test of
+  its own: the adapters were each correct in isolation.
+
+Nothing changes for OpenAI-compatible endpoints -- Mistral, Ollama, LM Studio,
+vLLM, OpenAI itself. That protocol asks for nothing back, and inventing
+something to send would be worse than sending nothing.
+
 ## 0.6.10 — 2026-09-13
 
 ### Added

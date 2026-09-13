@@ -1,6 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import type { Ask, Exchange, Provider, ProviderTool, Reasoning, ToolCall, Turn } from "./types.js";
+import type {
+  Ask,
+  Exchange,
+  Provider,
+  ProviderTool,
+  Reasoning,
+  Thought,
+  ToolCall,
+  Turn,
+} from "./types.js";
 
 /**
  * Claude, through the official SDK.
@@ -88,6 +97,18 @@ export function toMessages(history: readonly Exchange[]): Anthropic.MessageParam
       continue;
     }
     const content: Anthropic.ContentBlockParam[] = [];
+    // Before anything else, and exactly as they arrived. Passing thinking back
+    // is required when tools are in play: the model has to be given the
+    // reasoning that led to the call when it is told what the call returned,
+    // and the signature is checked. An assistant turn that drops them is a
+    // 400 on the round after the first tool call.
+    for (const thought of entry.thoughts ?? []) {
+      content.push(
+        thought.kind === "thinking"
+          ? { type: "thinking", thinking: thought.text, signature: thought.signature }
+          : { type: "redacted_thinking", data: thought.data },
+      );
+    }
     if (entry.text !== "") {
       content.push({ type: "text", text: entry.text });
     }
@@ -108,6 +129,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * The thinking out of a finished message, in the order it was produced.
+ *
+ * Copied field by field rather than passed through as whatever the SDK
+ * happened to hand over: what goes back must be exactly these fields, and
+ * building them here means a change in the SDK's block shape is a type error
+ * rather than a 400 from the API.
+ */
+export function toThoughts(message: Anthropic.Message): Thought[] {
+  const thoughts: Thought[] = [];
+  for (const block of message.content) {
+    if (block.type === "thinking") {
+      thoughts.push({ kind: "thinking", text: block.thinking, signature: block.signature });
+    }
+    if (block.type === "redacted_thinking") {
+      thoughts.push({ kind: "redacted", data: block.data });
+    }
+  }
+  return thoughts;
+}
+
 /** What the model asked for, out of a finished message. */
 export function toTurn(message: Anthropic.Message): Turn {
   const text = message.content
@@ -123,10 +165,12 @@ export function toTurn(message: Anthropic.Message): Turn {
       // user's. Anything that is not an object is not arguments.
       args: isRecord(block.input) ? block.input : {},
     }));
+  const thoughts = toThoughts(message);
   return {
     text,
     calls,
     usage: { input: message.usage.input_tokens, output: message.usage.output_tokens },
+    ...(thoughts.length === 0 ? {} : { thoughts }),
   };
 }
 

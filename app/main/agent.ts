@@ -81,6 +81,9 @@ export async function run(options: RunOptions): Promise<readonly Exchange[]> {
       role: "assistant",
       text: turn.text,
       ...(turn.calls.length === 0 ? {} : { calls: turn.calls }),
+      // Carried, not read. A provider that signs its reasoning refuses the
+      // next round if the signature does not come back with the call.
+      ...(turn.thoughts === undefined ? {} : { thoughts: turn.thoughts }),
     });
 
     if (turn.calls.length === 0) {

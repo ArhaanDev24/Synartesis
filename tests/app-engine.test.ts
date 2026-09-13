@@ -98,6 +98,55 @@ describe("an agent talking through the proxy", () => {
     expect(write?.inputSchema["type"]).toBe("object");
   });
 
+  it("hands the model's own reasoning back to it with the tool result", async () => {
+    // Gemini signs the thinking behind every call and Claude requires the
+    // thinking blocks back when tools are in play; both refuse the round
+    // after the first tool call if the loop drops them. The adapters get this
+    // right in isolation -- this is about the loop between them, which is
+    // where it was actually lost.
+    const { engine, root } = await bench();
+    const path = join(root, "report.txt");
+    writeFileSync(path, "before\n");
+
+    const provider = scripted([
+      {
+        text: "Changing it.",
+        calls: [
+          {
+            id: "c1",
+            name: await named(engine, "write_file"),
+            args: { path, content: "after\n" },
+            signature: "gemini-thought-signature",
+          },
+        ],
+        thoughts: [{ kind: "thinking", text: "The report is the file.", signature: "sig-1" }],
+      },
+      { text: "Done.", calls: [] },
+    ]);
+
+    await run({
+      engine,
+      provider,
+      reasoning: "balanced",
+      system: "s",
+      history: [],
+      say: "change it",
+    });
+
+    const second = provider.asked[1];
+    expect(second).toBeDefined();
+    const assistant = second?.messages.find((message) => message.role === "assistant");
+    expect(assistant?.role).toBe("assistant");
+    if (assistant?.role === "assistant") {
+      expect(assistant.thoughts).toEqual([
+        { kind: "thinking", text: "The report is the file.", signature: "sig-1" },
+      ]);
+      // And the per-call token, which is a different provider's way of
+      // saying the same thing.
+      expect(assistant.calls?.[0]?.signature).toBe("gemini-thought-signature");
+    }
+  });
+
   it("journals what the model changed, and puts it back", async () => {
     const { engine, root } = await bench();
     const path = join(root, "report.txt");

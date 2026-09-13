@@ -36,6 +36,17 @@ export interface ToolCall {
   readonly name: string;
   readonly args: Record<string, unknown>;
   /**
+   * A token the provider attached to this call and expects back verbatim.
+   *
+   * Opaque on purpose: it is the provider's own record of the reasoning that
+   * produced the call, and only that provider can read it. Gemini 3 signs
+   * every function call it makes and refuses the next request outright if the
+   * signature does not come back with it -- which is how a conversation that
+   * calls one tool successfully dies on the round after. Nothing here looks
+   * inside it; it is carried and handed back.
+   */
+  readonly signature?: string;
+  /**
    * Set when the model asked for a tool but the request could not be read --
    * arguments that are not JSON, most often, which small local models produce
    * regularly. The call is still reported so the model can be told what was
@@ -53,9 +64,27 @@ export interface ToolCall {
  * provider has a flag for it, and losing that distinction teaches a model that
  * errors are just unusual prose.
  */
+/**
+ * A provider's own record of the thinking behind a turn, kept verbatim.
+ *
+ * Not for anybody to read -- the signature exists so the provider can prove
+ * the block is its own, and a single edited character invalidates it. It is
+ * here because a model that thought before calling a tool must be given that
+ * thinking back when it is told what the tool returned, or the next request
+ * is refused. Carried, never inspected, never shown.
+ */
+export type Thought =
+  | { readonly kind: "thinking"; readonly text: string; readonly signature: string }
+  | { readonly kind: "redacted"; readonly data: string };
+
 export type Exchange =
   | { readonly role: "user"; readonly text: string }
-  | { readonly role: "assistant"; readonly text: string; readonly calls?: readonly ToolCall[] }
+  | {
+      readonly role: "assistant";
+      readonly text: string;
+      readonly calls?: readonly ToolCall[];
+      readonly thoughts?: readonly Thought[];
+    }
   | {
       readonly role: "tool";
       readonly callId: string;
@@ -70,6 +99,8 @@ export interface Turn {
   readonly calls: readonly ToolCall[];
   /** What the turn cost, where the provider says. Local models report nothing. */
   readonly usage?: { readonly input: number; readonly output: number };
+  /** The provider's record of the thinking behind it, to be handed back. */
+  readonly thoughts?: readonly Thought[];
 }
 
 export interface Ask {
