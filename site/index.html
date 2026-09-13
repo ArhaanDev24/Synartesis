@@ -860,9 +860,16 @@ details p {
 }
 /* Content is visible without JavaScript. Motion only decorates an already complete page. */
 @media(prefers-reduced-motion:no-preference) {
-  a,button {
-    transition:background-color .18s,color .18s,border-color .18s;
-  }
+  html { scroll-behavior:smooth; }
+  .site-header,.guide-header { transition:box-shadow .3s var(--ease); }
+  a,button,summary { transition:background-color .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),opacity .18s var(--ease); }
+  .primary { transition:background-color .18s var(--ease),transform .2s var(--ease),box-shadow .25s var(--ease); }
+  .primary:hover { transform:translateY(-2px); box-shadow:0 14px 26px -18px #2a0d13; }
+  .primary:active { transform:translateY(0); box-shadow:none; }
+  .install-command { transition:border-color .28s var(--ease),box-shadow .28s var(--ease); }
+  .install-command button { transition:background-color .18s var(--ease),transform .16s var(--ease); }
+  .install-command button:active { transform:scale(.96); }
+  .install-command.is-copied { border-color:var(--accent); box-shadow:0 0 0 3px #f1b69633; }
 }
 @media(prefers-reduced-motion:reduce) {
   .media video {
@@ -1293,164 +1300,107 @@ details p {
   }
 }
 
-/* --- motion -------------------------------------------------------------
-   One curve, two speeds, and nothing animated but opacity, transform and
-   clip-path -- the three a browser can move without laying the page out
-   again. Every hidden state below is behind both `html.js` and the
-   no-preference guard, so a page with no JavaScript, or one belonging to
-   somebody who asked for less movement, is the finished page immediately
-   rather than a page waiting to be revealed. */
-:root {
-  --ease:cubic-bezier(.22,.61,.36,1);
-  --ease-soft:cubic-bezier(.32,.72,.3,1);
+/* Motion is an enhancement of visible content. There are no hidden resting
+   states: cancelling a Web Animation always returns the finished page. */
+:root { --ease:cubic-bezier(.22,.61,.36,1); --ease-soft:cubic-bezier(.32,.72,.3,1); }
+[id] { scroll-margin-top:104px; }
+.site-header,.guide-header { position:sticky; top:0; z-index:30; }
+.site-header { background:var(--wine); color:var(--paper); }
+.site-header .masthead { border-bottom:0; }
+.header-rule { height:1px; background:#ffffff30; }
+.site-header.is-scrolled,.guide-header.is-scrolled { box-shadow:0 16px 30px -28px #1b070c; }
+.scroll-progress { height:2px; background:var(--accent); transform:scaleX(0); transform-origin:0 50%; margin-top:-1px; }
+.install-command.is-copied { outline:2px solid var(--accent); outline-offset:3px; }
+details[open]>summary:after { content:"−"; }
+@media(prefers-reduced-motion:reduce) { .scroll-progress { display:none; } }
+
+/* The evidence never slides or blurs. Only copies, call markers and the
+   progress rule travel; the text stays in place. */
+.undo-demo { border:1px solid var(--line); background:var(--white); }
+.demo-bar { padding:17px 24px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.demo-bar .label { font-size:11px; }
+.motion-controls { display:none; gap:20px; align-items:center; }
+html.motion-ready .motion-controls { display:flex; }
+.motion-controls button { font-size:14px; border:0; padding:8px 0; background:none; text-decoration:underline; text-underline-offset:5px; }
+.motion-controls button:focus-visible { outline:3px solid var(--wine); outline-offset:5px; }
+.stage-scene { position:relative; display:grid; grid-template-columns:1fr 1fr; gap:100px; padding:42px; }
+.stage-card { position:relative; min-width:0; padding:26px; border:1px solid var(--line); background:var(--paper); }
+.stage-card .label { color:var(--muted); font-size:11px; }
+.stage-card h3 { font:19px var(--mono); margin:16px 0 22px; }
+.stage-row { display:flex; justify-content:space-between; gap:18px; font:18px/1.8 var(--mono); }
+.stage-value { display:grid; }
+.stage-value span { grid-area:1/1; }
+.value-changed { opacity:0; color:var(--wine); }
+.stage-card .stage-muted { color:var(--muted); }
+.stage-result { margin-top:20px; padding-top:14px; border-top:1px solid var(--line); color:var(--green); font-size:16px; }
+.journal-card { background:#eae1d6; }
+.journal-card .stage-result { color:var(--wine); }
+.travel-copy { position:absolute; z-index:2; top:106px; right:26px; left:auto; background:var(--wine); color:var(--paper); padding:8px 12px; font:16px var(--mono); opacity:0; pointer-events:none; }
+.undo-copy { left:auto; right:26px; background:var(--green); }
+.stage-arrow { position:absolute; left:calc(50% - 28px); top:50%; color:var(--wine); font:42px var(--serif); }
+.demo-steps { position:relative; display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid var(--line); }
+.demo-steps>div { padding:19px 24px; }
+.demo-steps>div+div { border-left:1px solid var(--line); }
+.demo-steps .label { color:var(--wine); font-size:11px; display:block; margin-bottom:6px; }
+.demo-steps p { font-size:16px; }
+.stage-progress { position:absolute; top:-2px; left:0; width:33.333%; height:3px; background:var(--wine); transform:translateX(200%); }
+.demo-caption { padding:20px 24px; border-top:1px solid var(--line); font-size:16px; color:var(--muted); }
+.recording-disclosure { margin-top:25px; border-top:1px solid var(--line); }
+.recording-disclosure summary { font-size:16px; }
+.recording-disclosure .media { margin-top:22px; max-width:900px; }
+.proxy-capture { display:block; font:11px/1.6 var(--mono); color:var(--pale); }
+.capture-mark { display:inline-block; width:7px; height:7px; margin-right:7px; background:var(--accent); }
+.flow .proxy { display:block; }
+.flow .arrow { position:relative; }
+.call-packet { position:absolute; left:0; top:-4px; width:7px; height:7px; background:var(--accent); opacity:0; }
+.diagram-control { border:0; background:none; padding:8px 0; text-decoration:underline; text-underline-offset:4px; color:var(--pale); font:11px var(--mono); cursor:pointer; }
+html:not(.motion-ready) .diagram-control { display:none; }
+.class-track { height:24px; margin:22px 0 10px; position:relative; }
+.class-track:before { content:''; position:absolute; top:11px; left:5px; right:5px; height:1px; background:var(--line); }
+.class-packet { position:absolute; width:9px; height:9px; left:0; top:7px; background:var(--wine); transform:translateX(var(--rest,0px)); }
+.class-offset { border:1px solid var(--wine); background:var(--paper); }
+.class-gate { position:absolute; top:1px; bottom:1px; left:70%; width:2px; background:var(--wine); }
+.classification .motion-controls button { text-align:left; font-size:14px; }
+.fret.meander-built { display:flex; height:24px; background:none; }
+.meander-unit { position:relative; flex:1; height:24px; }
+.meander-unit i { position:absolute; display:block; background:var(--wine); opacity:.45; }
+/* Last deliberately. Settling must beat every wipe, including headings and
+   arrows; it must finish states without waiting for a rendering lifecycle. */
+html.js.settled .reveal,html.js.settled .reveal-head,
+html.js.settled .architecture .arrow,html.js.settled .gallery-image img,
+html.js.settled .diff div { opacity:1!important; transform:none!important; clip-path:none!important; transition:none!important; animation:none!important; }
+@media(max-width:800px) {
+  .stage-scene { padding:26px; gap:45px; }
+  .stage-card { padding:20px; }
+  .stage-row { font-size:16px; }
+  .stage-arrow { font-size:30px; left:calc(50% - 14px); }
+  .demo-steps>div { padding:18px; }
 }
-[id] {
-  scroll-margin-top:96px;
+@media(max-width:600px) {
+  .demo-bar { align-items:flex-start; padding:16px 20px; flex-direction:column; gap:5px; }
+  .motion-controls { gap:24px; }
+  .stage-scene { padding:22px; grid-template-columns:1fr; gap:36px; }
+  .stage-card { padding:20px; }
+  .stage-card h3 { margin:12px 0 14px; font-size:17px; }
+  .stage-row { font-size:16px; }
+  .stage-result { margin-top:14px; padding-top:10px; }
+  .stage-arrow { left:auto; right:34px; top:calc(50% - 24px); transform:rotate(90deg); }
+  .demo-steps { grid-template-columns:1fr; }
+  .demo-steps>div { padding:14px 20px; }
+  .demo-steps>div+div { border-left:0; border-top:1px solid var(--line); }
+  .stage-progress { display:none; }
+  .demo-caption { padding:18px 20px; }
+  .proxy-capture { font-size:9px; }
+  .flow .proxy span { display:block; }
+  .flow .proxy .capture-mark { display:inline-block; width:5px; height:5px; margin-right:3px; }
+  .class-track { margin-top:20px; }
 }
-.site-header,.guide-header {
-  position:sticky;
-  top:0;
-  z-index:30;
-}
-.site-header {
-  background:var(--wine);
-  color:var(--paper);
-}
-.site-header .masthead {
-  border-bottom:0;
-}
-.header-rule {
-  height:1px;
-  background:#ffffff30;
-}
-.site-header.is-scrolled,.guide-header.is-scrolled {
-  box-shadow:0 16px 30px -28px #1b070c;
-}
-.scroll-progress {
-  height:2px;
-  background:var(--accent);
-  transform:scaleX(0);
-  transform-origin:0 50%;
-  margin-top:-1px;
-}
-@media(prefers-reduced-motion:no-preference) {
-  html {
-    scroll-behavior:smooth;
-  }
-  .site-header,.guide-header {
-    transition:box-shadow .3s var(--ease);
-  }
-  a,button,summary {
-    transition:background-color .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),opacity .18s var(--ease);
-  }
-  .primary {
-    transition:background-color .18s var(--ease),transform .2s var(--ease),box-shadow .25s var(--ease);
-  }
-  .primary:hover {
-    transform:translateY(-2px);
-    box-shadow:0 14px 26px -18px #2a0d13;
-  }
-  .primary:active {
-    transform:translateY(0);
-    box-shadow:none;
-  }
-  .install-command {
-    transition:border-color .28s var(--ease),box-shadow .28s var(--ease);
-  }
-  .install-command button {
-    transition:background-color .18s var(--ease),transform .16s var(--ease);
-  }
-  .install-command button:active {
-    transform:scale(.96);
-  }
-  .install-command.is-copied {
-    border-color:var(--accent);
-    box-shadow:0 0 0 3px #f1b69633;
-  }
-  summary:after {
-    transition:transform .3s var(--ease);
-  }
-  details[open] p {
-    animation:lift .34s var(--ease) both;
-  }
-  .scroll-progress {
-    transition:transform .1s linear;
-  }
-  @keyframes lift {
-    from {
-      opacity:0;
-      transform:translateY(-6px);
-    }
-    to {
-      opacity:1;
-      transform:none;
-    }
-  }
-  html.js .reveal {
-    opacity:0;
-    transform:translateY(18px);
-  }
-  html.js .reveal.is-in {
-    opacity:1;
-    transform:none;
-    transition:opacity .62s var(--ease) var(--d,0ms),transform .62s var(--ease) var(--d,0ms);
-  }
-  /* A heading arrives from under its own baseline rather than fading in,
-     which is the one place this page spends a little more time. */
-  html.js .reveal-head {
-    opacity:0;
-    clip-path:inset(0 0 100% 0);
-    transform:translateY(10px);
-  }
-  html.js .reveal-head.is-in {
-    opacity:1;
-    clip-path:inset(0 0 -10% 0);
-    transform:none;
-    transition:opacity .5s var(--ease) var(--d,0ms),clip-path .85s var(--ease-soft) var(--d,0ms),transform .85s var(--ease-soft) var(--d,0ms);
-  }
-  /* The net, below, arriving somewhere that cannot animate: a suspended tab
-     freezes a transition where it stands, so the class alone would leave the
-     page exactly as blank as it was. This finishes instantly instead. */
-  html.js.settled .reveal,
-  html.js.settled .reveal-head {
-    opacity:1;
-    transform:none;
-    clip-path:none;
-    transition:none;
-  }
-}
-@media(prefers-reduced-motion:no-preference) {
-  .gallery-controls button {
-    transition:background-color .2s var(--ease),color .2s var(--ease),transform .16s var(--ease);
-  }
-  .gallery-controls button:active {
-    transform:translateY(1px);
-  }
-  .gallery-image img {
-    transition:opacity .3s var(--ease);
-  }
-  .gallery-image.is-swapping img {
-    opacity:.15;
-  }
-  /* The line is drawn rather than scaled, so the chevron on the end of it
-     keeps its shape while it arrives. */
-  html.js .architecture .arrow {
-    clip-path:inset(0 100% 0 0);
-  }
-  html.js .architecture.is-in .arrow {
-    clip-path:inset(0 -2px 0 0);
-    transition:clip-path .9s var(--ease-soft) .12s;
-  }
-  .example-plan {
-    animation:lift .34s var(--ease) both;
-  }
-  .diff div {
-    transition:opacity .28s var(--ease);
-  }
-  .diff.is-changing div {
-    opacity:.25;
-  }
-}
+/* Focus is not decoration and is not behind the motion guard: somebody who
+   asked for less movement still has to be able to see where they are. The
+   browser's own ring is kept where it is enough and strengthened where the
+   contrast against the oxblood is not. */
+:focus-visible { outline:3px solid var(--wine); outline-offset:3px; }
+.site-header :focus-visible,.guide-header :focus-visible,.closing :focus-visible { outline-color:var(--accent); }
 </style>
 <script>document.documentElement.classList.add('js')</script>
 <body>
@@ -1506,8 +1456,8 @@ details p {
 </div>
 </div>
 </section>
-<div class="architecture" aria-label="Your agent sends MCP calls through Synartesis to your tools. Synartesis keeps a local SQLite journal."><span class="label">Between intent<br>and consequence</span>
-<div class="flow" aria-hidden="true"><span>Your agent</span><span class="arrow"></span><span class="proxy"><strong>Synartesis</strong><span>+ local journal</span></span><span class="arrow"></span><span>Your tools &amp; systems</span>
+<div class="architecture" data-motion="proxy" aria-label="Your agent sends MCP calls through Synartesis to your tools. Synartesis keeps a local SQLite journal."><span class="label">Between intent<br>and consequence<br><button class="diagram-control" type="button" data-motion-play>Replay the path ↶</button></span>
+<div class="flow" aria-hidden="true"><span>Your agent</span><span class="arrow"><i class="call-packet"></i></span><span class="proxy"><strong>Synartesis</strong><span class="proxy-capture"><i class="capture-mark"></i>Capture → journal</span></span><span class="arrow"><i class="call-packet"></i></span><span>Your tools &amp; systems</span>
 </div>
 </div>
 </div>
@@ -1515,16 +1465,21 @@ details p {
 </div>
 
 <section class="section wrap" id="proof">
-<div class="proof-layout">
-<div class="proof-copy"><span class="eyebrow">01 / The proof</span>
-<h2>Twenty steps.<br>Taken back.</h2>
-<p>A real run against a toy CRM. Wrong records edited. A record deleted. The reversible calls put back. The invoice email held for approval, because nobody can un-send it.</p><a class="text-link" href="undo-run.mp4">Watch the original recording ↗</a>
+<div class="section-head"><div><span class="eyebrow">01 / The order matters</span><h2>Before the write.<br>A way back.</h2></div><p class="lede">First, keep the value that is there. Then let the agent change it. When you undo, that captured value is what comes back.</p></div>
+<figure class="undo-demo" data-motion="undo">
+<div class="demo-bar"><span class="label">A file, a journal, a way back</span><div class="motion-controls"><button type="button" data-motion-play>Replay sequence ↶</button><button type="button" data-motion-pause hidden>Pause sequence</button></div></div>
+<div class="stage-scene" aria-hidden="true">
+<div class="stage-card system-card"><span class="label">01 / Your file</span><h3>report.txt</h3><div class="stage-row"><span>North</span><span class="stage-value"><span class="value-original">412,800</span><span class="value-changed">0</span></span></div><div class="stage-row stage-muted"><span>South</span><span>288,400</span></div><div class="stage-result">↶ Put back from the captured state</div><span class="travel-copy">412,800 →</span></div>
+<span class="stage-arrow">⇄</span>
+<div class="stage-card journal-card"><span class="label">02 / Local journal</span><h3>Before the write</h3><div class="journal-copy"><div class="stage-row"><span>North</span><span>412,800</span></div><div class="stage-row stage-muted"><span>South</span><span>288,400</span></div><div class="stage-result">Prior state kept for the undo</div></div><span class="travel-copy undo-copy">↶ 412,800</span></div>
 </div>
-<figure class="media"><video controls playsinline preload="none" data-poster="undo-run.jpg" width="1920" height="1080" aria-label="Recorded CRM demonstration of undo and an invoice email held for approval"><source src="undo-run.mp4" type="video/mp4"></video><img class="motion-poster" src="undo-run.jpg" alt="Terminal recording: reversible CRM calls are taken back, and an invoice email is held for approval." loading="lazy" width="1920" height="1080">
+<div class="demo-steps"><span class="stage-progress" aria-hidden="true"></span><div><span class="label">01 / Capture</span><p>Keep North: 412,800.</p></div><div><span class="label">02 / Change</span><p>The agent writes North: 0.</p></div><div><span class="label">03 / Put back</span><p>Restore North: 412,800.</p></div></div>
+<figcaption class="demo-caption">An illustration, not a live run. The journal keeps the original value before the write. Undo checks for later changes before restoring it; South stays unchanged.</figcaption>
+</figure>
+<details class="recording-disclosure"><summary>Watch the evidence: twenty real calls against a toy CRM</summary><figure class="media"><video controls playsinline preload="none" data-poster="undo-run.jpg" width="1920" height="1080" aria-label="Recorded CRM demonstration of undo and an invoice email held for approval"><source src="undo-run.mp4" type="video/mp4"></video><img class="motion-poster" src="undo-run.jpg" alt="Terminal recording: reversible CRM calls are taken back, and an invoice email is held for approval." loading="lazy" width="1920" height="1080">
 <figcaption><span>Real tools. A real journal. A toy CRM.</span><a href="undo-run.mp4">Open recording ↗</a>
 </figcaption>
-</figure>
-</div>
+</figure></details>
 </section>
 <section class="section desktop-section" id="desktop">
 <div class="wrap">
@@ -1570,22 +1525,22 @@ details p {
 <p class="lede">You define what each tool does and how to take it back. Synartesis enforces that policy. An unknown tool is treated as irreversible, so it waits for a person.</p>
 </div>
 <div class="classifications">
-<article class="classification"><span class="class-symbol" aria-hidden="true">◦</span>
+<article class="classification" data-motion="class" data-kind="readonly" data-manual><span class="class-symbol" aria-hidden="true">◦</span>
 <h3>Readonly</h3>
 <p>A lookup, a search, a list. Nothing changes.</p><b>Recorded and forwarded.</b>
-</article>
-<article class="classification"><span class="class-symbol" aria-hidden="true">↶</span>
+<div class="class-track" aria-hidden="true"><i class="class-packet"></i></div><div class="motion-controls"><button type="button" data-motion-play aria-label="Watch a readonly call">Watch this call ↶</button></div></article>
+<article class="classification" data-motion="class" data-kind="reversible" data-manual><span class="class-symbol" aria-hidden="true">↶</span>
 <h3>Reversible</h3>
 <p>The state before the write is captured and kept.</p><b>Prior state restored on undo.</b>
-</article>
-<article class="classification"><span class="class-symbol" aria-hidden="true">≈</span>
+<div class="class-track" aria-hidden="true"><i class="class-packet"></i></div><div class="motion-controls"><button type="button" data-motion-play aria-label="Watch a reversible call">Watch this call ↶</button></div></article>
+<article class="classification" data-motion="class" data-kind="compensable" data-manual><span class="class-symbol" aria-hidden="true">≈</span>
 <h3>Compensable</h3>
 <p>A second action offsets the first. It is not an exact rewind.</p><b>Offset on undo.</b>
-</article>
-<article class="classification"><span class="class-symbol" aria-hidden="true">⊣</span>
+<div class="class-track" aria-hidden="true"><i class="class-packet"></i><i class="class-packet class-offset"></i></div><div class="motion-controls"><button type="button" data-motion-play aria-label="Watch a compensable call">Watch this call ↶</button></div></article>
+<article class="classification" data-motion="class" data-kind="irreversible" data-manual><span class="class-symbol" aria-hidden="true">⊣</span>
 <h3>Irreversible</h3>
 <p>An email sent. A message seen. No honest inverse.</p><b>Held for human approval.</b>
-</article>
+<div class="class-track" aria-hidden="true"><i class="class-packet"></i><i class="class-gate"></i></div><div class="motion-controls"><button type="button" data-motion-play aria-label="Watch an irreversible call">Watch this call ↶</button></div></article>
 </div>
 <div class="sequence">
 <div class="sequence-intro">
@@ -1634,7 +1589,7 @@ details p {
 </div>
 </div>
 </section>
-<section class="section wrap">
+<section class="section wrap" id="terminal">
 <div class="cli-grid">
 <div><span class="eyebrow">04 / Under the window</span>
 <h2>The terminal<br>is still home.</h2>
@@ -1685,7 +1640,7 @@ details p {
 </section>
 <div class="fret" aria-hidden="true">
 </div>
-<section class="dark closing">
+<section class="dark closing" id="closing">
 <div class="wrap closing-inner">
 <div><span class="eyebrow">ΣΥΝΑΡΤΗΣΙΣ · A fastening together</span>
 <h2>Keep hold of<br>the other end.</h2>
@@ -1745,27 +1700,14 @@ for (const button of document.querySelectorAll('[data-screen]')) {
    const image = document.getElementById('desktop-image');
    const path = 'assets/'+screen.file+'-v1.png';
    document.getElementById('screen-full').href = path;
-   // Fetched before it is shown, so the panel fades between two pictures
-   // rather than emptying and filling again.
-   image.parentElement.classList.add('is-swapping');
-   const next = new Image();
-   next.onload = next.onerror = () => {
-     image.src = path; image.alt = screen.alt;
-     image.parentElement.classList.remove('is-swapping');
-   };
-   next.src = path;
+   image.src = path; image.alt = screen.alt;
    document.getElementById('screen-label').textContent = screen.label;
    document.getElementById('screen-caption').textContent = screen.caption;
    document.getElementById('gallery-announcement').textContent = screen.label+'. '+screen.caption;
  });
 }
 const diff = document.getElementById('example-diff');
-// The diff is the one thing on this page that changes while you watch it, so
-// it fades through rather than being swapped underneath you.
-function setDiff(html) {
-  diff.classList.add('is-changing');
-  setTimeout(() => { diff.innerHTML = html; diff.classList.remove('is-changing'); }, 180);
-}
+function setDiff(html) { diff.innerHTML = html; }
 const undo = document.getElementById('example-undo');
 const plan = document.getElementById('example-plan');
 let restored = false;
@@ -1812,85 +1754,188 @@ motion.addEventListener('change', () => { if (!motion.matches) document.querySel
      Vercel and only after the two features are switched on for the project.
      Anywhere else they are a pair of deferred requests that 404 and change
      nothing on the page. No cookies, no cross-site identifier. -->
-<script defer src="/_vercel/insights/script.js"></script>
-<script defer src="/_vercel/speed-insights/script.js"></script>
+
 
 <script>
-/* Motion, added on top of a page that is already complete. The observer only
-   ever adds a class; the hidden state it reveals exists solely under the
-   no-preference guard, so with motion turned down this code runs and changes
-   nothing anybody can see. */
-(function(){
-  const marked = [];
-  for (const el of document.querySelectorAll('h1, .section-head h2, .closing h2')) { el.classList.add('reveal-head'); marked.push(el); }
-  for (const el of document.querySelectorAll('.hero .eyebrow, .hero .intro, .hero .install-command, .hero .install-note, .example,.architecture,.proof-copy > *, .media,.desktop-section .section-head > *, .gallery-controls, .gallery-image, .gallery-caption, .desktop-foot > *,.section-head > *, .classification, .sequence h3, .sequence-intro, .steps li,.terminal, .terminal-summary, .cli-grid .commands, .cli-grid .text-link, .limits details,.closing-inner > *')) {
-    if (!el.classList.contains('reveal-head')) { el.classList.add('reveal'); marked.push(el); }
-  }
-  marked.sort((a,b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
-
-  // The stagger is read from the page rather than written into the markup:
-  // each element waits on the marked ones before it under the same parent.
-  const counted = new Map();
-  for (const el of marked) {
-    const at = counted.get(el.parentElement) || 0;
-    counted.set(el.parentElement, at + 1);
-    if (at) el.style.setProperty('--d', Math.min(at, 5) * 70 + 'ms');
-  }
-
-  const show = el => el.classList.add('is-in');
-  if (!('IntersectionObserver' in window)) { marked.forEach(show); return; }
-  const watcher = new IntersectionObserver((entries, self) => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) { show(entry.target); self.unobserve(entry.target); }
+/* Visible by default. Observe unmasked sections, never an element's own
+   clip-path: Chrome includes that mask in its intersection measurements. */
+(() => {
+  const root = document.documentElement;
+  const preference = matchMedia('(prefers-reduced-motion: no-preference)');
+  const active = new Set(), reveals = new Set(), scenes = new Map();
+  let seen = false, observer;
+  const allowed = () => preference.matches && !document.hidden;
+  const animate = (element, frames, duration, delay = 0) => {
+    if (!element || !allowed() || !element.animate) return null;
+    const animation = element.animate(frames.map(frame => ({easing:'cubic-bezier(.22,.61,.36,1)',...frame})), {duration, delay, fill:'both', easing:'linear'});
+    active.add(animation);
+    animation.finished.then(() => active.delete(animation), () => active.delete(animation));
+    return animation;
+  };
+  function finish(scene) {
+    const running = scenes.get(scene) || [];
+    scenes.delete(scene); running.forEach(a => a.cancel());
+    scene.dataset.state = 'complete';
+    const pause = scene.querySelector('[data-motion-pause]');
+    if (pause) {
+      const focused = document.activeElement === pause;
+      pause.hidden = true; pause.textContent = 'Pause sequence';
+      if (focused) scene.querySelector('[data-motion-play]')?.focus({preventScroll:true});
     }
-  // Threshold zero, deliberately. A heading that arrives from behind a mask
-  // is clipped to nothing until it does, and Chrome measures the clip: it
-  // reports the element as intersecting with an intersection rect of zero
-  // area, so any threshold above nothing is a heading that waits forever.
-  }, { rootMargin: '0px 0px -6% 0px', threshold: 0 });
-  for (const el of marked) watcher.observe(el);
+  }
+  function settle() {
+    root.classList.add('settled');
+    observer?.disconnect();
+    scenes.forEach((_, scene) => finish(scene));
+    active.forEach(a => a.cancel()); active.clear(); reveals.clear();
+    document.querySelectorAll('video').forEach(video => video.pause());
+  }
+  function reveal(section) {
+    if (!allowed() || root.classList.contains('settled')) return;
+    const targets = [...section.querySelectorAll('h2,.section-head .lede,.proof-copy>p,.steps li')];
+    targets.forEach((element, i) => {
+      const heading = element.tagName === 'H2';
+      element.classList.add(heading ? 'reveal-head' : 'reveal');
+      const frames = heading
+        ? [{opacity:1,clipPath:'inset(0 0 100% 0)',transform:'translateY(8px)'},{opacity:1,clipPath:'inset(0 0 -10% 0)',transform:'none'}]
+        : [{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}];
+      const a = animate(element, frames, heading ? 760 : 520, Math.min(i,3)*60);
+      if (a) { reveals.add(a); a.finished.then(() => { a.cancel(); reveals.delete(a); }, () => reveals.delete(a)); }
+    });
+  }
+  /* Scene frames are added below. Each is finite, replayable, and cancelled
+     to an informative still when it leaves the viewport. */
+  const builders = {};
+  const fade = (points) => points.map(([offset,opacity]) => ({offset,opacity}));
+  builders.undo = scene => {
+    const source = scene.querySelector('.system-card'), journal = scene.querySelector('.journal-card');
+    const from = source.getBoundingClientRect(), to = journal.getBoundingClientRect();
+    const x = to.left-from.left, y = to.top-from.top, duration = 7600;
+    const a = (selector, frames) => animate(scene.querySelector(selector),frames,duration);
+    return [
+      a('.travel-copy:not(.undo-copy)',[
+        {offset:0,opacity:0,transform:'translate(0,0)'},{offset:.08,opacity:1,transform:'translate(0,0)'},
+        {offset:.24,opacity:1,transform:`translate(${x}px,${y}px)`},{offset:.28,opacity:0,transform:`translate(${x}px,${y}px)`},{offset:1,opacity:0}]),
+      a('.journal-copy',fade([[0,0],[.22,0],[.28,1],[1,1]])),
+      a('.value-original',fade([[0,1],[.35,1],[.40,0],[.72,0],[.78,1],[1,1]])),
+      a('.value-changed',fade([[0,0],[.35,0],[.40,1],[.72,1],[.78,0],[1,0]])),
+      a('.undo-copy',[
+        {offset:0,opacity:0,transform:'translate(0,0)'},{offset:.58,opacity:0,transform:'translate(0,0)'},
+        {offset:.62,opacity:1,transform:'translate(0,0)'},{offset:.76,opacity:1,transform:`translate(${-x}px,${-y}px)`},
+        {offset:.80,opacity:0,transform:`translate(${-x}px,${-y}px)`},{offset:1,opacity:0}]),
+      a('.system-card .stage-result',fade([[0,0],[.78,0],[.84,1],[1,1]])),
+      a('.stage-progress',[{offset:0,transform:'translateX(0)'},{offset:.30,transform:'translateX(0)'},{offset:.36,transform:'translateX(100%)'},{offset:.57,transform:'translateX(100%)'},{offset:.64,transform:'translateX(200%)'},{offset:1,transform:'translateX(200%)'}])
+    ];
+  };
+  builders.proxy = scene => {
+    const arrows = [...scene.querySelectorAll('.arrow')];
+    return arrows.map((arrow,i) => {
+      const x = arrow.getBoundingClientRect().width-7;
+      return animate(arrow.querySelector('.call-packet'),[
+        {offset:0,opacity:0,transform:'translateX(0)'},{offset:.05,opacity:1,transform:'translateX(0)'},
+        {offset:.85,opacity:1,transform:`translateX(${x}px)`},{offset:1,opacity:0,transform:`translateX(${x}px)`}],1100,i*2000);
+    }).concat(animate(scene.querySelector('.capture-mark'),[{opacity:0,transform:'scale(.8)'},{opacity:1,transform:'scale(1.5)'},{opacity:1,transform:'scale(1)'}],700,1100));
+  };
+  builders.class = scene => {
+    const track = scene.querySelector('.class-track'), width = track.getBoundingClientRect().width-9;
+    const type = scene.dataset.kind, packet = scene.querySelector('.class-packet');
+    const end = type === 'reversible' ? 0 : type === 'irreversible' ? width*.7-9 : width;
+    packet.style.setProperty('--rest',end+'px');
+    const frames = type === 'reversible'
+      ? [{transform:'translateX(0)'},{offset:.45,transform:`translateX(${width}px)`},{offset:.6,transform:`translateX(${width}px)`},{transform:'translateX(0)'}]
+      : [{transform:'translateX(0)'},{offset:.65,transform:`translateX(${end}px)`},{transform:`translateX(${end}px)`}];
+    const result = [animate(packet,frames,2000)];
+    if (type === 'compensable') {
+      packet.style.setProperty('--rest',width/2-5+'px');
+      result[0]?.cancel(); result[0] = animate(packet,[{transform:'translateX(0)'},{transform:`translateX(${width/2-5}px)`}],1700);
+      const offset = scene.querySelector('.class-offset'); offset.style.setProperty('--rest',width/2+5+'px');
+      result.push(animate(offset,[{transform:`translateX(${width}px)`},{transform:`translateX(${width/2+5}px)`}],1700));
+    }
+    return result;
+  };
+  const fret = document.querySelector('.fret');
+  if (fret) {
+    // Each straight segment grows from its own origin. The pen actually
+    // turns the corners; no stroke-dashoffset paint loop or library is needed.
+    const parts = [ [0,22,94,2,'X','left'],[94,2,2,22,'Y','bottom'],[24,2,70,2,'X','right'],[24,2,2,13,'Y','top'],[24,13,46,2,'X','left'],[70,8,2,7,'Y','bottom'],[45,8,25,2,'X','right'] ];
+    for(let unit=0;unit<12;unit++) {
+      const group = document.createElement('span'); group.className = 'meander-unit';
+      for (const [left,top,width,height,axis,origin] of parts) {
+        const line = document.createElement('i'); line.dataset.axis = axis;
+        line.style.cssText = `left:${left}%;top:${top}px;width:${width}%;height:${height}px;transform-origin:${origin};`;
+        group.append(line);
+      }
+      fret.append(group);
+    }
+    fret.classList.add('meander-built'); fret.dataset.motion = 'meander';
+    builders.meander = scene => [...scene.querySelectorAll('i')].map((line,i) => animate(line,[{transform:`scale${line.dataset.axis}(0)`},{transform:`scale${line.dataset.axis}(1)`}],120,i*25));
+  };
 
-  /*
-   * And a net under all of it.
-   *
-   * An observer only fires while the page is actually being rendered, and a
-   * page loaded in a tab nobody is looking at is not: the browser suspends
-   * the lifecycle, the callback never runs, and every hidden state stays
-   * hidden. That is fine when somebody switches to the tab, because it fires
-   * then. It is not fine for anything that renders a page without showing it.
-   * If three seconds pass and nothing at all has arrived, the page is shown
-   * whole and the observer is let go.
-   */
-  setTimeout(() => {
-    if (document.querySelector('.is-in')) return;
-    watcher.disconnect();
-    // `settled` rather than the arriving class: where this net is needed,
-    // nothing can animate, so the states are finished rather than started.
-    document.documentElement.classList.add('settled');
-    marked.forEach(show);
-  }, 3000);
-})();
-
-// The header stays, so the section links in it keep working six thousand
-// pixels down. The rule under it appears only once there is something above.
-(function(){
-  const header = document.querySelector('.site-header, .guide-header');
-  if (!header) return;
-  const bar = document.querySelector('.scroll-progress');
+  function play(scene) {
+    if (!allowed()) return;
+    finish(scene);
+    const animations = (builders[scene.dataset.motion]?.(scene) || []).filter(Boolean);
+    if (!animations.length) return;
+    scene.dataset.played = 'true'; scene.dataset.state = 'running';
+    scenes.set(scene, animations);
+    const pause = scene.querySelector('[data-motion-pause]');
+    if (pause) pause.hidden = false;
+    Promise.all(animations.map(a => a.finished)).then(() => {
+      if (scenes.get(scene) === animations) finish(scene);
+    }, () => {});
+  }
+  document.querySelectorAll('[data-motion-play]').forEach(button => button.addEventListener('click', () => play(button.closest('[data-motion]'))));
+  document.querySelectorAll('[data-motion-pause]').forEach(button => button.addEventListener('click', () => {
+    const scene = button.closest('[data-motion]'), paused = scene.dataset.state === 'paused';
+    (scenes.get(scene) || []).forEach(a => paused ? a.play() : a.pause());
+    scene.dataset.state = paused ? 'running' : 'paused';
+    button.textContent = paused ? 'Pause sequence' : 'Resume sequence';
+  }));
+  function observe() {
+    root.classList.toggle('motion-ready', preference.matches);
+    if (!allowed() || !('IntersectionObserver' in window)) { settle(); return; }
+    observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const element = entry.target.matches('.stage-scene') ? entry.target.closest('[data-motion]') : entry.target;
+        if (!entry.isIntersecting) { if (scenes.has(element)) finish(element); continue; }
+        seen = true;
+        if (element.matches('section') && !element.dataset.revealed) { element.dataset.revealed = 'true'; reveal(element); }
+        if (element.dataset.motion && !element.dataset.played && !element.hasAttribute('data-manual')) play(element);
+      }
+    }, {threshold:0, rootMargin:'0px 0px -8% 0px'});
+    document.querySelectorAll('main>section,[data-motion]').forEach(el => observer.observe(el.dataset.motion === 'undo' ? el.querySelector('.stage-scene') : el));
+  }
+  observe();
+  // A partial reveal is not a reason to abandon the net. Hiding finishes
+  // everything synchronously; returning cannot resume a frozen transition.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) settle(); });
+  addEventListener('pagehide', settle);
+  addEventListener('pageshow', event => { if (event.persisted) settle(); });
+  document.addEventListener('freeze', settle);
+  document.addEventListener('resume', settle);
+  let wasBlurred = false;
+  addEventListener('blur', () => { wasBlurred = true; });
+  addEventListener('focus', () => { if (wasBlurred) settle(); });
+  setTimeout(() => { if (!seen || document.hidden) settle(); }, 3000);
+  document.addEventListener('focusin', event => {
+    reveals.forEach(a => { if (a.effect?.target.contains(event.target)) a.cancel(); });
+  });
+  preference.addEventListener('change', () => { settle(); root.classList.toggle('motion-ready', preference.matches); });
+  addEventListener('resize', () => scenes.forEach((_, scene) => finish(scene)), {passive:true});
+  const header = document.querySelector('.site-header,.guide-header'), bar = document.querySelector('.scroll-progress');
   let queued = false;
-  function update() {
+  function progress() {
     queued = false;
-    const y = window.scrollY;
-    header.classList.toggle('is-scrolled', y > 6);
-    if (bar) {
-      const far = document.documentElement.scrollHeight - window.innerHeight;
-      bar.style.transform = 'scaleX(' + (far > 0 ? Math.min(y / far, 1) : 0) + ')';
+    header?.classList.toggle('is-scrolled', scrollY > 6);
+    if (bar && allowed()) {
+      const distance = document.documentElement.scrollHeight-innerHeight;
+      bar.style.transform = `scaleX(${distance > 0 ? Math.min(scrollY/distance,1) : 0})`;
     }
   }
-  addEventListener('scroll', () => {
-    if (!queued) { queued = true; requestAnimationFrame(update); }
-  }, { passive: true });
-  update();
+  addEventListener('scroll', () => { if (!queued && allowed()) { queued = true; requestAnimationFrame(progress); } }, {passive:true});
+  progress();
 })();
 </script>
+<script defer src="/_vercel/insights/script.js"></script>
+<script defer src="/_vercel/speed-insights/script.js"></script>
 </body></html>

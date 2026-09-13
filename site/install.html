@@ -365,9 +365,16 @@ details p {
 }
 /* Content is visible without JavaScript. Motion only decorates an already complete page. */
 @media(prefers-reduced-motion:no-preference) {
-a, button {
-    transition:background-color .18s,color .18s,border-color .18s;
-  }
+  html { scroll-behavior:smooth; }
+  .site-header,.guide-header { transition:box-shadow .3s var(--ease); }
+  a,button,summary { transition:background-color .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),opacity .18s var(--ease); }
+  .primary { transition:background-color .18s var(--ease),transform .2s var(--ease),box-shadow .25s var(--ease); }
+  .primary:hover { transform:translateY(-2px); box-shadow:0 14px 26px -18px #2a0d13; }
+  .primary:active { transform:translateY(0); box-shadow:none; }
+  .install-command { transition:border-color .28s var(--ease),box-shadow .28s var(--ease); }
+  .install-command button { transition:background-color .18s var(--ease),transform .16s var(--ease); }
+  .install-command button:active { transform:scale(.96); }
+  .install-command.is-copied { border-color:var(--accent); box-shadow:0 0 0 3px #f1b69633; }
 }
 @media(min-width:1440px) {
 .wrap {
@@ -648,132 +655,26 @@ a, button {
   }
 }
 
-/* --- motion -------------------------------------------------------------
-   One curve, two speeds, and nothing animated but opacity, transform and
-   clip-path -- the three a browser can move without laying the page out
-   again. Every hidden state below is behind both `html.js` and the
-   no-preference guard, so a page with no JavaScript, or one belonging to
-   somebody who asked for less movement, is the finished page immediately
-   rather than a page waiting to be revealed. */
-:root {
-  --ease:cubic-bezier(.22,.61,.36,1);
-  --ease-soft:cubic-bezier(.32,.72,.3,1);
-}
-[id] {
-  scroll-margin-top:96px;
-}
-.site-header,.guide-header {
-  position:sticky;
-  top:0;
-  z-index:30;
-}
-.site-header {
-  background:var(--wine);
-  color:var(--paper);
-}
-.site-header .masthead {
-  border-bottom:0;
-}
-.header-rule {
-  height:1px;
-  background:#ffffff30;
-}
-.site-header.is-scrolled,.guide-header.is-scrolled {
-  box-shadow:0 16px 30px -28px #1b070c;
-}
-.scroll-progress {
-  height:2px;
-  background:var(--accent);
-  transform:scaleX(0);
-  transform-origin:0 50%;
-  margin-top:-1px;
-}
-@media(prefers-reduced-motion:no-preference) {
-  html {
-    scroll-behavior:smooth;
-  }
-  .site-header,.guide-header {
-    transition:box-shadow .3s var(--ease);
-  }
-  a,button,summary {
-    transition:background-color .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),opacity .18s var(--ease);
-  }
-  .primary {
-    transition:background-color .18s var(--ease),transform .2s var(--ease),box-shadow .25s var(--ease);
-  }
-  .primary:hover {
-    transform:translateY(-2px);
-    box-shadow:0 14px 26px -18px #2a0d13;
-  }
-  .primary:active {
-    transform:translateY(0);
-    box-shadow:none;
-  }
-  .install-command {
-    transition:border-color .28s var(--ease),box-shadow .28s var(--ease);
-  }
-  .install-command button {
-    transition:background-color .18s var(--ease),transform .16s var(--ease);
-  }
-  .install-command button:active {
-    transform:scale(.96);
-  }
-  .install-command.is-copied {
-    border-color:var(--accent);
-    box-shadow:0 0 0 3px #f1b69633;
-  }
-  summary:after {
-    transition:transform .3s var(--ease);
-  }
-  details[open] p {
-    animation:lift .34s var(--ease) both;
-  }
-  .scroll-progress {
-    transition:transform .1s linear;
-  }
-  @keyframes lift {
-    from {
-      opacity:0;
-      transform:translateY(-6px);
-    }
-    to {
-      opacity:1;
-      transform:none;
-    }
-  }
-  html.js .reveal {
-    opacity:0;
-    transform:translateY(18px);
-  }
-  html.js .reveal.is-in {
-    opacity:1;
-    transform:none;
-    transition:opacity .62s var(--ease) var(--d,0ms),transform .62s var(--ease) var(--d,0ms);
-  }
-  /* A heading arrives from under its own baseline rather than fading in,
-     which is the one place this page spends a little more time. */
-  html.js .reveal-head {
-    opacity:0;
-    clip-path:inset(0 0 100% 0);
-    transform:translateY(10px);
-  }
-  html.js .reveal-head.is-in {
-    opacity:1;
-    clip-path:inset(0 0 -10% 0);
-    transform:none;
-    transition:opacity .5s var(--ease) var(--d,0ms),clip-path .85s var(--ease-soft) var(--d,0ms),transform .85s var(--ease-soft) var(--d,0ms);
-  }
-  /* The net, below, arriving somewhere that cannot animate: a suspended tab
-     freezes a transition where it stands, so the class alone would leave the
-     page exactly as blank as it was. This finishes instantly instead. */
-  html.js.settled .reveal,
-  html.js.settled .reveal-head {
-    opacity:1;
-    transform:none;
-    clip-path:none;
-    transition:none;
-  }
-}
+/* Motion is an enhancement of visible content. There are no hidden resting
+   states: cancelling a Web Animation always returns the finished page. */
+:root { --ease:cubic-bezier(.22,.61,.36,1); --ease-soft:cubic-bezier(.32,.72,.3,1); }
+[id] { scroll-margin-top:104px; }
+.site-header,.guide-header { position:sticky; top:0; z-index:30; }
+.site-header { background:var(--wine); color:var(--paper); }
+.site-header .masthead { border-bottom:0; }
+.header-rule { height:1px; background:#ffffff30; }
+.site-header.is-scrolled,.guide-header.is-scrolled { box-shadow:0 16px 30px -28px #1b070c; }
+.scroll-progress { height:2px; background:var(--accent); transform:scaleX(0); transform-origin:0 50%; margin-top:-1px; }
+.install-command.is-copied { outline:2px solid var(--accent); outline-offset:3px; }
+details[open]>summary:after { content:"−"; }
+@media(prefers-reduced-motion:reduce) { .scroll-progress { display:none; } }
+html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transform:none!important;clip-path:none!important;transition:none!important;animation:none!important;}
+/* Focus is not decoration and is not behind the motion guard: somebody who
+   asked for less movement still has to be able to see where they are. The
+   browser's own ring is kept where it is enough and strengthened where the
+   contrast against the oxblood is not. */
+:focus-visible { outline:3px solid var(--wine); outline-offset:3px; }
+.site-header :focus-visible,.guide-header :focus-visible,.closing :focus-visible { outline-color:var(--accent); }
 </style>
 <script>document.documentElement.classList.add('js')</script><body><a class="skip" href="#main">Skip to content</a>
 <div class="guide-header">
@@ -1242,85 +1143,124 @@ for (const button of document.querySelectorAll('[data-copy]')) {
      Vercel and only after the two features are switched on for the project.
      Anywhere else they are a pair of deferred requests that 404 and change
      nothing on the page. No cookies, no cross-site identifier. -->
-<script defer src="/_vercel/insights/script.js"></script>
-<script defer src="/_vercel/speed-insights/script.js"></script>
+
 
 <script>
-/* Motion, added on top of a page that is already complete. The observer only
-   ever adds a class; the hidden state it reveals exists solely under the
-   no-preference guard, so with motion turned down this code runs and changes
-   nothing anybody can see. */
-(function(){
-  const marked = [];
-  for (const el of document.querySelectorAll('h1, .section-head h2')) { el.classList.add('reveal-head'); marked.push(el); }
-  for (const el of document.querySelectorAll('.hero-install > *, .desktop-install > *, .section-head > *, .terminal, .steps li, details, .primary, .install-command, .install-note')) {
-    if (!el.classList.contains('reveal-head')) { el.classList.add('reveal'); marked.push(el); }
-  }
-  marked.sort((a,b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
-
-  // The stagger is read from the page rather than written into the markup:
-  // each element waits on the marked ones before it under the same parent.
-  const counted = new Map();
-  for (const el of marked) {
-    const at = counted.get(el.parentElement) || 0;
-    counted.set(el.parentElement, at + 1);
-    if (at) el.style.setProperty('--d', Math.min(at, 5) * 70 + 'ms');
-  }
-
-  const show = el => el.classList.add('is-in');
-  if (!('IntersectionObserver' in window)) { marked.forEach(show); return; }
-  const watcher = new IntersectionObserver((entries, self) => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) { show(entry.target); self.unobserve(entry.target); }
+/* Visible by default. Observe unmasked sections, never an element's own
+   clip-path: Chrome includes that mask in its intersection measurements. */
+(() => {
+  const root = document.documentElement;
+  const preference = matchMedia('(prefers-reduced-motion: no-preference)');
+  const active = new Set(), reveals = new Set(), scenes = new Map();
+  let seen = false, observer;
+  const allowed = () => preference.matches && !document.hidden;
+  const animate = (element, frames, duration, delay = 0) => {
+    if (!element || !allowed() || !element.animate) return null;
+    const animation = element.animate(frames.map(frame => ({easing:'cubic-bezier(.22,.61,.36,1)',...frame})), {duration, delay, fill:'both', easing:'linear'});
+    active.add(animation);
+    animation.finished.then(() => active.delete(animation), () => active.delete(animation));
+    return animation;
+  };
+  function finish(scene) {
+    const running = scenes.get(scene) || [];
+    scenes.delete(scene); running.forEach(a => a.cancel());
+    scene.dataset.state = 'complete';
+    const pause = scene.querySelector('[data-motion-pause]');
+    if (pause) {
+      const focused = document.activeElement === pause;
+      pause.hidden = true; pause.textContent = 'Pause sequence';
+      if (focused) scene.querySelector('[data-motion-play]')?.focus({preventScroll:true});
     }
-  // Threshold zero, deliberately. A heading that arrives from behind a mask
-  // is clipped to nothing until it does, and Chrome measures the clip: it
-  // reports the element as intersecting with an intersection rect of zero
-  // area, so any threshold above nothing is a heading that waits forever.
-  }, { rootMargin: '0px 0px -6% 0px', threshold: 0 });
-  for (const el of marked) watcher.observe(el);
+  }
+  function settle() {
+    root.classList.add('settled');
+    observer?.disconnect();
+    scenes.forEach((_, scene) => finish(scene));
+    active.forEach(a => a.cancel()); active.clear(); reveals.clear();
+    document.querySelectorAll('video').forEach(video => video.pause());
+  }
+  function reveal(section) {
+    if (!allowed() || root.classList.contains('settled')) return;
+    const targets = [...section.querySelectorAll('h2,.section-head .lede,.proof-copy>p,.steps li')];
+    targets.forEach((element, i) => {
+      const heading = element.tagName === 'H2';
+      element.classList.add(heading ? 'reveal-head' : 'reveal');
+      const frames = heading
+        ? [{opacity:1,clipPath:'inset(0 0 100% 0)',transform:'translateY(8px)'},{opacity:1,clipPath:'inset(0 0 -10% 0)',transform:'none'}]
+        : [{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}];
+      const a = animate(element, frames, heading ? 760 : 520, Math.min(i,3)*60);
+      if (a) { reveals.add(a); a.finished.then(() => { a.cancel(); reveals.delete(a); }, () => reveals.delete(a)); }
+    });
+  }
+  /* Scene frames are added below. Each is finite, replayable, and cancelled
+     to an informative still when it leaves the viewport. */
+  const builders = {};
 
-  /*
-   * And a net under all of it.
-   *
-   * An observer only fires while the page is actually being rendered, and a
-   * page loaded in a tab nobody is looking at is not: the browser suspends
-   * the lifecycle, the callback never runs, and every hidden state stays
-   * hidden. That is fine when somebody switches to the tab, because it fires
-   * then. It is not fine for anything that renders a page without showing it.
-   * If three seconds pass and nothing at all has arrived, the page is shown
-   * whole and the observer is let go.
-   */
-  setTimeout(() => {
-    if (document.querySelector('.is-in')) return;
-    watcher.disconnect();
-    // `settled` rather than the arriving class: where this net is needed,
-    // nothing can animate, so the states are finished rather than started.
-    document.documentElement.classList.add('settled');
-    marked.forEach(show);
-  }, 3000);
-})();
-
-// The header stays, so the section links in it keep working six thousand
-// pixels down. The rule under it appears only once there is something above.
-(function(){
-  const header = document.querySelector('.site-header, .guide-header');
-  if (!header) return;
-  const bar = document.querySelector('.scroll-progress');
+  function play(scene) {
+    if (!allowed()) return;
+    finish(scene);
+    const animations = (builders[scene.dataset.motion]?.(scene) || []).filter(Boolean);
+    if (!animations.length) return;
+    scene.dataset.played = 'true'; scene.dataset.state = 'running';
+    scenes.set(scene, animations);
+    const pause = scene.querySelector('[data-motion-pause]');
+    if (pause) pause.hidden = false;
+    Promise.all(animations.map(a => a.finished)).then(() => {
+      if (scenes.get(scene) === animations) finish(scene);
+    }, () => {});
+  }
+  document.querySelectorAll('[data-motion-play]').forEach(button => button.addEventListener('click', () => play(button.closest('[data-motion]'))));
+  document.querySelectorAll('[data-motion-pause]').forEach(button => button.addEventListener('click', () => {
+    const scene = button.closest('[data-motion]'), paused = scene.dataset.state === 'paused';
+    (scenes.get(scene) || []).forEach(a => paused ? a.play() : a.pause());
+    scene.dataset.state = paused ? 'running' : 'paused';
+    button.textContent = paused ? 'Pause sequence' : 'Resume sequence';
+  }));
+  function observe() {
+    root.classList.toggle('motion-ready', preference.matches);
+    if (!allowed() || !('IntersectionObserver' in window)) { settle(); return; }
+    observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const element = entry.target.matches('.stage-scene') ? entry.target.closest('[data-motion]') : entry.target;
+        if (!entry.isIntersecting) { if (scenes.has(element)) finish(element); continue; }
+        seen = true;
+        if (element.matches('section') && !element.dataset.revealed) { element.dataset.revealed = 'true'; reveal(element); }
+        if (element.dataset.motion && !element.dataset.played && !element.hasAttribute('data-manual')) play(element);
+      }
+    }, {threshold:0, rootMargin:'0px 0px -8% 0px'});
+    document.querySelectorAll('main>section,[data-motion]').forEach(el => observer.observe(el.dataset.motion === 'undo' ? el.querySelector('.stage-scene') : el));
+  }
+  observe();
+  // A partial reveal is not a reason to abandon the net. Hiding finishes
+  // everything synchronously; returning cannot resume a frozen transition.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) settle(); });
+  addEventListener('pagehide', settle);
+  addEventListener('pageshow', event => { if (event.persisted) settle(); });
+  document.addEventListener('freeze', settle);
+  document.addEventListener('resume', settle);
+  let wasBlurred = false;
+  addEventListener('blur', () => { wasBlurred = true; });
+  addEventListener('focus', () => { if (wasBlurred) settle(); });
+  setTimeout(() => { if (!seen || document.hidden) settle(); }, 3000);
+  document.addEventListener('focusin', event => {
+    reveals.forEach(a => { if (a.effect?.target.contains(event.target)) a.cancel(); });
+  });
+  preference.addEventListener('change', () => { settle(); root.classList.toggle('motion-ready', preference.matches); });
+  addEventListener('resize', () => scenes.forEach((_, scene) => finish(scene)), {passive:true});
+  const header = document.querySelector('.site-header,.guide-header'), bar = document.querySelector('.scroll-progress');
   let queued = false;
-  function update() {
+  function progress() {
     queued = false;
-    const y = window.scrollY;
-    header.classList.toggle('is-scrolled', y > 6);
-    if (bar) {
-      const far = document.documentElement.scrollHeight - window.innerHeight;
-      bar.style.transform = 'scaleX(' + (far > 0 ? Math.min(y / far, 1) : 0) + ')';
+    header?.classList.toggle('is-scrolled', scrollY > 6);
+    if (bar && allowed()) {
+      const distance = document.documentElement.scrollHeight-innerHeight;
+      bar.style.transform = `scaleX(${distance > 0 ? Math.min(scrollY/distance,1) : 0})`;
     }
   }
-  addEventListener('scroll', () => {
-    if (!queued) { queued = true; requestAnimationFrame(update); }
-  }, { passive: true });
-  update();
+  addEventListener('scroll', () => { if (!queued && allowed()) { queued = true; requestAnimationFrame(progress); } }, {passive:true});
+  progress();
 })();
 </script>
+<script defer src="/_vercel/insights/script.js"></script>
+<script defer src="/_vercel/speed-insights/script.js"></script>
 </body></html>
