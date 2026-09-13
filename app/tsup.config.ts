@@ -17,6 +17,18 @@ export default defineConfig([
     // Everything but these two. better-sqlite3 is a native binding and cannot
     // be bundled at all; Electron supplies its own.
     external: ["electron", "better-sqlite3"],
+    /*
+     * And everything else really does mean everything else.
+     *
+     * tsup keeps the nearest package.json's `dependencies` out of the bundle,
+     * which is right for a library -- whoever installs it gets them -- and
+     * wrong for an application that ships as one file. It left the MCP SDK,
+     * yaml and zod as bare imports, and nothing in the packaged app supplies
+     * them: the window opened and died on its first import with "Cannot find
+     * package". Anything that is not Electron, the native binding, or a node
+     * builtin is bundled.
+     */
+    noExternal: [/^(?!node:)(?!electron$)(?!better-sqlite3$)/],
     banner: {
       // Several libraries in here -- the model SDKs especially -- reach for
       // node builtins through `require` at run time. In an ES module there is

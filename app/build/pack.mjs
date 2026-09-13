@@ -16,7 +16,8 @@
  *   node app/build/pack.mjs --check-only    just the staleness check
  */
 import { spawnSync } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { isBuiltin } from "node:module";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,6 +119,44 @@ for (let attempt = 1; checkOnly ? false : attempt <= ATTEMPTS; attempt += 1) {
   process.stderr.write(
     `\n  Attempt ${String(attempt)} lost its connection while fetching Electron. Retrying.\n\n`,
   );
+}
+
+/*
+ * Nothing may leave here importing something that is not in the box.
+ *
+ * The bundler keeps a package.json's `dependencies` out of the bundle, which
+ * is right for a library and wrong for this: the application ships as one
+ * file plus one native binding, and a bare import of anything else is a
+ * "Cannot find package" on somebody else's machine the first time they open
+ * it. That is exactly what shipped in 0.6.2. Electron and better-sqlite3 are
+ * supplied; node builtins are always there; everything else has to be inside.
+ */
+const SUPPLIED = new Set(["electron", "better-sqlite3"]);
+const builtin = (name) => isBuiltin(name.startsWith("node:") ? name.slice(5) : name);
+const main = join(root, "app/dist/main/index.js");
+/*
+ * Top-level imports only, which is the whole of the question: those are
+ * resolved the moment the file is loaded, and an unresolvable one is the
+ * application never opening. A `require` deeper in some bundled library --
+ * an optional native accelerator, a code path nothing here takes -- fails
+ * only if it is reached, and several of those are in here on purpose.
+ */
+const text = readFileSync(main, "utf8");
+const imported = [
+  ...text.matchAll(/^import\s+(?:[^'";]*?\s+from\s*)?["']([^"']+)["'];?\s*$/gm),
+].map((hit) => hit[1]);
+const stray = [...new Set(imported)].filter(
+  (name) => !name.startsWith(".") && !builtin(name) && !SUPPLIED.has(name),
+);
+
+if (stray.length > 0) {
+  process.stderr.write(
+    `\n  The main bundle imports ${String(stray.length)} package(s) that are not shipped with it:\n` +
+      stray.map((name) => `    ${name}\n`).join("") +
+      `  Nothing in the packaged application supplies them, so it will fail to\n` +
+      `  start. Bundle them (app/tsup.config.ts, noExternal) or ship them.\n`,
+  );
+  process.exit(1);
 }
 
 /*

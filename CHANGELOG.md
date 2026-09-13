@@ -2,6 +2,24 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.3 — 2026-09-13
+
+### Fixed
+
+- **The packaged desktop application could not start.** It opened and died on
+  its first import with `Cannot find package '@modelcontextprotocol/sdk'`.
+  The bundler keeps a package.json's `dependencies` out of the bundle, which
+  is right for a library -- whoever installs it gets them -- and wrong for an
+  application that ships as one file plus one native binding. The MCP SDK,
+  `yaml` and `zod` were left as bare imports and nothing supplied them. Every
+  0.6.2 installer has this; this release is the fix.
+
+  The packaging script now refuses to pack a bundle whose top-level imports
+  are not shipped with it. Electron, the native binding and node builtins are
+  supplied; anything else has to be inside. Only top-level imports are
+  checked, deliberately: bundled libraries carry guarded `require`s for
+  optional native accelerators, and those are allowed to be absent.
+
 ## 0.6.2 — 2026-09-12
 
 ### Fixed
