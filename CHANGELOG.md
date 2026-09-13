@@ -2,6 +2,32 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.4 — 2026-09-13
+
+### Changed
+
+- **The API keys sheet gives the key a line of its own.** Somebody opens that
+  sheet to do exactly one thing, and the field for it was squeezed into a
+  column beside a paragraph of prose, sharing a row with the model's name and
+  its note -- while a key is sixty characters or more. The row now explains
+  itself on top and the field runs the full width underneath, with a Cancel
+  that did not exist before, Escape to leave, a wider sheet and room between
+  the rows.
+
+### Added
+
+- **A test for the half the other key tests did not cover.** They prove a key
+  never reaches disk, a log, or the window -- all of which would still be true
+  of a key quietly dropped on the way to the provider. This one follows it in
+  through the sheet, through the keychain seam, and back out as the value the
+  request is built with.
+
+### Fixed
+
+- **A transient API error no longer sinks a release.** Nine installers built
+  and none were published, because the single call that creates the release
+  answered 500 once. Creating and uploading are retried.
+
 ## 0.6.3 — 2026-09-13
 
 ### Fixed
