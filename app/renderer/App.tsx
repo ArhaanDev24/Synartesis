@@ -945,24 +945,25 @@ export function App(): React.JSX.Element {
                 .filter((model) => model.needsKey)
                 .map((model) => (
                   <div className="key-row" key={model.id} data-ready={model.hasKey}>
-                    <div className="key-who">
-                      <b>{model.name}</b>
-                      <span>{model.note}</span>
-                      {model.keyUrl === undefined ? null : (
-                        <button
-                          className="key-link"
-                          onClick={() => {
-                            if (model.keyUrl !== undefined) {
-                              engine.openKeyPage(model.keyUrl).catch(complain);
-                            }
-                          }}
-                        >
-                          Get a key ↗
-                        </button>
-                      )}
-                    </div>
+                    <div className="key-head">
+                      <div className="key-who">
+                        <b>{model.name}</b>
+                        <span>{model.note}</span>
+                      </div>
 
-                    <div className="key-do">
+                      <div className="key-do">
+                        {model.keyUrl === undefined || keying === model.id ? null : (
+                          <button
+                            className="key-link"
+                            onClick={() => {
+                              if (model.keyUrl !== undefined) {
+                                engine.openKeyPage(model.keyUrl).catch(complain);
+                              }
+                            }}
+                          >
+                            Get a key ↗
+                          </button>
+                        )}
                       {model.hasKey ? (
                         <>
                           <span className="key-state">Saved ✓</span>
@@ -975,56 +976,82 @@ export function App(): React.JSX.Element {
                             Remove
                           </button>
                         </>
-                      ) : keying === model.id ? (
-                        <>
-                          <input
-                            type="password"
-                            autoFocus
-                            aria-label={`API key for ${model.name}`}
-                            autoComplete="off"
-                            value={key}
-                            placeholder="Paste the key"
-                            onChange={(event) => {
-                              setKey(event.target.value);
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" && key !== "") {
-                                engine.saveKey(model.id, key).then((next) => {
-                                  setKey("");
-                                  setKeying(undefined);
-                                  setSettings(next);
-                                }, complain);
-                              }
-                            }}
-                          />
+                      ) : keying === model.id ? null : (
                           <button
                             className="act"
-                            data-weight="heavy"
-                            disabled={key === ""}
+                            disabled={settings?.canKeepSecrets !== true}
                             onClick={() => {
+                              setKey("");
+                              setKeying(model.id);
+                            }}
+                          >
+                            Add key
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {keying !== model.id ? null : (
+                      <div className="key-entry">
+                        <input
+                          className="key-input"
+                          type="password"
+                          autoFocus
+                          aria-label={`API key for ${model.name}`}
+                          autoComplete="off"
+                          value={key}
+                          placeholder={`Paste the ${model.name} key`}
+                          onChange={(event) => {
+                            setKey(event.target.value);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              setKey("");
+                              setKeying(undefined);
+                              return;
+                            }
+                            if (event.key === "Enter" && key !== "") {
                               engine.saveKey(model.id, key).then((next) => {
                                 setKey("");
                                 setKeying(undefined);
                                 setSettings(next);
                               }, complain);
-                            }}
-                          >
-                            Save
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          className="act"
-                          disabled={settings?.canKeepSecrets !== true}
-                          onClick={() => {
-                            setKey("");
-                            setKeying(model.id);
+                            }
                           }}
-                        >
-                          Add key
-                        </button>
-                      )}
-                    </div>
+                        />
+                        <div className="key-entry-row">
+                          <span className="key-hint">
+                            It goes straight to the keychain. Nothing else sees it.
+                          </span>
+                          <span className="key-entry-acts">
+                            <button
+                              className="act"
+                              onClick={() => {
+                                setKey("");
+                                setKeying(undefined);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              className="act"
+                              data-weight="heavy"
+                              disabled={key === ""}
+                              onClick={() => {
+                                engine.saveKey(model.id, key).then((next) => {
+                                  setKey("");
+                                  setKeying(undefined);
+                                  setSettings(next);
+                                }, complain);
+                              }}
+                            >
+                              Save
+                            </button>
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
             </div>

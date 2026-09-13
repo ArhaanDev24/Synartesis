@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 
 import { Desk } from "../app/main/desk.js";
 import { openJournal } from "../src/journal/journal.js";
-import type { SecretStore } from "../app/main/settings.js";
+import { Library, type SecretStore } from "../app/main/settings.js";
 import { SEPARATOR } from "../src/proxy/routing.js";
 import type { SessionEvent } from "../app/shared/ipc.js";
 import { fakeModel, openAIEvent, type FakeModel } from "./helpers/fake-model.js";
@@ -48,16 +48,22 @@ afterEach(async () => {
  * through the same seam the real one does, which is what the storage test
  * actually checks: that a key reaches `seal` and never the file directly.
  */
-function fakeKeychain(): SecretStore & { sealed: string[] } {
+function fakeKeychain(): SecretStore & { sealed: string[]; opened: string[] } {
   const sealed: string[] = [];
+  const opened: string[] = [];
   return {
     sealed,
+    opened,
     available: () => true,
     seal: (plain) => {
       sealed.push(plain);
       return Buffer.from(plain, "utf8").toString("base64");
     },
-    open: (text) => Buffer.from(text, "base64").toString("utf8"),
+    open: (text) => {
+      const plain = Buffer.from(text, "base64").toString("utf8");
+      opened.push(plain);
+      return plain;
+    },
   };
 }
 
@@ -109,7 +115,7 @@ interface Bench {
   readonly script: Script;
   readonly events: { id: string; event: SessionEvent }[];
   readonly settingsPath: string;
-  readonly secrets: SecretStore & { sealed: string[] };
+  readonly secrets: SecretStore & { sealed: string[]; opened: string[] };
   /** A second desk over the same files, which is what restarting the app is. */
   readonly reopen: () => Desk;
 }
@@ -437,6 +443,50 @@ describe("keys", () => {
     expect(JSON.stringify(view)).not.toContain("sk-ant-super-secret-value");
     // Only whether there is one, which is all the window needs to know.
     expect(view.models.find((model) => model.id === "bench")?.hasKey).toBe(true);
+  });
+
+  /*
+   * The half the other key tests do not cover.
+   *
+   * They prove a key never reaches disk, a log, or the window -- all of which
+   * would still be true of a key that was quietly dropped on the way to the
+   * provider. This follows the one path that matters: in through the sheet,
+   * through the keychain seam, and back out as the thing the request is made
+   * with.
+   */
+  it("gives back the key it was given, through the keychain and no further", () => {
+    const root = mkdtempSync(join(tmpdir(), "synartesis-keys-"));
+    dirs.push(root);
+    const path = join(root, "models.json");
+    const secrets = fakeKeychain();
+    writeFileSync(
+      path,
+      JSON.stringify({
+        models: [
+          {
+            id: "claude",
+            name: "Claude",
+            needsKey: true,
+            note: "",
+            config: { kind: "anthropic", model: "claude-opus-5" },
+          },
+        ],
+        chosen: "claude",
+      }),
+    );
+
+    const library = Library.open(path, secrets);
+    // Without one, it says so rather than failing somewhere down the wire.
+    expect(() => library.provider()).toThrow(/needs an API key/i);
+
+    library.saveKey("claude", "sk-ant-round-trip");
+    // It reached the provider: anthropic refuses to be built without a key,
+    // so a provider existing is the key having survived seal and open.
+    expect(library.provider().id).toBe("anthropic:claude-opus-5");
+    expect(secrets.opened).toContain("sk-ant-round-trip");
+
+    library.forgetKey("claude");
+    expect(() => library.provider()).toThrow(/needs an API key/i);
   });
 
   it("says a hosted model needs a key instead of failing mid-request", async () => {

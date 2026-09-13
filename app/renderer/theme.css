@@ -1330,17 +1330,22 @@ kbd { font: 0.62rem var(--mono); border: 1px solid var(--rule); border-radius: 3
 
 .keys {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.7rem;
 }
 
 .key-row {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--panel-rule);
+  border-radius: 10px;
+}
+
+.key-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1.2rem;
-  padding: 0.75rem 0.9rem;
-  border: 1px solid var(--panel-rule);
-  border-radius: 8px;
+  gap: 1.5rem;
 }
 
 /* The one that is set up recedes; the ones still wanting something do not. */
@@ -1356,60 +1361,92 @@ kbd { font: 0.62rem var(--mono); border: 1px solid var(--rule); border-radius: 3
 
 .key-who b {
   font-weight: 500;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .key-who span {
-  font-size: 0.76rem;
-  line-height: 1.45;
+  font-size: 0.8rem;
+  line-height: 1.5;
   color: var(--panel-faint);
 }
 
 .key-link {
-  justify-self: start;
-  margin-top: 0.15rem;
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   color: var(--panel-hit);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-/* Wide enough to see a whole key, which is the point of giving this a sheet. */
 .key-do {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.7rem;
   flex-shrink: 0;
-  min-width: 20rem;
-  justify-content: flex-end;
 }
 
-.key-do input {
-  flex: 1;
+/*
+ * The field gets a line of its own.
+ *
+ * A key is sixty characters or more, and it used to be squeezed into a column
+ * beside a paragraph of prose -- so the one thing somebody came here to do was
+ * the most cramped thing on the screen. Now the row explains itself on top and
+ * the field runs the whole width underneath it.
+ */
+.key-entry {
+  display: grid;
+  gap: 0.6rem;
+  border-top: 1px solid var(--panel-rule);
+  padding-top: 0.85rem;
+}
+
+.key-input {
+  width: 100%;
   margin: 0;
-  padding: 0.45rem 0.6rem;
+  padding: 0.6rem 0.7rem;
   font-family: var(--mono);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
 }
 
-.key-do .act {
+.key-entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.2rem;
+  flex-wrap: wrap;
+}
+
+.key-hint {
+  font-size: 0.76rem;
+  color: var(--panel-faint);
+}
+
+.key-entry-acts {
+  display: flex;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.key-do .act,
+.key-entry-acts .act {
   border-color: var(--panel-rule);
   color: var(--panel-faint);
   flex-shrink: 0;
   padding: 0.4rem 0.7rem;
 }
 
-.key-do .act:hover:not(:disabled) {
+.key-do .act:hover:not(:disabled),
+.key-entry-acts .act:hover:not(:disabled) {
   border-color: var(--panel-hit);
   color: var(--panel-ink);
 }
 
-.key-do .act[data-weight="heavy"] {
+.key-entry-acts .act[data-weight="heavy"] {
   border-color: var(--panel-hit);
   color: var(--panel-hit);
 }
 
-.key-do .act[data-weight="heavy"]:hover:not(:disabled) {
+.key-entry-acts .act[data-weight="heavy"]:hover:not(:disabled) {
   background: var(--panel-hit);
   color: var(--panel);
 }
@@ -1423,7 +1460,7 @@ kbd { font: 0.62rem var(--mono); border: 1px solid var(--rule); border-radius: 3
 
 /* Under a narrow window the two halves stack rather than crushing each other. */
 @media (max-width: 900px) {
-  .key-row {
+  .key-head {
     flex-direction: column;
     gap: 0.6rem;
   }
@@ -1439,6 +1476,8 @@ kbd { font: 0.62rem var(--mono); border: 1px solid var(--rule); border-radius: 3
 
 .sheet-card.wide {
   width: min(760px, 100%);
+  padding: 1.5rem 1.6rem;
+  gap: 1rem;
 }
 
 .sheet-card .table-wrap {
