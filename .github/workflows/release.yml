@@ -104,9 +104,21 @@ jobs:
         run: |
           set -euo pipefail
           ls -la installers
+          # GitHub's API answers 500 often enough to have sunk a release here
+          # already: nine installers built, none published, because one call
+          # failed once. Each of these is retried rather than fatal.
+          try() {
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then return 0; fi
+              echo "  attempt $attempt failed: $* -- waiting"
+              sleep $((attempt * 15))
+            done
+            echo "  gave up after five attempts: $*"
+            return 1
+          }
           # A release for this tag may already exist; make one only if it does
           # not, and never overwrite notes somebody has written by hand.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "$TAG" --generate-notes
+            try gh release create "$TAG" --title "$TAG" --generate-notes
           fi
-          gh release upload "$TAG" installers/* --clobber
+          try gh release upload "$TAG" installers/* --clobber
