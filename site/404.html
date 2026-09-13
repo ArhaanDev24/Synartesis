@@ -238,7 +238,7 @@ summary:after {
   color:var(--wine);
 }
 details[open] summary:after {
-  content:'−';
+  transform:rotate(45deg);
 }
 details p {
   padding-top:14px;
@@ -343,7 +343,125 @@ a, button {
   }
 }
 .guide-header {background:var(--wine);color:var(--paper)}
-</style><body><a class="skip" href="404.html#main">Skip to content</a>
+
+/* --- motion -------------------------------------------------------------
+   One curve, two speeds, and nothing animated but opacity, transform and
+   clip-path -- the three a browser can move without laying the page out
+   again. Every hidden state below is behind both `html.js` and the
+   no-preference guard, so a page with no JavaScript, or one belonging to
+   somebody who asked for less movement, is the finished page immediately
+   rather than a page waiting to be revealed. */
+:root {
+  --ease:cubic-bezier(.22,.61,.36,1);
+  --ease-soft:cubic-bezier(.32,.72,.3,1);
+}
+[id] {
+  scroll-margin-top:96px;
+}
+.site-header,.guide-header {
+  position:sticky;
+  top:0;
+  z-index:30;
+}
+.site-header {
+  background:var(--wine);
+  color:var(--paper);
+}
+.site-header .masthead {
+  border-bottom:0;
+}
+.header-rule {
+  height:1px;
+  background:#ffffff30;
+}
+.site-header.is-scrolled,.guide-header.is-scrolled {
+  box-shadow:0 16px 30px -28px #1b070c;
+}
+.scroll-progress {
+  height:2px;
+  background:var(--accent);
+  transform:scaleX(0);
+  transform-origin:0 50%;
+  margin-top:-1px;
+}
+@media(prefers-reduced-motion:no-preference) {
+  html {
+    scroll-behavior:smooth;
+  }
+  .site-header,.guide-header {
+    transition:box-shadow .3s var(--ease);
+  }
+  a,button,summary {
+    transition:background-color .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease),opacity .18s var(--ease);
+  }
+  .primary {
+    transition:background-color .18s var(--ease),transform .2s var(--ease),box-shadow .25s var(--ease);
+  }
+  .primary:hover {
+    transform:translateY(-2px);
+    box-shadow:0 14px 26px -18px #2a0d13;
+  }
+  .primary:active {
+    transform:translateY(0);
+    box-shadow:none;
+  }
+  .install-command {
+    transition:border-color .28s var(--ease),box-shadow .28s var(--ease);
+  }
+  .install-command button {
+    transition:background-color .18s var(--ease),transform .16s var(--ease);
+  }
+  .install-command button:active {
+    transform:scale(.96);
+  }
+  .install-command.is-copied {
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px #f1b69633;
+  }
+  summary:after {
+    transition:transform .3s var(--ease);
+  }
+  details[open] p {
+    animation:lift .34s var(--ease) both;
+  }
+  .scroll-progress {
+    transition:transform .1s linear;
+  }
+  @keyframes lift {
+    from {
+      opacity:0;
+      transform:translateY(-6px);
+    }
+    to {
+      opacity:1;
+      transform:none;
+    }
+  }
+  html.js .reveal {
+    opacity:0;
+    transform:translateY(18px);
+  }
+  html.js .reveal.is-in {
+    opacity:1;
+    transform:none;
+    transition:opacity .62s var(--ease) var(--d,0ms),transform .62s var(--ease) var(--d,0ms);
+  }
+  /* A heading arrives from under its own baseline rather than fading in,
+     which is the one place this page spends a little more time. */
+  html.js .reveal-head {
+    opacity:0;
+    clip-path:inset(0 0 100% 0);
+    transform:translateY(10px);
+  }
+  html.js .reveal-head.is-in {
+    opacity:1;
+    clip-path:inset(0 0 -10% 0);
+    transform:none;
+    transition:opacity .5s var(--ease) var(--d,0ms),clip-path .85s var(--ease-soft) var(--d,0ms),transform .85s var(--ease-soft) var(--d,0ms);
+  }
+}
+</style>
+<script>document.documentElement.classList.add('js')</script><body><a class="skip" href="404.html#main">Skip to content</a>
 <div class="guide-header">
 <header class="wrap masthead"><a class="brand" href="./" aria-label="Synartesis home"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M25 11a10 10 0 1 0 0 11" stroke="currentColor" stroke-width="3"/><path d="m20 18 8 2-5 7" fill="currentColor"/></svg>Synartesis</a>
 <nav aria-label="Main navigation"><a href="./">Overview ↗</a><a href="https://github.com/ArhaanDev24/Synartesis">GitHub ↗</a>
@@ -360,4 +478,63 @@ a, button {
 <nav aria-label="Footer"><a href="https://github.com/ArhaanDev24/Synartesis">GitHub</a><a href="https://www.npmjs.com/package/synartesis">npm</a><a href="https://www.linkedin.com/in/arhaankhan143" rel="me">Arhaan Khan</a><a href="https://www.instagram.com/synartesis_in/" rel="me">Instagram</a>
 </nav>
 </footer>
-<script>document.querySelector(".skip").href = location.pathname + location.search + "#main";</script></body></html>
+<script>document.querySelector(".skip").href = location.pathname + location.search + "#main";</script>
+<script>
+/* Motion, added on top of a page that is already complete. The observer only
+   ever adds a class; the hidden state it reveals exists solely under the
+   no-preference guard, so with motion turned down this code runs and changes
+   nothing anybody can see. */
+(function(){
+  const marked = [];
+  for (const el of document.querySelectorAll('h1')) { el.classList.add('reveal-head'); marked.push(el); }
+  for (const el of document.querySelectorAll('.error > *')) {
+    if (!el.classList.contains('reveal-head')) { el.classList.add('reveal'); marked.push(el); }
+  }
+  marked.sort((a,b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1);
+
+  // The stagger is read from the page rather than written into the markup:
+  // each element waits on the marked ones before it under the same parent.
+  const counted = new Map();
+  for (const el of marked) {
+    const at = counted.get(el.parentElement) || 0;
+    counted.set(el.parentElement, at + 1);
+    if (at) el.style.setProperty('--d', Math.min(at, 5) * 70 + 'ms');
+  }
+
+  const show = el => el.classList.add('is-in');
+  if (!('IntersectionObserver' in window)) { marked.forEach(show); return; }
+  const watcher = new IntersectionObserver((entries, self) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) { show(entry.target); self.unobserve(entry.target); }
+    }
+  // Threshold zero, deliberately. A heading that arrives from behind a mask
+  // is clipped to nothing until it does, and Chrome measures the clip: it
+  // reports the element as intersecting with an intersection rect of zero
+  // area, so any threshold above nothing is a heading that waits forever.
+  }, { rootMargin: '0px 0px -6% 0px', threshold: 0 });
+  for (const el of marked) watcher.observe(el);
+})();
+
+// The header stays, so the section links in it keep working six thousand
+// pixels down. The rule under it appears only once there is something above.
+(function(){
+  const header = document.querySelector('.site-header, .guide-header');
+  if (!header) return;
+  const bar = document.querySelector('.scroll-progress');
+  let queued = false;
+  function update() {
+    queued = false;
+    const y = window.scrollY;
+    header.classList.toggle('is-scrolled', y > 6);
+    if (bar) {
+      const far = document.documentElement.scrollHeight - window.innerHeight;
+      bar.style.transform = 'scaleX(' + (far > 0 ? Math.min(y / far, 1) : 0) + ')';
+    }
+  }
+  addEventListener('scroll', () => {
+    if (!queued) { queued = true; requestAnimationFrame(update); }
+  }, { passive: true });
+  update();
+})();
+</script>
+</body></html>
