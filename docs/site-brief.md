@@ -70,12 +70,20 @@ Short list. Everything not on it is yours.
 
 1. **`npm install -g synartesis`**, and the copy button next to it, stays on
    the first screen. It is the only thing the page is actually asking for.
-2. **No build step and no dependency.** Inline CSS and JS. The only external
-   request is Google Fonts, and you may drop that (self-hosting the two faces
-   would be an improvement, not a regression) but not replace it with a
-   framework, a CDN library, or a package.json.
-3. **No analytics, no tracking, no third-party embeds, no cookie banner.**
-   There are none today and the product is about not being watched.
+2. **No build step and no dependency.** Inline CSS and JS, one file per page.
+   The faces are self-hosted now, in `site/assets/*.woff2` with their licences
+   beside them, so there is no external request left at all. Do not introduce a
+   framework, a CDN library, an animation library, or a package.json. If a
+   thing cannot be done in CSS, the Web Animations API, or a few dozen lines of
+   inline JavaScript, it is not being done here.
+3. **No third-party tracking, no embeds, no cookie banner** -- with one
+   exception that is already there and must stay. The last two lines before
+   `</body>` load `/_vercel/insights/script.js` and
+   `/_vercel/speed-insights/script.js`. Those are first-party paths served by
+   the host, they set no cookie, and **they are the owner's, deliberately**.
+   An earlier pass through this file read the old wording of this rule and
+   deleted them; they had to be put back. Leave them alone. Anything else
+   third-party is still out.
 4. **Text stays at 16px or larger** for body copy on a phone. There is a
    comment in the file at the old font-size decision explaining why.
 5. **`prefers-reduced-motion: no-preference` guards every animation**, as it
@@ -88,107 +96,132 @@ Short list. Everything not on it is yours.
 8. The `<link rel="canonical">`, the favicon, the Open Graph tags, and the
    links to `install.html`, GitHub and npm all keep working.
 
-## What is wrong with it now
+## Where it stands now
 
-These are observed, at the widths named. You do not have to fix them in this
-order, or at all, if your redesign makes them moot.
+The last commission -- make it beautiful, free hand -- has been carried out.
+The site is not the page the faults below were written about, and that section
+has been deleted rather than left to mislead you. What exists today:
 
-**One colour, all the way down.** Ground `#5e1420`, panel `#2c080f`, ink
-`#f6e9e5`, and that is the entire page for six thousand pixels. Nothing marks
-a new idea except a thin meander rule, so the eye gets no rhythm and the whole
-thing reads as one uniform band. This is the biggest one.
+- A light ground (`--paper #f5efe5`) with the oxblood kept for the header, the
+  closing band and accents. The uniform six-thousand-pixel wine field is gone.
+- Seven sections with a real type hierarchy: hero, ledger, **the desktop
+  window with four screenshots**, mechanism, refusal, terminal, closing.
+- Self-hosted Cormorant and IBM Plex, so the page makes no external request.
+- 52 kB of HTML, down from 88.
 
-**Half the page is empty on a wide screen.** The text column is pinned left at
-about 60 characters and the right 40% of "What happens on every call", "What it
-will not do", and "The whole interface" is dead ground with a cropped ornament
-floating in it. At 1440 the page looks like a phone layout that was stretched.
+## What I added after that, and why it is the way it is
 
-**The hero ends 400px before the section does.** Real, measured: content stops
-around y=480 and the section runs to 903.
+Read this before you touch any of it. Two of these cost a day to find.
 
-**The ornaments read as stickers.** The engraved sun-faces in the margins are
-clipped by the viewport edge at every width, sit at unrelated sizes, and follow
-no grid. Either commit to them as a system or cut them.
+**One curve, two speeds.** `--ease` and `--ease-soft`, and nothing animates
+except `opacity`, `transform` and `clip-path` -- the three a browser can move
+without laying the page out again. Add a fourth property only with a reason.
 
-**The one diagram is lost.** "Synartesis sits between your agent and your
-systems" is the clearest idea on the page and it is a 190px terminal with two
-tiny chips either side, adrift in a field of nothing.
+**A sticky header** that grows a shadow past the fold (`.is-scrolled`), and a
+2px `.scroll-progress` bar under it driven by `scaleX`.
 
-**The terminal panels are illegible on a phone.** At 375 wide they scale down
-rather than reflow, so the showreel's journal is 4px type. They are the
-evidence — the thing that makes the argument — and on a phone they are a smudge.
+**A reveal system.** `.reveal` fades and lifts; `.reveal-head` wipes headings
+in with `clip-path`; both stagger through a `--d` custom property. Both hidden
+states live behind **`html.js` *and* the no-preference guard**, so a page with
+no JavaScript, or one belonging to somebody who asked for less movement, is
+the finished page immediately rather than a page waiting to be revealed.
 
-**The type scale is flat.** Every section heading is the same size, in the same
-uppercase Cormorant, broken over the same two lines. Every lede is the same
-size. Nothing is louder than anything else, so nothing is the point.
+**The trap that makes this hard, number one.** Chrome's IntersectionObserver
+measures an element's own `clip-path`. A heading masked to nothing reports
+`intersectionRatio: 0` forever, so any `threshold` above zero never fires and
+the heading never appears. It looks exactly like a broken observer and is not.
 
-**The site does not know the desktop app exists.** Not one word, anywhere. It
-shipped at 0.6.2 with installers for macOS, Windows and Linux, and the site
-still describes a CLI only. See below.
+**The trap that makes this hard, number two.** A backgrounded or suspended tab
+halts the rendering lifecycle: the observer never fires and any transition
+already running freezes where it stands. So there is a net -- a timer that,
+if nothing has revealed after three seconds, disconnects the observer and adds
+`settled` to `<html>`. Two things about it that are not optional. It must
+**finish** states, not start them, or a refocused tab animates a page the
+person has been looking at for a minute. And its rules must come **after** the
+heading rules in the file, or the specificity ties and the heading stays
+hidden.
 
-## The commission
+If you rewrite the motion system, you inherit both traps. Keep the net.
 
-**Make it look good. You have a free hand.** Restructure sections, change the
-palette, change the fonts, throw away the layout, rewrite the CSS from nothing,
-add pages, add SVG, add motion, cut anything that is not earning its place. If
-you think the right answer is a different site, build the different site. The
-seven constraints above are the fence; inside it, your judgement beats
-anything I would specify.
+## The commission: make it move like something expensive
 
-What "better" means for this particular product, so you are aiming at the same
-thing I would:
+**Add real animation. You have a free hand, and the same fence as last time.**
 
-- **Confident and quiet.** It is a recovery tool for people who have been burned
-  by an agent. Trust comes from looking like something maintained by somebody
-  careful, not from looking exciting.
-- **Evidence over decoration.** The terminal recordings, the journal rows, the
-  four-classes cards — those are the argument. Ornament should frame them,
-  never compete.
-- **The Greek thread is the identity, and it is currently underused.** The
-  name means *a fastening together*; the meander, the medal, the Cormorant
-  display face all come from that. There is far more to do with it than a
-  divider rule. The desktop app's own frame — a meander border around a mark —
-  is generated by `app/build/make-logo.py` into `brand/synartesis-logo.svg`,
-  and the site shows that file rather than drawing its own.
-- **It should be legible at arm's length on a phone**, since that is where at
-  least half of the people who hear about this will first see it.
+What is there now is competent and safe -- things fade up as you reach them.
+That is the floor, not the ceiling, and it is doing nothing for the argument.
 
-### The one addition worth making
+What "professional" means for this product specifically, since it does not
+mean the same thing everywhere:
 
-Give the desktop window a section, with pictures. Four screenshots are already
-in the repository at `brand/synartesis-desktop.png`, `-approval.png`, `-undo.png`
-and `-dark.png` — the same ones the README uses, about 220–275 kB each. Copy
-them into `site/` or reference them from `raw.githubusercontent.com`, your
-call. The facts:
+- **Motion that explains.** This product has an actual idea to animate: a
+  thing is copied *before* it is changed, and can be put back *after*. A
+  person who watches that happen understands the product; a person who reads
+  about it is still deciding whether to believe you. That is the animation
+  worth building, and nothing on the page does it today.
+- **Confident and quiet.** Slow, few, deliberate. It is a recovery tool for
+  people who have been burned by an agent, and it should feel like something
+  maintained by somebody careful. No bounce, no elastic, no confetti, nothing
+  that says startup landing page.
+- **The evidence must stay legible.** The terminal panels and journal rows are
+  the argument. Frame them, reveal them, never animate them into a smudge.
+- **The Greek thread is still underused.** The meander is a line that folds
+  back on itself, which is the product drawn as an ornament -- and it has
+  never once been drawn. A meander that traces itself as you arrive at the
+  closing band would be worth more than twenty fades.
 
-- Installers for macOS (Apple silicon and Intel), Windows, and Linux, at
-  <https://github.com/ArhaanDev24/Synartesis/releases/latest>.
-- `synartesis desktop` opens it once installed, on every platform.
-- It talks to Claude, Gemini, Mistral, OpenAI, or anything speaking
-  `/v1/chat/completions` — including Ollama and LM Studio locally, which cost
-  nothing and send nothing anywhere.
-- Every tool call the model makes shows a card saying whether the state before
-  it was captured. A call that cannot be undone stops and waits for a person.
-- **The builds are not signed yet**, so the first launch is blocked by
-  Gatekeeper on macOS and SmartScreen on Windows. Say so. Hiding it would be
-  exactly the kind of thing this product exists to argue against.
+Four places with something real to animate, in the order I would take them:
+
+1. **The undo, as a sequence.** State, change, and the change coming back out.
+   There is a recording at `site/undo-run.mp4` already; it may deserve to
+   become a built thing rather than a video.
+2. **The proxy diagram.** "Synartesis sits between your agent and your
+   systems" -- a call travelling that path, and its snapshot being taken on
+   the way through, in one loop.
+3. **The four classes.** Read-only, reversible, compensable, cannot-be-undone
+   is a state machine with four states and it is currently a static list.
+4. **The held call.** Something arriving at a gate and stopping. This is the
+   product's whole promise and the page states it in prose.
+
+### Rules for the motion itself
+
+- **Compositor-only.** `opacity`, `transform`, `clip-path`. Animating `width`,
+  `top`, `margin` or `box-shadow` in a loop is an instant no.
+- **Nothing on the first paint.** The hero may reveal; it may not wait on a
+  script to become readable.
+- **No scroll-jacking, no hijacked wheel, no pinned sections that fight the
+  scrollbar, no parallax on the hero.** Scroll-*linked* is fine and welcome --
+  scroll-*driven* narrative that takes the scrollbar away from somebody is not.
+- **60fps on a laptop.** Check with the CPU throttled 4x in devtools, not on
+  your own machine at full speed.
+- **Anything that loops must stop when it is off screen.** An SVG animating
+  forever in a section nobody is looking at is a battery bug.
+- **`prefers-reduced-motion: reduce` removes all of it**, and the page must
+  still make every point it makes. If a diagram only works in motion, it needs
+  a still state that works too.
+- **Keyboard focus is never animated away.** Focus rings appear instantly.
 
 ### Budget
 
-The page is 88 kB of HTML today and the whole site is about 1.1 MB, most of it
-one video. Adding four screenshots roughly doubles it, which is fine — but keep
-the first screen fast: nothing render-blocking beyond the fonts, images below
-the fold lazy, and no layout shift as they arrive.
+The whole site is about 1.1 MB, most of it one video. You have room for
+inline SVG and for CSS; you do not have room for a library, and a library is
+not permitted anyway (see constraint 2). If you find yourself wanting GSAP,
+what you actually want is about forty lines of Web Animations API.
 
 ## Before you hand it back
 
-- Screenshots at 1440, 1024, 768 and 375, all four sections deep.
+- Screenshots at 1440, 1024, 768 and 375, all sections deep.
 - No horizontal scroll at any width. `document.documentElement.scrollWidth`
   must equal `clientWidth`.
+- **Load the page, switch to another tab for a minute, come back.** Everything
+  is visible and nothing is mid-animation. This is the failure mode that gets
+  shipped, because nobody tests it.
+- Throttle the CPU 4x and scroll the whole page. Nothing stutters.
+- Set "reduce motion" in the OS and reload. Nothing moves, and nothing is
+  missing.
 - Tab through it once. Every interactive thing takes focus and shows it.
-- Set "reduce motion" in the OS and reload. Nothing moves.
-- The install command copies to the clipboard.
-- Every link still resolves, including the two other pages.
-- Say what you changed and why, in the same plain register the rest of this
-  repository uses. If you removed something on purpose, say that too — silence
+- The install command still copies to the clipboard.
+- The last two `<script>` tags before `</body>` are still there.
+- Every link still resolves, including `install.html` and `404.html`.
+- Say what you changed and why, in the same plain register as the rest of this
+  repository. If you removed something on purpose, say that too -- silence
   reads as an accident.
