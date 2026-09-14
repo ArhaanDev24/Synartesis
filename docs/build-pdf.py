@@ -24,8 +24,30 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
-MD = DOCS / "synartesis-user-guide.md"
-OUT = DOCS / "synartesis-user-guide.pdf"
+
+# What this can build. The pipeline was written for the guide and hardcoded to
+# it; a second document only needs a different source, a different cover and a
+# different first section to drop, so those are the only things that vary.
+DOCUMENTS = {
+    "guide": {
+        "md": DOCS / "synartesis-user-guide.md",
+        "pdf": DOCS / "synartesis-user-guide.pdf",
+        "title": "Synartesis \u00b7 User Guide",
+        "tagline": "An undo layer<br>for AI agents",
+        "note": "A user guide, from install to undo.",
+        # The markdown opens with its own title block, which the cover says
+        # better. Dropped rather than said twice.
+        "drop": r"^\s*<section class=\"chapter\"><h1>Synartesis</h1>.*?</section>",
+    },
+    "runbook": {
+        "md": DOCS / "synartesis-runbook.md",
+        "pdf": DOCS / "synartesis-runbook.pdf",
+        "title": "Synartesis \u00b7 Command Runbook",
+        "tagline": "Every command,<br>in the order<br>you meet them",
+        "note": "A walkthrough of every command,<br>against a bench you can run.",
+        "drop": r"^\s*<section class=\"chapter\"><h1>Synartesis Command Runbook</h1>.*?</section>",
+    },
+}
 
 # Kept out of the repo: paged.js is 500kB of vendor code this only needs at
 # build time, and the PDF it produces is what ships.
@@ -35,6 +57,10 @@ MAKE_PDF = pathlib.Path.home() / ".claude/skills/gstack/make-pdf/dist/pdf"
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 MARK = ROOT / "brand/synartesis-mark-1080.png"
+
+# Written, not generated at build time: a PDF rebuilt in a year should not
+# silently claim to be a year newer than the text inside it.
+DATELINE = "September 2026"
 
 CSS = """
 :root {
@@ -309,8 +335,21 @@ def ensure_pagedjs() -> None:
         die("npm install pagedjs did not produce the polyfill")
 
 
+def version() -> str:
+    """Read from package.json, so the cover cannot drift from what shipped."""
+    import json
+
+    return json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+
+
 def main() -> None:
-    for path, what in ((MD, "the guide"), (MARK, "the mark"), (MAKE_PDF, "make-pdf")):
+    which = sys.argv[1] if len(sys.argv) > 1 else "guide"
+    if which not in DOCUMENTS:
+        die(f"unknown document {which}; it has: {', '.join(DOCUMENTS)}")
+    doc = DOCUMENTS[which]
+    MD, OUT = doc["md"], doc["pdf"]
+
+    for path, what in ((MD, "the source"), (MARK, "the mark"), (MAKE_PDF, "make-pdf")):
         if not path.exists():
             die(f"{what} is missing at {path}")
     ensure_pagedjs()
@@ -329,15 +368,8 @@ def main() -> None:
         die("could not find a body in the parsed html")
     content = body.group(1)
 
-    # Its first section is the markdown's own title block, which the cover says
-    # better. Drop it rather than say it twice.
-    content = re.sub(
-        r"^\s*<section class=\"chapter\"><h1>Synartesis</h1>.*?</section>",
-        "",
-        content,
-        count=1,
-        flags=re.S,
-    )
+    # The cover says the title block better; see DOCUMENTS[...]["drop"].
+    content = re.sub(doc["drop"], "", content, count=1, flags=re.S)
 
     mark = base64.b64encode(MARK.read_bytes()).decode("ascii")
 
@@ -352,7 +384,7 @@ def main() -> None:
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Synartesis · User Guide</title>
+<title>{doc["title"]}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
@@ -364,11 +396,11 @@ def main() -> None:
   <img class="cover-mark" src="data:image/png;base64,{mark}" alt="">
   <div>
     <h1 class="cover-title">Synartesis</h1>
-    <p class="cover-tagline">An undo layer<br>for AI agents</p>
+    <p class="cover-tagline">{doc["tagline"]}</p>
     <hr class="cover-rule">
     <p class="cover-note">
-      A user guide, from install to undo.<br>
-      Version <b>0.3.2</b> · September 2026
+      {doc["note"]}<br>
+      Version <b>{version()}</b> · {DATELINE}
     </p>
   </div>
   <p class="cover-foot">
@@ -389,7 +421,7 @@ def main() -> None:
 </body>
 </html>"""
 
-    staged = BUILD / "guide.html"
+    staged = BUILD / f"{which}.html"
     staged.write_text(html, encoding="utf-8")
 
     # Not --print-to-pdf: it snapshots before Paged.js has finished, and a
