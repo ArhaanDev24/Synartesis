@@ -441,9 +441,9 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
       const heading = element.tagName === 'H2';
       element.classList.add(heading ? 'reveal-head' : 'reveal');
       const frames = heading
-        ? [{opacity:1,clipPath:'inset(0 0 100% 0)',transform:'translateY(8px)'},{opacity:1,clipPath:'inset(0 0 -10% 0)',transform:'none'}]
-        : [{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}];
-      const a = animate(element, frames, heading ? 760 : 520, Math.min(i,3)*60);
+        ? [{opacity:.85,transform:'translateY(6px)'},{opacity:1,transform:'none'}]
+        : [{opacity:1,transform:'translateY(6px)'},{opacity:1,transform:'none'}];
+      const a = animate(element, frames, heading ? 620 : 460, Math.min(i,3)*60);
       if (a) { reveals.add(a); a.finished.then(() => { a.cancel(); reveals.delete(a); }, () => reveals.delete(a)); }
     });
   }

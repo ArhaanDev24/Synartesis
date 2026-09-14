@@ -675,6 +675,40 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
    contrast against the oxblood is not. */
 :focus-visible { outline:3px solid var(--wine); outline-offset:3px; }
 .site-header :focus-visible,.guide-header :focus-visible,.closing :focus-visible { outline-color:var(--accent); }
+
+/* Setup is a workbench: an overview across the page, then an index beside
+   the instructions. Commands stay still while somebody reads and copies. */
+.guide { max-width:1320px; display:grid; grid-template-columns:220px minmax(0,1fr); column-gap:64px; }
+.guide-start { grid-column:1/-1; display:grid; grid-template-columns:1.2fr 1fr; gap:64px; align-items:start; padding:56px 0; border-bottom:1px solid var(--line); }
+.guide .guide-start section { padding:0; border:0; margin:0; }
+.guide .guide-start .desktop-install { padding:28px; border:1px solid var(--line); }
+.guide .guide-start h1 { font-size:clamp(54px,5.8vw,78px); max-width:10ch; margin-top:20px; }
+.guide .guide-start .label { font-size:12px; }
+.guide .guide-start .desktop-install h2 { font-size:42px; }
+.guide-index { grid-column:1; grid-row:2/5; position:sticky; top:125px; align-self:start; padding-top:48px; }
+.guide-index nav { display:grid; gap:0; }
+.guide-index nav a { padding:14px 0; border-bottom:1px solid var(--line); text-decoration:none; font-size:16px; }
+.guide-index nav a:hover { text-decoration:underline; }
+.guide-index p { padding-top:18px; line-height:1.9; }
+.guide>section { grid-column:2; min-width:0; }
+.guide>section .section-head { grid-template-columns:1fr; gap:20px; margin-bottom:30px; }
+.guide>section .section-head h2 { max-width:none; }
+.client-options details { border-top:1px solid var(--line); }
+.client-options summary { padding:24px 0; font-size:22px; color:var(--ink); }
+.client-body { padding-bottom:24px; }
+@media(max-width:1000px) {
+ .guide { grid-template-columns:180px minmax(0,1fr); column-gap:32px; }
+ .guide-start { gap:32px; }
+}
+@media(max-width:800px) {
+ .guide { display:block; }
+ .guide-start { grid-template-columns:1fr; padding:32px 0; }
+ .guide .guide-start h1 { max-width:none; }
+ .guide-index { position:static; padding:28px 0; border-bottom:1px solid var(--line); }
+ .guide-index nav { grid-template-columns:1fr 1fr; gap:0 20px; }
+ .guide-index p { padding:0; }
+}
+@media(max-width:450px) { .guide-index nav { grid-template-columns:1fr; } }
 </style>
 <script>document.documentElement.classList.add('js')</script><body><a class="skip" href="#main">Skip to content</a>
 <div class="guide-header">
@@ -685,28 +719,28 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
 <div class="scroll-progress" aria-hidden="true"></div>
 </div>
 <main class="wrap guide" id="main">
+<div class="guide-start">
   <section class="hero-install" id="setup">
     <p class="label">Install &middot; configure &middot; check it worked</p>
     <h1 class="display">Your first way back.</h1>
     <p class="lede">
-      Everything in order, from an empty machine to an agent whose writes you can take
-      back. Nothing here is needed twice: once a client is pointed at the proxy, it stays
-      pointed at it.
+      Install the CLI, connect your client, then check that its calls reach the journal.
+      Prefer a conversation? Get the desktop app alongside it.
     </p>
   <div class="install-command"><code id="hero-install-command">npm install -g synartesis</code><button type="button" data-copy="hero-install-command" aria-label="Copy quick install command">Copy</button></div><p class="muted">Requires Node.js 22 or newer.</p>
 </section>
 <section id="desktop-install" class="desktop-install"><span class="eyebrow">Prefer a window?</span>
 <h2>Get the desktop app.</h2>
-<p>The desktop app is a separate download for macOS (Apple silicon and Intel), Windows, and Linux. It uses the same proxy, policy and journal as the CLI.</p><a class="primary" href="https://github.com/ArhaanDev24/Synartesis/releases/latest">Download the latest release ↗</a>
+<p>The desktop app is a separate download for macOS (Apple silicon and Intel), Windows, and Linux. It uses the same proxy, policy and journal as the CLI.</p><a class="primary" href="https://github.com/ArhaanDev24/Synartesis/releases/tag/v0.6.12">Download v0.6.12 ↗</a>
 <p>After installing the app, use its icon or run <code>synartesis desktop</code>. The npm package alone does not include the desktop app.</p>
 <p><strong>The builds are unsigned.</strong> macOS Gatekeeper blocks the first launch; Windows SmartScreen may block it or show a warning. These warnings mean the operating system cannot verify the publisher. Review the release and source before deciding whether to open it.</p>
 <p><a href="https://github.com/ArhaanDev24/Synartesis#the-desktop-window">Platform instructions and building from source ↗</a>
 </p>
 </section>
 
-
-
-  <section>
+</div>
+<aside class="guide-index"><span class="eyebrow">The setup guide</span><nav aria-label="On this page"><a href="#first-undo">01 · Your first undo</a><a href="#client-config">02 · Connect your client</a><a href="#verify">03 · Check it worked</a><a href="#desktop-install">Desktop download ↗</a></nav><p>Guide for v0.6.12<br><a href="https://github.com/ArhaanDev24/Synartesis/blob/v0.6.12/CHANGELOG.md">Read the release notes ↗</a></p></aside>
+  <section id="first-undo">
     <div class="section-head">
       <h2 class="display">Your first undo</h2>
       <p class="lede">
@@ -872,21 +906,17 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
 
 
 
-  <section>
+  <section id="client-config">
     <div class="section-head">
       <h2 class="display">Where the config goes</h2>
       <p class="lede">
-        Synartesis speaks MCP in both directions and never learns who is on the other end
-        &mdash; a thirty-six line script with no SDK drives it the same as any editor does.
-        So the block is the same in every client; what differs is which file it goes in, and
-        every path here was checked against that client&rsquo;s own documentation. Add the entry, restart the client, and the tools appear under
-        Synartesis instead of under the server.
+        Choose your client. Add the proxy entry, restart the client, then check that
+        its calls reach the journal. Each configuration below points at the same proxy.
       </p>
     </div>
 
-    <ol class="setup">
-      <li>
-        <h3>Claude Code</h3>
+    <div class="client-options">
+      <details><summary>Claude Code</summary><div class="client-body">
         <p>
           One command, no file to find. Or write <code class="inline">.mcp.json</code> at the
           root of a project to share it with everyone working on that repo.
@@ -897,10 +927,9 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
 <pre tabindex="0" aria-label="Setup command or configuration"><span class="prompt">$</span> <span class="hit">claude mcp add</span> synartesis -- npx -y synartesis proxy \
     --manifest ~/.synartesis/synartesis.yaml</pre>
         </div>
-      </li>
+      </div></details>
 
-      <li>
-        <h3>Claude Desktop</h3>
+      <details><summary>Claude Desktop</summary><div class="client-body">
         <p>
           Settings &rarr; Developer &rarr; Edit Config opens this file, creating it if it is
           not there. Quit and reopen the app afterwards &mdash; it only reads the file at
@@ -922,10 +951,9 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
   }
 }</pre>
         </div>
-      </li>
+      </div></details>
 
-      <li>
-        <h3>Cursor</h3>
+      <details><summary>Cursor</summary><div class="client-body">
         <p>
           <code class="inline">~/.cursor/mcp.json</code> for everywhere,
           <code class="inline">.cursor/mcp.json</code> in a project for just that one. Cursor
@@ -945,10 +973,9 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
   }
 }</pre>
         </div>
-      </li>
+      </div></details>
 
-      <li>
-        <h3>Codex CLI</h3>
+      <details><summary>Codex CLI</summary><div class="client-body">
         <p>
           OpenAI&rsquo;s local agent, which does run stdio servers. One command, and it writes
           the TOML below into <code class="inline">~/.codex/config.toml</code> for you.
@@ -969,10 +996,9 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
 command = <span class="hit">"npx"</span>
 args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <span class="hit">"proxy"</span>, <span class="hit">"--manifest"</span>, <span class="dim">"/Users/you/.synartesis/synartesis.yaml"</span>]</pre>
         </div>
-      </li>
+      </div></details>
 
-      <li>
-        <h3>Anything else, and one that will not work</h3>
+      <details><summary>Anything else, and one that will not work</summary><div class="client-body">
         <p>
           Any client that runs a local MCP server takes the same two fields, whatever it calls
           its config file. <b>ChatGPT is the one that will not</b>: its connectors accept a
@@ -996,13 +1022,13 @@ args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <s
           in your policy: treat the token like a password, and prefer a tunnel that does its
           own authentication.
         </p>
-      </li>
-    </ol>
+      </div></details>
+    </div>
   </section>
 
 
 
-  <section>
+  <section id="verify">
     <div class="section-head">
       <h2 class="display">Telling whether it worked</h2>
       <p class="lede">
@@ -1186,9 +1212,9 @@ for (const button of document.querySelectorAll('[data-copy]')) {
       const heading = element.tagName === 'H2';
       element.classList.add(heading ? 'reveal-head' : 'reveal');
       const frames = heading
-        ? [{opacity:1,clipPath:'inset(0 0 100% 0)',transform:'translateY(8px)'},{opacity:1,clipPath:'inset(0 0 -10% 0)',transform:'none'}]
-        : [{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}];
-      const a = animate(element, frames, heading ? 760 : 520, Math.min(i,3)*60);
+        ? [{opacity:.85,transform:'translateY(6px)'},{opacity:1,transform:'none'}]
+        : [{opacity:1,transform:'translateY(6px)'},{opacity:1,transform:'none'}];
+      const a = animate(element, frames, heading ? 620 : 460, Math.min(i,3)*60);
       if (a) { reveals.add(a); a.finished.then(() => { a.cancel(); reveals.delete(a); }, () => reveals.delete(a)); }
     });
   }
