@@ -10,6 +10,26 @@ would have announced itself.
 
 ### Security
 
+- **A server that would not start said nothing useful about why, and could
+  hang the proxy outright.** Two faults in the same few lines, found by hitting
+  the first one in real use.
+
+  What it printed was `code: 'MODULE_NOT_FOUND', requireStack: [], },
+  Node.js v22.16.0` -- the last four lines of node's output, which are the four
+  least informative. `Error: Cannot find module '/path/to/thing'` sits in the
+  middle and was thrown away, so the message named neither the file nor
+  anything to act on. A line that states a fault now leads, stack frames are
+  dropped, and the tail is only the fallback when nothing states one.
+
+  The second was worse and was found while testing the first: nothing read the
+  server's stderr until after the connection failed. A pipe nobody reads fills
+  at around 64kB and blocks the writer, so a server that said more than that
+  before dying never exited, the connect never rejected, and `check` sat there
+  for ever with no output at all. Measured against a server writing 2.4MB to
+  stderr: **killed at 30 seconds, against 0.8 seconds and the right error**.
+  Stderr is now read as it arrives, capped so a logging loop cannot make the
+  proxy the thing that runs out of memory.
+
 - **The one remaining advisory is gone.** `esbuild` reached `pnpm audit`
   through vite, in the renderer build only -- never in anything published, and
   `--prod` was already clean. Pinned anyway, the same way as 0.6.12's three:
