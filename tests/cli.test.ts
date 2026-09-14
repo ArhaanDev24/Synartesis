@@ -718,9 +718,13 @@ describe("a run left active by a proxy that was killed", () => {
     journal.endRun(journal.beginRun("tidy"), "complete");
     journal.close();
 
+    // Nothing left open is the ordinary state, and this is the command
+    // somebody runs to check it. It used to answer with exit 2 and the whole
+    // command list, which is neither saying so nor a mistake anybody made.
     const closed = await run("node", [CLI, "close", "--journal", space.journal]);
-    expect(closed.code).toBe(2);
-    expect(closed.stderr).toMatch(/no run/i);
+    expect(closed.code).toBe(0);
+    expect(closed.stdout).toMatch(/nothing is open/i);
+    expect(closed.stderr).toBe("");
   });
 });
 

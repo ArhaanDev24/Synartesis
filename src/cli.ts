@@ -21,7 +21,15 @@ import { ManifestError, SynartesisError, describe } from "./errors.js";
 import { draftManifest } from "./init/draft.js";
 import { loadManifest, parseManifest } from "./manifest/load.js";
 import type { Manifest } from "./manifest/types.js";
-import { labelFor, openJournal, wasRefused, type ActionClass, type ActionRow, type Journal } from "./journal/journal.js";
+import {
+  labelFor,
+  openJournal,
+  wasRefused,
+  type ActionClass,
+  type ActionRow,
+  type Journal,
+  type RunTally,
+} from "./journal/journal.js";
 import { verifyAgainstServers, toolShapes } from "./manifest/verify.js";
 import { pinBlock, type ToolShape } from "./manifest/pin.js";
 import { describeStanding, standing, untested, warnUntested } from "./manifest/standing.js";
@@ -124,7 +132,22 @@ journal is too. Set SYNARTESIS_HOME to put that somewhere else.
 Exit codes: 0 complete, 1 halted or partial, 2 bad usage or configuration.
 `;
 
-class UsageError extends Error {}
+class UsageError extends Error {
+  /**
+   * Whether the command list helps.
+   *
+   * It does for a mistyped flag or command. It does not for "there is nothing
+   * here to act on", which is a fact about the journal rather than about what
+   * was typed -- and answering that with forty lines of unrelated commands
+   * buries the one sentence that matters.
+   */
+  readonly listCommands: boolean;
+
+  constructor(message: string, listCommands = true) {
+    super(message);
+    this.listCommands = listCommands;
+  }
+}
 
 function flag(argv: readonly string[], name: string): string | undefined {
   const at = argv.indexOf(name);
@@ -627,11 +650,12 @@ function pick<T extends { id: string }>(
   if (given === undefined) {
     const [only, ...rest] = candidates;
     if (only === undefined) {
-      throw new UsageError(`there is no ${noun.one} to act on`);
+      throw new UsageError(`there is no ${noun.one} to act on`, false);
     }
     if (rest.length > 0 && !newest) {
       throw new UsageError(
         `there are ${String(candidates.length)} ${noun.many}; name one, or use --all:\n${listed(candidates)}`,
+        false,
       );
     }
     return only;
@@ -643,7 +667,7 @@ function pick<T extends { id: string }>(
   // rather than read as absent, because absent means the newest run and for
   // undo that is the wrong thing to do quietly.
   if (given === "") {
-    throw new UsageError(`no ${noun.one} was named; an empty id is usually an unset variable`);
+    throw new UsageError(`no ${noun.one} was named; an empty id is usually an unset variable`, false);
   }
 
   const exact = candidates.find((item) => item.id === given);
@@ -653,11 +677,12 @@ function pick<T extends { id: string }>(
   const matches = candidates.filter((item) => item.id.startsWith(given));
   const [first, ...rest] = matches;
   if (first === undefined) {
-    throw new UsageError(`no ${noun.one} matches ${given}`);
+    throw new UsageError(`no ${noun.one} matches ${given}`, false);
   }
   if (rest.length > 0) {
     throw new UsageError(
       `${given} matches ${String(matches.length)} ${noun.many}:\n${listed(matches)}`,
+      false,
     );
   }
   return first;
@@ -683,8 +708,13 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
   // Most recent first: the run someone wants to undo is nearly always the last
   // thing that happened.
   const runs = [...journal.listRuns()].reverse();
+  // Counted in sql. Reading every action of every run to print three numbers
+  // meant this command grew with the size of the snapshots it never looked at.
+  const tally = journal.tallyRuns();
+  const counted = (id: string): RunTally =>
+    tally.get(id) ?? { actions: 0, unknown: 0, waiting: 0, applied: 0 };
   if (asJson) {
-    out(JSON.stringify(runs.map((run) => ({ ...run, actions: journal.getActions(run.id).length }))));
+    out(JSON.stringify(runs.map((run) => ({ ...run, actions: counted(run.id).actions }))));
     return 0;
   }
   if (runs.length === 0) {
@@ -701,9 +731,8 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
     ),
   );
   for (const run of runs) {
-    const actions = journal.getActions(run.id);
-    const unknown = actions.filter((action) => action.status === "pending").length;
-    const waiting = actions.filter((action) => action.status === "gated").length;
+    const actions = counted(run.id);
+    const { unknown, waiting } = actions;
     const notes = [
       unknown === 0 ? "" : `${String(unknown)} of unknown outcome`,
       waiting === 0 ? "" : `${String(waiting)} awaiting approval`,
@@ -712,7 +741,7 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
       notes.length === 0 ? "" : `  ${style.accent(`(${notes.join("; ")})`)}`;
     out(
       `  ${style.strong(run.id)}  ${style.quiet(shortTime(run.startedAt).trimEnd().padEnd(13))}  ${run.status.padEnd(12)}  ` +
-        `${String(actions.length).padStart(7)}  ${run.label ?? "-"}${note}`,
+        `${String(actions.actions).padStart(7)}  ${run.label ?? "-"}${note}`,
     );
   }
   out("");
@@ -805,7 +834,11 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
       out(`       ${style.quiet(summariseArgs(action.args, 96))}`);
     }
     if (action.approvedAt !== undefined) {
-      const verb = action.status === "denied" ? "denied" : "approved";
+      // labelFor, not the raw status: a row retired because its approval was
+      // spent on the call that actually ran is stored as `denied`, and reading
+      // that literally printed "denied by <name>" about the person who had
+      // just said yes to a call that then went through.
+      const verb = labelFor(action) === "denied" ? "denied" : "approved";
       out(
         `       ${style.accent(`${verb} by ${action.approvedBy ?? "nobody"}`)} ${style.quiet(`at ${fullTime(action.approvedAt)}`)}`,
       );
@@ -942,7 +975,10 @@ function truncate(text: string, limit: number): string {
 function summarise(actions: readonly ActionRow[]): string {
   const counts = new Map<string, number>();
   for (const action of actions) {
-    counts.set(action.status, (counts.get(action.status) ?? 0) + 1);
+    // Counted under the name the timeline shows, or the footer disagreed with
+    // the rows above it about how many calls anybody refused.
+    const label = labelFor(action);
+    counts.set(label, (counts.get(label) ?? 0) + 1);
   }
   const parts = [...counts].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${String(v)} ${k}`);
   const undoable = actions.filter((a) => a.inverse !== undefined).length;
@@ -1076,15 +1112,18 @@ function runClose(argv: readonly string[], journal: Journal): number {
   // hunting for a problem they do not have. closeAbandonedRun only touches a
   // run that is still active, so it is left to say no, and the branch below
   // reports which of the two mistakes it was.
+  const active = [...all.filter((candidate) => candidate.status === "active")].reverse();
+  // Nothing left open is the ordinary state, not a mistake. Falling through to
+  // pick() made `synartesis close` -- which is what somebody runs to check --
+  // answer a tidy journal with a usage error and forty lines of help.
+  if (given === undefined && active.length === 0) {
+    out("");
+    out(`  ${style.quiet("nothing is open; every run has ended cleanly")}`);
+    out("");
+    return 0;
+  }
   const run =
-    given === undefined
-      ? pick(
-          [...all.filter((candidate) => candidate.status === "active")].reverse(),
-          undefined,
-          RUN,
-          true,
-        )
-      : pick([...all].reverse(), given, RUN, true);
+    given === undefined ? pick(active, undefined, RUN, true) : pick([...all].reverse(), given, RUN, true);
   const closed = journal.closeAbandonedRun(run.id);
   out("");
   out(
@@ -1147,7 +1186,7 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
     const settled = journal.getAction(given);
     if (settled !== undefined && settled.status !== "gated") {
       process.stderr.write(
-        `synartesis: ${given} is no longer awaiting approval (it is ${settled.status})\n`,
+        `synartesis: ${given} is no longer awaiting approval (it is ${labelFor(settled)})\n`,
       );
       return 1;
     }
@@ -1216,7 +1255,11 @@ function report(result: RollbackReport, alreadyForcing = false): number {
       const verb = `${step.replanned === true ? "replanned, " : ""}${result.dryRun ? "would call" : "called"}`;
       out(
         `       ${style.quiet(verb)} ${step.plan.server}.${step.plan.tool} ` +
-          style.quiet(truncate(JSON.stringify(step.plan.args), 120)),
+          // summariseArgs, not truncated json: the raw form spent its whole
+          // budget on a long path's leading directories and cut off before
+          // the filename, so every step read "would call fs.write_file
+          // {path: /Users/.../very/long/pre..." and named nothing.
+          style.quiet(summariseArgs(step.plan.args, 120)),
       );
     }
   }
@@ -1536,6 +1579,7 @@ const FLAGS = new Set([
   "-h",
   "--version",
   "-V",
+  "-v",
 ]);
 
 /**
@@ -1598,11 +1642,15 @@ async function main(argv: readonly string[]): Promise<number> {
     await import("./proxy/stdio.js");
     return 0;
   }
-  if (argv.includes("--help") || argv.includes("-h")) {
+  // `help` and `version` as bare words too. They are what a person types
+  // before they have read anything, and answering `synartesis version` with
+  // "unknown command" while `--version` works is a riddle, not an answer.
+  const first = positional(argv)[0];
+  if (argv.includes("--help") || argv.includes("-h") || first === "help") {
     process.stdout.write(`${banner()}\n${COMMANDS}`);
     return 0;
   }
-  if (argv.includes("--version") || argv.includes("-V")) {
+  if (argv.includes("--version") || argv.includes("-V") || argv.includes("-v") || first === "version") {
     // Bare, with no styling around it: this is read by people filing issues
     // and by scripts, and both want the string and nothing else.
     process.stdout.write(`${version()}\n`);
@@ -1767,7 +1815,9 @@ try {
   process.exitCode = await main(process.argv.slice(2));
 } catch (error: unknown) {
   if (error instanceof UsageError) {
-    process.stderr.write(`synartesis: ${error.message}\n\n${COMMANDS}`);
+    process.stderr.write(
+      error.listCommands ? `synartesis: ${error.message}\n\n${COMMANDS}` : `synartesis: ${error.message}\n`,
+    );
     process.exitCode = 2;
   } else if (error instanceof ManifestError) {
     process.stderr.write(`synartesis: ${error.message}\n`);

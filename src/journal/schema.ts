@@ -70,4 +70,17 @@ CREATE INDEX IF NOT EXISTS actions_by_run ON actions(run_id, seq);
 -- two-kilobyte snapshots: 61ms to 0.01ms, and 56ms to 0.00ms.
 CREATE INDEX IF NOT EXISTS actions_approved ON actions(server, tool, status, approved_at);
 CREATE INDEX IF NOT EXISTS actions_gated ON actions(status, ts);
+
+-- Covering, and that is the whole point. listRuns needs a count and three
+-- status tallies per run, and without this the group-by scans the table --
+-- which carries the snapshots, so the cost of listing sessions grew with the
+-- size of the data those sessions touched, not with how many there were.
+-- Adding status to the run index lets sqlite answer entirely from the index.
+-- Measured on forty runs of five hundred actions with two-kilobyte snapshots,
+-- a hundred-megabyte journal: 76ms to 2ms.
+--
+-- Added the same way as the two above and for the same reason: no row changes,
+-- no meaning changes, IF NOT EXISTS makes it idempotent, and an older build
+-- opening the same file afterwards neither notices nor cares.
+CREATE INDEX IF NOT EXISTS actions_run_status ON actions(run_id, status);
 `;

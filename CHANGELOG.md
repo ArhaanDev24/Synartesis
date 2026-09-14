@@ -10,6 +10,12 @@ would have announced itself.
 
 ### Security
 
+- **The one remaining advisory is gone.** `esbuild` reached `pnpm audit`
+  through vite, in the renderer build only -- never in anything published, and
+  `--prod` was already clean. Pinned anyway, the same way as 0.6.12's three:
+  a low advisory nobody can reach is still a line of output that trains you to
+  ignore the tool.
+
 - **A server upgrade could silently invalidate the policy written for it.** A
   policy is a claim about what a tool does, anchored to the tool's name -- and
   a name is a weak anchor. A server can keep `write_file` and change what it
@@ -111,6 +117,54 @@ would have announced itself.
   Absent means no claim either way, which is right for a policy somebody wrote
   themselves. All three states are printed: if silence meant "fine", an
   ungraded policy and a known-untested one would look identical from here.
+
+- **A call somebody approved was reported as one they had refused.** When an
+  agent retries a held call, the approval moves onto the row that actually
+  runs and the original is retired -- stored as `denied`, with an error saying
+  where its approval went. `labelFor` existed to keep that out of the UI, and
+  three readers did not use it. `show` printed "denied by <name>" beside a call
+  that person had just approved and which had gone through; its footer counted
+  the row as a refusal; and `show --live` called it "never applied (denied)".
+  All three now go through `labelFor`, and the live view says what actually
+  happened: "its approval moved to the call that ran".
+
+- **Arguments are summarised for a terminal again.** A value with a newline in
+  it was printed verbatim, so writing two lines to a file broke the timeline
+  and left the second at column zero. A value over 48 characters was reduced to
+  a byte count -- which for a path is the one summary that answers nothing, so
+  every row of a filesystem session read `path 120 B` and named no file.
+  Values are flattened to one line, a long path keeps its end, and long prose
+  keeps its size, because the tail of a file tells you nothing.
+
+  The undo plan used raw truncated json for the same job and cut off mid-path;
+  it uses the same summary now, so a step reads
+  `would call fs.write_file path …/work/ledger.csv  content north,412800`.
+
+- **`synartesis close` treated a tidy journal as a usage error.** Nothing left
+  open is the ordinary state and the thing somebody runs the command to check.
+  It answered with exit 2 and forty lines of unrelated help. It now says
+  "nothing is open" and succeeds.
+
+  Separately, "there is no run to act on" and "no run matches <id>" stopped
+  reciting every command. They are facts about the journal rather than about
+  what was typed, and the command list buried the one sentence that mattered.
+  A mistyped command still gets the full list.
+
+- **`-v`, `version` and `help` answer.** `--version` worked and `synartesis
+  version` said "unknown command", which is a riddle rather than an answer.
+
+- **Listing sessions read every action of every run.** It needs a count and
+  three status tallies per run, and it was getting them by materialising every
+  row -- snapshots, results and inverses included, which is the bulk of the
+  table. So the cost of listing sessions grew with the size of the data those
+  sessions had touched rather than with how many there were. It is one grouped
+  query now, over a covering index. Measured on forty runs of five hundred
+  actions with two-kilobyte snapshots, a hundred-megabyte journal: **76ms to
+  2ms**.
+
+  The index is added the same way as the two in 0.6.12 and for the same reason:
+  no row changes, no meaning changes, and an older build opening the same file
+  neither notices nor cares.
 
 - `synartesis check` now says whether anything is pinned, either way. Silence
   when nothing was would have left the safer state and the unchecked one

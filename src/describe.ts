@@ -115,6 +115,30 @@ function size(bytes: number): string {
 }
 
 /**
+ * One line, whatever it started as.
+ *
+ * Two things had to change here, both of them visible the first time a real
+ * file went through: a short value containing newlines was printed verbatim
+ * and broke the timeline into pieces, and a long one was reduced to a byte
+ * count -- which for a path is the one summary that answers nothing. A path is
+ * identified by its end, so that is what survives; anything else is still
+ * described by its size, because the tail of a file tells you nothing.
+ */
+function summariseValue(value: string): string {
+  const flat = value.replace(/\s+/g, " ").trim();
+  if (flat.length <= 48) {
+    return flat;
+  }
+  const looksLikeALocation = !value.includes("\n") && /[/\\]/.test(value);
+  if (looksLikeALocation) {
+    const tail = value.slice(-44);
+    const from = tail.search(/[/\\]/);
+    return `\u2026${from === -1 ? tail : tail.slice(from)}`;
+  }
+  return size(Buffer.byteLength(value));
+}
+
+/**
  * The arguments as a line somebody can read.
  *
  * What was there was `JSON.stringify(args)` cut at a fixed width, which is
@@ -132,7 +156,7 @@ export function summariseArgs(args: unknown, limit = 60): string {
   const parts: string[] = [];
   for (const [key, value] of Object.entries(args)) {
     if (typeof value === "string") {
-      parts.push(value.length > 48 ? `${key} ${size(Buffer.byteLength(value))}` : `${key} ${value}`);
+      parts.push(`${key} ${summariseValue(value)}`);
       continue;
     }
     if (Array.isArray(value)) {

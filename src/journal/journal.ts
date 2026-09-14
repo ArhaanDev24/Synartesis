@@ -45,6 +45,16 @@ export interface RunRow {
   readonly status: RunStatus;
 }
 
+export interface RunTally {
+  readonly actions: number;
+  /** A call went out and its outcome is unknown. */
+  readonly unknown: number;
+  /** Held, waiting for a person. */
+  readonly waiting: number;
+  /** Still applied, so there is something left to undo. */
+  readonly applied: number;
+}
+
 export interface ActionRow {
   readonly id: string;
   readonly runId: string;
@@ -103,6 +113,15 @@ const runSchema = z.object({
   started_at: z.string(),
   ended_at: z.string().nullable(),
   status: z.enum(["active", "complete", "rolled_back", "partial"]),
+});
+
+/** SUM() over an empty group is null, and COUNT() is always a number. */
+const tallySchema = z.object({
+  run_id: z.string(),
+  actions: z.number(),
+  unknown: z.number().nullable(),
+  waiting: z.number().nullable(),
+  applied: z.number().nullable(),
 });
 
 const actionSchema = z.object({
@@ -260,6 +279,15 @@ export interface Journal {
   listRuns(): readonly RunRow[];
   getRun(runId: string): RunRow | undefined;
   getActions(runId: string): readonly ActionRow[];
+  /**
+   * Per-run counts, without reading a single action row.
+   *
+   * `list` needs three numbers per run and was getting them by materialising
+   * every action in every run -- snapshots, results and inverses included,
+   * which is the bulk of the table. On a hundred-megabyte journal that is a
+   * hundred megabytes read and parsed to print one screen of text.
+   */
+  tallyRuns(): ReadonlyMap<string, RunTally>;
   /** The newest actions across every run, for watching work as it happens. */
   recentActions(limit: number): readonly ActionRow[];
   /**
@@ -871,6 +899,33 @@ class SqliteJournal implements Journal {
         .all(runId)
         .map(toAction),
     );
+  }
+
+  tallyRuns(): ReadonlyMap<string, RunTally> {
+    return this.#run("tallyRuns", () => {
+      const rows = this.#db
+        .prepare(
+          `SELECT run_id,
+                  COUNT(*) AS actions,
+                  SUM(status = 'pending') AS unknown,
+                  SUM(status = 'gated') AS waiting,
+                  SUM(status = 'applied') AS applied
+             FROM actions
+            GROUP BY run_id`,
+        )
+        .all();
+      const tally = new Map<string, RunTally>();
+      for (const row of rows) {
+        const counts = tallySchema.parse(row);
+        tally.set(counts.run_id, {
+          actions: counts.actions,
+          unknown: counts.unknown ?? 0,
+          waiting: counts.waiting ?? 0,
+          applied: counts.applied ?? 0,
+        });
+      }
+      return tally;
+    });
   }
 
   recentActions(limit: number): readonly ActionRow[] {

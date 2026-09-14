@@ -3,7 +3,7 @@ import { z } from "zod";
 import { canonical } from "../canonical.js";
 import { IDEMPOTENCY_META_KEY } from "../idempotency.js";
 import { DriftConflict, RollbackHalted, changedLines, describe } from "../errors.js";
-import type { ActionRow, ActionStatus, Journal } from "../journal/journal.js";
+import { labelFor, type ActionRow, type ActionStatus, type Journal } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
 import {
   observeState,
@@ -125,8 +125,16 @@ function classify(action: ActionRow, replanning: boolean, goAhead: boolean): Dec
     case "rolled_back":
       return { kind: "already-reverted", reason: "already rolled back", verified: true };
     case "failed":
-    case "denied":
-      return { kind: "skip", reason: `never applied (${action.status})`, verified: true };
+    case "denied": {
+      // A row retired because its approval was spent on the call that actually
+      // ran is stored as `denied`, and it is not a refusal. Reporting it as one
+      // told a person their own yes had been a no.
+      const why =
+        labelFor(action) === "used"
+          ? "never applied: its approval moved to the call that ran"
+          : `never applied (${action.status})`;
+      return { kind: "skip", reason: why, verified: true };
+    }
     case "pending":
       return {
         kind: "halt",

@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { canonical } from "../canonical.js";
 import { changedLines, describe } from "../errors.js";
-import type { ActionRow, Journal } from "../journal/journal.js";
+import { labelFor, type ActionRow, type Journal } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
 import {
   observeState,
@@ -111,7 +111,17 @@ export async function inspect(options: InspectOptions): Promise<Inspection> {
       continue;
     }
     if (SETTLED.has(action.status)) {
-      resources.push({ ...at, condition: "not-applied", note: action.status });
+      // labelFor, not the raw status: a row retired because its approval was
+      // spent on the call that ran is stored as `denied`, and the live view
+      // reported it as a refusal beside the call it had authorised.
+      resources.push({
+        ...at,
+        condition: "not-applied",
+        note:
+          labelFor(action) === "used"
+            ? "its approval moved to the call that ran"
+            : action.status,
+      });
       continue;
     }
     if (action.status === "rolled_back") {
