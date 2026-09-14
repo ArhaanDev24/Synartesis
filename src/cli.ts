@@ -51,6 +51,7 @@ import {
   shortList,
   whatChanged,
   type Hint,
+  type Where,
 } from "./hints.js";
 import { watch } from "./watch.js";
 import { openConsole } from "./console.js";
@@ -328,10 +329,14 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   // the gap between those two is where somebody stalls: check says everything
   // is fine and nothing says what fine leads to.
   hint(
-    firstOf(notPinned(manifest), {
-      why: "this is sound; to see which clients it covers",
-      run: "status",
-    }),
+    firstOf(
+      () => notPinned(manifest),
+      () => ({
+        why: "this is sound; to see which clients it covers",
+        run: "status",
+        needs: ["manifest", "journal"],
+      }),
+    ),
   );
   return 0;
 }
@@ -756,7 +761,7 @@ function hint(candidate: Hint | undefined): void {
   if (candidate === undefined || !hintsWanted()) {
     return;
   }
-  out(hintLine(candidate));
+  out(hintLine(candidate, pathArgs(candidate.needs)));
   out("");
 }
 
@@ -811,7 +816,10 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
   // A screen of uuids with no verb on it. Whichever of these applies is the
   // reason somebody ran this, and it names the session rather than leaving
   // them to pick one out of forty by eye.
-  hint(firstOf(heldCalls(journal), whatChanged(journal)));
+  hint(firstOf(
+    () => heldCalls(journal),
+    () => whatChanged(journal),
+  ));
   return 0;
 }
 
@@ -948,6 +956,7 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
       hint({
         why: "nothing has moved, so an undo would go through; to see it step by step",
         run: `undo ${runId.slice(0, 8)} --dry-run`,
+        needs: ["manifest", "journal"],
       });
     }
   } else {
@@ -1062,9 +1071,21 @@ function summarise(actions: readonly ActionRow[]): string {
 
 /**
  * Repeated back in any command this prints, because whoever copies the line may
- * well be in a different directory than the one it was printed from.
+ * well be in a different directory than the one it was printed from -- and,
+ * more to the point, may be looking at a journal that is not the default one.
+ * Empty when the path was found rather than given, so an ordinary line stays
+ * short.
  */
 let journalArg = "";
+let manifestArg = "";
+
+/** The paths a hinted command has to be told about, in the order they read. */
+function pathArgs(needs: readonly Where[] | undefined): string {
+  if (needs === undefined) {
+    return "";
+  }
+  return needs.map((what) => (what === "journal" ? journalArg : manifestArg)).join("");
+}
 
 /** Past this, a journal is worth mentioning without being asked. */
 const PRUNE_NAG_BYTES = 100 * 1024 * 1024;
@@ -1195,7 +1216,10 @@ function runClose(argv: readonly string[], journal: Journal): number {
     out("");
     out(`  ${style.quiet("nothing is open; every run has ended cleanly")}`);
     out("");
-    hint(firstOf(heldCalls(journal), whatChanged(journal)));
+    hint(firstOf(
+    () => heldCalls(journal),
+    () => whatChanged(journal),
+  ));
     return 0;
   }
   const run =
@@ -1223,7 +1247,10 @@ function runGates(journal: Journal, asJson: boolean): number {
     out("");
     // An empty answer to a question is the one place where saying nothing
     // else reads as a failure rather than as a clean result.
-    hint(firstOf(whatChanged(journal), LEAVE_IT_RUNNING));
+    hint(firstOf(
+      () => whatChanged(journal),
+      () => LEAVE_IT_RUNNING,
+    ));
     return 0;
   }
   out("");
@@ -1280,6 +1307,7 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
   }
 
   let failed = 0;
+  let settled = 0;
   for (const action of targets) {
     const changed = approving
       ? journal.approve(action.id, by)
@@ -1294,6 +1322,7 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
       failed += 1;
       continue;
     }
+    settled += 1;
     out(
       `  ${style.accent(approving ? "approved" : "denied")} ${style.strong(`${action.server}.${action.tool}`)} ${style.quiet(action.id)}`,
     );
@@ -1302,23 +1331,38 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
   // is called from here -- the agent retries and the approval is spent on that
   // retry -- so somebody who approves and then watches for something to happen
   // is waiting on a thing that has already been handed back to the agent.
-  out("");
-  hint(
-    firstOf(
-      heldCalls(journal),
-      approving
-        ? { why: "the agent can make that call again now, and it will go through" }
-        : { why: "the call was refused; the agent is told, and decides what to do next" },
-    ),
-  );
+  //
+  // Only when a decision actually landed. Every target can fail: a proxy can
+  // settle the last held call between listGated and approve, and the branch
+  // above exists precisely so that "must not look like it took effect". A
+  // sentence on stdout saying the agent may go ahead, under a line on stderr
+  // saying nothing was approved, is that care undone.
+  if (settled > 0) {
+    out("");
+    hint(
+      firstOf(
+        () => heldCalls(journal),
+        () =>
+          approving
+            ? { why: "the agent can make that call again now, and it will go through" }
+            : { why: "the call was refused; the agent is told, and decides what to do next" },
+      ),
+    );
+  }
   return failed === 0 ? 0 : 1;
 }
 
 /**
  * `alreadyForcing` suppresses the menu of ways on: somebody who typed --force
  * has chosen one already, and offering it back to them is noise.
+ *
+ * `as` is the rest of what was typed -- --replan, --force --yes -- so that the
+ * command offered after a dry run is the command that was just planned. Built
+ * by the caller rather than read back off the report, because the report says
+ * what happened and not what it was asked for: a plan rebuilt from the current
+ * manifest looks exactly like one taken from the recorded inverses.
  */
-function report(result: RollbackReport, alreadyForcing = false): number {
+function report(result: RollbackReport, alreadyForcing = false, as = ""): number {
   out("");
   out(`  ${style.label(result.dryRun ? "dry run" : "undo")}  ${style.strong(result.runId)}`);
   out(`  ${rule(72)}`);
@@ -1409,7 +1453,8 @@ function report(result: RollbackReport, alreadyForcing = false): number {
   if (result.dryRun && result.status === "rolled_back") {
     hint({
       why: "nothing was written; to do exactly this for real",
-      run: `undo ${result.runId.slice(0, 8)}`,
+      run: `undo ${result.runId.slice(0, 8)}${as}`,
+      needs: ["manifest", "journal"],
     });
   }
   return result.status === "rolled_back" ? 0 : 1;
@@ -1638,22 +1683,27 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     // Nothing would be written over, so there is nothing to be asked about.
   }
 
+  const replan = argv.includes("--replan");
   return report(
     await performUndo(manifestPath, journal, runId, {
       dryRun: argv.includes("--dry-run"),
       ...(toSeq === undefined ? {} : { toSeq }),
-      replan: argv.includes("--replan"),
+      replan,
       ...(forcing && said ? { force: true } : {}),
     }),
     forcing,
+    // --to is deliberately absent, and cannot reach here: a floor leaves
+    // actions below it alone, which makes the result `partial`, and the hint
+    // is only offered on `rolled_back`.
+    `${replan ? " --replan" : ""}${forcing && said ? " --force --yes" : ""}`,
   );
 }
 
 /**
- * Every flag any command takes. Checked as one set rather than per command:
- * the failure worth catching is a typo, and `list --to 3` being tolerated is a
- * far smaller problem than `undo --jounral other.db` silently reading the
- * default journal and reversing whatever happened to be in it.
+ * Every word this answers to. Checked before anything is opened, so that a
+ * typo is reported as a typo: `lst` used to reach the switch at the bottom of
+ * main, which sits after the journal is opened, and on a machine with no
+ * journal yet the answer was a paragraph about journals.
  */
 const KNOWN_COMMANDS = [
   "install", "uninstall", "status", "init", "check", "pin", "list", "show",
@@ -1661,6 +1711,12 @@ const KNOWN_COMMANDS = [
   "undo", "help", "version",
 ];
 
+/**
+ * Every flag any command takes. Checked as one set rather than per command:
+ * the failure worth catching is a typo, and `list --to 3` being tolerated is a
+ * far smaller problem than `undo --jounral other.db` silently reading the
+ * default journal and reversing whatever happened to be in it.
+ */
 const FLAGS = new Set([
   // Two lists have to agree about a flag: this one decides whether it is
   // accepted at all, and the skip set in positional() decides whether its
@@ -1715,8 +1771,9 @@ function version(): string {
 /**
  * A word that is not a command.
  *
- * Reached from two places: the dispatch below, and every command that needs a
- * journal -- which is why it is a function rather than a template repeated.
+ * Said in two places, which is why it is a function: the check that runs before
+ * anything is opened, and the switch at the bottom of main, which is now
+ * unreachable for an unknown word and kept as the exhaustiveness arm.
  */
 function unknownCommand(typed: string): string {
   const meant = didYouMean(typed, KNOWN_COMMANDS);
@@ -1782,6 +1839,22 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
   rejectUnknownFlags(argv);
+  // Before a journal is looked for, let alone opened. Reaching the switch at
+  // the bottom of main means going through openJournalOrExplain first, so on a
+  // machine that has never run a proxy `synartesis lst` answered "nothing has
+  // been recorded yet: there is no journal at ..." -- true, unrelated, and it
+  // sends somebody off to debug a journal instead of reading their own typo.
+  if (command !== undefined && !KNOWN_COMMANDS.includes(command)) {
+    throw new UsageError(unknownCommand(command));
+  }
+  // Both paths, repeated back only when they were not the obvious ones, so a
+  // copied command works from anywhere without being cluttered when it need
+  // not be. Set here rather than beside the journal open below, because the
+  // commands that never open one -- check, status -- print hints too.
+  const givenJournal = flag(argv, "--journal");
+  const givenManifest = flag(argv, "--manifest");
+  journalArg = givenJournal === undefined ? "" : ` --journal ${resolve(givenJournal)}`;
+  manifestArg = givenManifest === undefined ? "" : ` --manifest ${resolve(givenManifest)}`;
   // Nothing typed opens the screen. Being handed a page of eight commands is a
   // fine answer for a script and a poor one for a person, who wants to see
   // what happened rather than be told the names of the words for asking.
@@ -1860,9 +1933,6 @@ async function main(argv: readonly string[]): Promise<number> {
     });
   }
 
-  // Repeated back only when it was not the obvious one, so a copied command
-  // works from anywhere without being cluttered when it need not be.
-  journalArg = given === undefined ? "" : ` --journal ${resolve(given)}`;
   // Reading commands, before anything has been recorded. Being early is not an
   // error, and the screen has always said so; these aborted with "there is no
   // journal at <path>" instead. Answered without opening anything, so looking

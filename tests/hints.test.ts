@@ -208,6 +208,62 @@ describe("after reading every resource for real", () => {
   });
 });
 
+describe("a hint is meant to be pasted", () => {
+  it("repeats the journal back when it was not the default one", async () => {
+    const journal = join(workspace(), "j.db");
+    await session(journal, call(2, "update_customer", { id: "c_001", notes: "changed" }));
+
+    const listed = await run(["list", "--journal", journal]);
+    const line = listed.stdout.split("\n").find((one) => one.includes("synartesis show"));
+    expect(line).toContain(`--journal ${journal}`);
+
+    // And the whole line, run as it was printed, must actually work. This is
+    // the only assertion here that matters: without the path it resolved
+    // against the default journal and answered "no run matches".
+    const pasted = (line ?? "").trim().replace(/^.*?synartesis /, "").split(/\s+/);
+    const shown = await run(pasted);
+    expect(shown.code).toBe(0);
+    expect(shown.stdout).toContain("S E S S I O N");
+  });
+
+  it("stays short when the journal was the one it would have found anyway", async () => {
+    const dir = workspace();
+    // journal.db, in a home of its own: that is where this looks when nobody
+    // says, so there is nothing to repeat back.
+    const journal = join(dir, "journal.db");
+    await session(journal, call(2, "send_email", { to: "a@b.c", subject: "s", body: "b" }));
+
+    const listed = await run(["list"], undefined, { SYNARTESIS_HOME: dir });
+    const line = listed.stdout.split("\n").find((one) => one.includes("synartesis approve"));
+    expect(line).toBeDefined();
+    expect(line).not.toContain("--journal");
+  });
+
+  it("carries --replan, since that is what was planned", async () => {
+    const journal = join(workspace(), "j.db");
+    await session(journal, call(2, "update_customer", { id: "c_001", notes: "changed" }));
+
+    const planned = await run([
+      "undo", "--replan", "--dry-run", "--manifest", POLICY, "--journal", journal,
+    ]);
+    // Without this the offered command applies the inverses recorded at
+    // capture time, which is the opposite of the plan just shown.
+    expect(planned.stdout).toContain("--replan");
+    const line = planned.stdout.split("\n").find((one) => one.includes("synartesis undo"));
+    expect(line).toContain(`--manifest ${POLICY}`);
+    expect(line).toContain(`--journal ${journal}`);
+  });
+
+  it("leaves --replan off when it was not asked for", async () => {
+    const journal = join(workspace(), "j.db");
+    await session(journal, call(2, "update_customer", { id: "c_001", notes: "changed" }));
+
+    const planned = await run(["undo", "--dry-run", "--manifest", POLICY, "--journal", journal]);
+    const line = planned.stdout.split("\n").find((one) => one.includes("nothing was written"));
+    expect(line).not.toContain("--replan");
+  });
+});
+
 describe("a dry run is not a result", () => {
   it("says nothing was written, and how to write it", async () => {
     const journal = join(workspace(), "j.db");
@@ -294,9 +350,25 @@ describe("the moment right after installing", () => {
 
 describe("a word that is not a command", () => {
   it("names the one that was probably meant", async () => {
-    const said = await run(["lst"]);
+    // Pointed at a journal that is not there, deliberately. The check used to
+    // sit after the journal was opened, so this answered with a paragraph
+    // about journals -- and a test run without --journal passes either way on
+    // any machine that has ever run a proxy, which is every machine a person
+    // develops this on and none of the ones somebody installs it on.
+    const said = await run(["lst", "--journal", join(workspace(), "nope.db")]);
     expect(said.code).toBe(2);
     expect(said.stderr).toContain("did you mean list?");
+    expect(said.stderr).not.toContain("there is no journal");
+  });
+
+  it("says so before it goes looking for anything, for every command word", async () => {
+    // The same for a word that is nobody's typo: it must still be reported as
+    // the word it is, not as whatever the next step would have complained
+    // about.
+    const said = await run(["nonsense", "--journal", join(workspace(), "nope.db")]);
+    expect(said.code).toBe(2);
+    expect(said.stderr).toContain("unknown command nonsense");
+    expect(said.stderr).not.toContain("there is no journal");
   });
 
   it("names the flag that was probably meant", async () => {

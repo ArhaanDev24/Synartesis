@@ -946,14 +946,24 @@ class SqliteJournal implements Journal {
    */
   newestUndoable(): RunRow | undefined {
     return this.#run("newestUndoable", () => {
+      // INDEXED BY, which this file does nowhere else, and it is load-bearing
+      // rather than decoration. Left to choose, sqlite takes actions_gated for
+      // the `status = 'applied'` seek and then reaches into the table to test
+      // inverse_json on every row it finds -- and those rows carry the
+      // snapshots. Measured on sixty runs of a thousand actions with
+      // two-kilobyte snapshots, a 246MB journal: 56ms that way, 0.01ms from
+      // the partial index, which holds only the rows this asks for. Naming it
+      // is the only way to get that without an ANALYZE this has no other
+      // reason to run. The index is created on every open, so it is always
+      // there; if that ever stops being true this fails loudly, which is the
+      // better of the two ways to find out.
       const raw = this.#db
         .prepare(
-          `SELECT runs.* FROM runs
-             JOIN actions ON actions.run_id = runs.id
-            WHERE actions.status = 'applied'
-              AND actions.inverse_json IS NOT NULL
-            GROUP BY runs.id
-            ORDER BY runs.started_at DESC, runs.rowid DESC
+          `SELECT * FROM runs
+            WHERE id IN (SELECT run_id FROM actions INDEXED BY actions_undoable
+                          WHERE status = 'applied'
+                            AND inverse_json IS NOT NULL)
+            ORDER BY started_at DESC, rowid DESC
             LIMIT 1`,
         )
         .get();

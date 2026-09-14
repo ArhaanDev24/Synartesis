@@ -23,14 +23,17 @@ const RESET = `${ESC}0m`;
 /**
  * Colour is for people. Piped output goes to a program that wants the text and
  * not the escape codes, and NO_COLOR is the convention for saying so outright.
+ *
+ * Asked per stream, because the two are redirected independently: `synartesis
+ * nonsense 2> errors.log` has a terminal on stdout and a file on stderr, and
+ * deciding for both from stdout alone wrote escape sequences into the file.
  */
-const enabled =
-  process.env["NO_COLOR"] === undefined &&
-  process.env["TERM"] !== "dumb" &&
-  process.stdout.isTTY;
-
-function paint(codes: string, text: string): string {
-  return enabled ? `${codes}${text}${RESET}` : text;
+function usable(stream: NodeJS.WriteStream): boolean {
+  return (
+    process.env["NO_COLOR"] === undefined &&
+    process.env["TERM"] !== "dumb" &&
+    stream.isTTY
+  );
 }
 
 /**
@@ -42,16 +45,34 @@ export function spaced(text: string): string {
   return Array.from(text).join(" ");
 }
 
-export const style = {
+export interface Palette {
   /** A section label: small, capital, spaced out. */
-  label: (text: string): string => paint(ACCENT + DIM, spaced(text.toUpperCase())),
-  heading: (text: string): string => paint(INK, text.toUpperCase()),
-  accent: (text: string): string => paint(ACCENT, text),
-  strong: (text: string): string => paint(INK, text),
-  quiet: (text: string): string => paint(DIM, text),
+  label: (text: string) => string;
+  heading: (text: string) => string;
+  accent: (text: string) => string;
+  strong: (text: string) => string;
+  quiet: (text: string) => string;
   /** Off-white on oxblood, the way the wordmark is set. */
-  plate: (text: string): string => paint(ON_ACCENT + BOLD, ` ${text} `),
-};
+  plate: (text: string) => string;
+}
+
+function palette(on: boolean): Palette {
+  const paint = (codes: string, text: string): string =>
+    on ? `${codes}${text}${RESET}` : text;
+  return {
+    label: (text) => paint(ACCENT + DIM, spaced(text.toUpperCase())),
+    heading: (text) => paint(INK, text.toUpperCase()),
+    accent: (text) => paint(ACCENT, text),
+    strong: (text) => paint(INK, text),
+    quiet: (text) => paint(DIM, text),
+    plate: (text) => paint(ON_ACCENT + BOLD, ` ${text} `),
+  };
+}
+
+export const style = palette(usable(process.stdout));
+
+/** The same, for the stream errors and the command list go to. */
+export const errorStyle = palette(usable(process.stderr));
 
 export const WORDMARK = spaced("SYNARTESIS");
 

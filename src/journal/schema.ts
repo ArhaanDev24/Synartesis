@@ -83,4 +83,25 @@ CREATE INDEX IF NOT EXISTS actions_gated ON actions(status, ts);
 -- no meaning changes, IF NOT EXISTS makes it idempotent, and an older build
 -- opening the same file afterwards neither notices nor cares.
 CREATE INDEX IF NOT EXISTS actions_run_status ON actions(run_id, status);
+
+-- Partial, which is what makes it small: newestUndoable asks for the newest run
+-- holding something an undo would reverse, and that is a handful of rows out of
+-- a table where every other row is a read, a refusal or something already put
+-- back. Without it the question can only be answered by reaching into the table
+-- to test inverse_json on every applied row -- and those rows carry the
+-- snapshots, so the cost of the hint at the foot of a session list grew with
+-- the size of the data rather than with the number of sessions, which is
+-- exactly what the index above was added to stop. Measured on sixty runs of a
+-- thousand actions with two-kilobyte snapshots, a 246MB journal: 56ms to
+-- 0.01ms.
+--
+-- newestUndoable names this index with INDEXED BY, and has to: left to choose,
+-- sqlite takes actions_gated for the status seek and then reads the rows. See
+-- the query for why that is preferred to running ANALYZE.
+--
+-- Added the same way as the three above and for the same reason: no row
+-- changes, no meaning changes, IF NOT EXISTS makes it idempotent, and an older
+-- build opening the same file afterwards neither notices nor cares.
+CREATE INDEX IF NOT EXISTS actions_undoable ON actions(run_id)
+  WHERE status = 'applied' AND inverse_json IS NOT NULL;
 `;

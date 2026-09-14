@@ -26,13 +26,27 @@ import { ago } from "./clock.js";
 import { cliCommand } from "./invocation.js";
 import type { Journal } from "./journal/journal.js";
 import type { Manifest } from "./manifest/types.js";
-import { style } from "./style.js";
+import { errorStyle, style } from "./style.js";
+
+/** A path a copied command has to be told about, having not been the default. */
+export type Where = "journal" | "manifest";
 
 export interface Hint {
   /** Why this is the next thing, in the words of what just happened. */
   readonly why: string;
   /** The command, without the program name. Absent when there is nothing to run. */
   readonly run?: string;
+  /**
+   * Which paths this command needs repeated back to it.
+   *
+   * A hint is meant to be pasted, and a pasted command that quietly reads a
+   * different journal than the one on screen is worse than no hint: `list
+   * --journal ./bench.db` naming a session, and `show <that session>` then
+   * answering "no run matches", teaches somebody the line is a lie. The caller
+   * knows which paths were given and which were found, and fills in only the
+   * ones that were not the obvious answer.
+   */
+  readonly needs?: readonly Where[];
 }
 
 /** A person, unless they have said otherwise. */
@@ -45,11 +59,11 @@ export function hintsWanted(): boolean {
  * reason quiet, the command bright enough to find with your eye and short
  * enough to retype.
  */
-export function hintLine(hint: Hint): string {
+export function hintLine(hint: Hint, paths = ""): string {
   if (hint.run === undefined) {
     return `  ${style.quiet(hint.why)}`;
   }
-  return `  ${style.quiet(`${hint.why}:`)}  ${style.strong(`${cliCommand()} ${hint.run}`)}`;
+  return `  ${style.quiet(`${hint.why}:`)}  ${style.strong(`${cliCommand()} ${hint.run}${paths}`)}`;
 }
 
 /** Ids are uuids and nobody retypes one; any unambiguous prefix is accepted. */
@@ -74,11 +88,13 @@ export function heldCalls(journal: Journal): Hint | undefined {
     return {
       why: `${first.server}.${first.tool} is held, and the agent is waiting on you`,
       run: `approve ${short(first.id)}`,
+      needs: ["journal"],
     };
   }
   return {
     why: `${String(waiting.length)} calls are held, and the agent is waiting on you`,
     run: "approve --all",
+    needs: ["journal"],
   };
 }
 
@@ -98,6 +114,7 @@ export function whatChanged(journal: Journal): Hint | undefined {
   return {
     why: `${run.label ?? "an agent"} changed something ${ago(run.startedAt)}`,
     run: `show ${short(run.id)}`,
+    needs: ["journal"],
   };
 }
 
@@ -120,6 +137,7 @@ export function notPinned(manifest: Manifest): Hint | undefined {
         ? "no tool here is pinned, so a server that changes shape keeps its old policy"
         : `${loose.join(", ")} ${loose.length === 1 ? "is" : "are"} not pinned`,
     run: "pin",
+    needs: ["manifest"],
   };
 }
 
@@ -133,6 +151,7 @@ export function notPinned(manifest: Manifest): Hint | undefined {
 export const LEAVE_IT_RUNNING: Hint = {
   why: "anything an agent holds will appear here as it happens",
   run: "watch",
+  needs: ["journal"],
 };
 
 /**
@@ -147,17 +166,32 @@ export function afterStatus(journal: Journal | undefined): Hint | undefined {
   if (journal === undefined) {
     return LEAVE_IT_RUNNING;
   }
-  return firstOf(heldCalls(journal), whatChanged(journal), LEAVE_IT_RUNNING);
+  return firstOf(
+    () => heldCalls(journal),
+    () => whatChanged(journal),
+    () => LEAVE_IT_RUNNING,
+  );
 }
 
 /**
  * The first hint that applies, or none.
  *
- * Callers pass the candidates in the order that suits what they just printed;
- * this only enforces that exactly one of them is said.
+ * Candidates are thunks rather than values, and that is not ceremony: each one
+ * is a query, they are passed in priority order, and evaluating the arguments
+ * eagerly meant every `list` asked the journal what had changed even when a
+ * held call had already won. The answer was then thrown away.
+ *
+ * Callers pass them in the order that suits what they just printed; this only
+ * enforces that exactly one is asked for beyond the one that answers.
  */
-export function firstOf(...candidates: readonly (Hint | undefined)[]): Hint | undefined {
-  return candidates.find((candidate) => candidate !== undefined);
+export function firstOf(...candidates: readonly (() => Hint | undefined)[]): Hint | undefined {
+  for (const candidate of candidates) {
+    const hint = candidate();
+    if (hint !== undefined) {
+      return hint;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -219,13 +253,21 @@ export const EVERYDAY = [
   ["undo", "put back what one of them changed"],
 ] as const;
 
+/**
+ * Set in the stderr palette, because that is where it goes. The stdout one
+ * decides from stdout, so `synartesis nonsense 2> errors.log` in a terminal
+ * used to write escape sequences into the file.
+ */
 export function shortList(): string {
   const self = cliCommand();
   return [
     "",
-    ...EVERYDAY.map(([name, said]) => `  ${style.strong(`${self} ${name.padEnd(8)}`)} ${style.quiet(said)}`),
+    ...EVERYDAY.map(
+      ([name, said]) =>
+        `  ${errorStyle.strong(`${self} ${name.padEnd(8)}`)} ${errorStyle.quiet(said)}`,
+    ),
     "",
-    `  ${style.quiet(`${self} --help for every command.`)}`,
+    `  ${errorStyle.quiet(`${self} --help for every command.`)}`,
     "",
   ].join("\n");
 }

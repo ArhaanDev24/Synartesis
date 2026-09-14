@@ -541,6 +541,9 @@ session id already filled in:
   local-agent-mode-filesystem changed something 6d ago:  synartesis show 7f1dc7dd
 ```
 
+If you gave `--journal` or `--manifest`, the line carries them too, so it can
+be pasted from any directory and still mean the session you were looking at.
+
 It is worked out from the journal, not from what you typed, so it changes as
 the state does — a call held for approval outranks everything else, and a
 session in which nothing was written is never offered for undo. There is at
