@@ -20,7 +20,7 @@ Everything below runs from one directory. Go there once and you never type `--ma
 ```
 $ cd ~/syn-check
 $ ls
-agent   reset   synartesis.yaml   work/
+agent   node_modules   package.json   reset   synartesis.yaml   work/
 ```
 
 | Thing | What it is |
@@ -29,6 +29,7 @@ agent   reset   synartesis.yaml   work/
 | `synartesis.yaml` | The policy. Written by `init`, pinned to this exact server build. |
 | `./agent` | Stands in for Claude or Cursor. Each argument is one tool call. `WORK` in a path expands to `~/syn-check/work`. |
 | `./reset` | Puts the files back and deletes the journal. Run it any time you want a clean start. |
+| `node_modules/` | The bench's own copy of the filesystem server, so nothing outside this folder can break it. |
 
 ## Check you are on the right build
 
