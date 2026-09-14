@@ -33,12 +33,14 @@ const toolPolicy = z.strictObject({
   refusal: z.enum(["uncertain", "clean"]).optional(),
   snapshot: callTemplate.optional(),
   inverse: callTemplate.optional(),
+  verify: callTemplate.optional(),
 });
 
 const serverSpec = z.strictObject({
   command: z.string().min(1),
   args: z.array(z.string()).default([]),
   env: z.record(z.string(), z.string()).optional(),
+  provenance: z.enum(["live", "documented"]).optional(),
 });
 
 const manifestSchema = z.strictObject({
@@ -202,6 +204,13 @@ function validate(source: Source, manifest: Manifest): void {
       );
     }
 
+    // A readonly tool changes nothing, so there is no drift in it to detect
+    // and nothing for undo to compare against. Declaring one is a mistake
+    // worth naming rather than quietly honouring.
+    if (policy.verify !== undefined && policy.class === "readonly") {
+      source.fail([...path, "verify"], "a readonly tool has no post-state to check for drift");
+    }
+
     const needsInverse = policy.class === "reversible" || policy.class === "compensable";
     if (needsInverse && policy.inverse === undefined) {
       source.fail(path, `a ${policy.class} tool must declare an inverse`);
@@ -268,6 +277,7 @@ function withGate(policy: z.infer<typeof toolPolicy>): ToolPolicy {
     refusal: policy.refusal ?? "uncertain",
     ...(policy.snapshot === undefined ? {} : { snapshot: toCall(policy.snapshot) }),
     ...(policy.inverse === undefined ? {} : { inverse: toCall(policy.inverse) }),
+    ...(policy.verify === undefined ? {} : { verify: toCall(policy.verify) }),
   };
 }
 
@@ -310,6 +320,7 @@ export function parseManifest(text: string, file: string): Manifest {
           ...(spec.env === undefined
             ? {}
             : { env: expandEnvironment(source, ["servers", name], spec.env) }),
+          ...(spec.provenance === undefined ? {} : { provenance: spec.provenance }),
         },
       ]),
     ),

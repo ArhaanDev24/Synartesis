@@ -24,6 +24,7 @@ import type { Manifest } from "./manifest/types.js";
 import { labelFor, openJournal, wasRefused, type ActionClass, type ActionRow, type Journal } from "./journal/journal.js";
 import { verifyAgainstServers, toolShapes } from "./manifest/verify.js";
 import { pinBlock, type ToolShape } from "./manifest/pin.js";
+import { describeStanding, standing, untested, warnUntested } from "./manifest/standing.js";
 import { createRouter, type Router } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
@@ -212,6 +213,18 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   const path = findManifest(flag(argv, "--manifest"));
   const manifest = loadManifest(path);
 
+  // Before connecting, not after. This is a property of the policy rather than
+  // of the servers, and the adapter most worth warning about is the one whose
+  // server is least likely to be installed -- so a warning that waited for a
+  // successful connect would stay silent in exactly that case.
+  const unproven = untested(manifest);
+  if (unproven.length > 0) {
+    out("");
+    for (const line of wrapped(warnUntested(unproven), 74)) {
+      out(`  ${style.accent(line)}`);
+    }
+  }
+
   const upstreams: Upstream[] = [];
   try {
     for (const [name, spec] of Object.entries(manifest.servers)) {
@@ -243,6 +256,14 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   out(`  ${rule(54)}`);
   out("");
   out(`  ${style.quiet("servers ")} ${Object.keys(manifest.servers).join(", ")}`);
+  for (const entry of standing(manifest)) {
+    const said = describeStanding(entry);
+    out(
+      `  ${style.quiet("        ")} ${style.strong(entry.server)} ${
+        entry.provenance === "documented" ? style.accent(said) : style.quiet(said)
+      }`,
+    );
+  }
   out(`  ${style.quiet("policies")} ${[...counts].map(([k, v]) => `${String(v)} ${k}`).join(", ")}`);
   out(`  ${style.quiet("guarded ")} ${style.accent(String(gated))}`);
 
@@ -311,6 +332,13 @@ async function runInstall(argv: readonly string[]): Promise<number> {
           ? style.accent("drafted, every tool held until you say how to undo it")
           : style.quiet(`the policy that ships for ${server.adopted} (${String(server.tools ?? 0)} tools)`);
       out(`    ${style.strong(server.name.padEnd(18))} ${note}`);
+      // Said at the moment of adoption, where a person is choosing to rely on
+      // it, rather than left in the file for them to find afterwards.
+      if (server.provenance === "documented") {
+        out(
+          `    ${" ".repeat(18)} ${style.accent("never run against the real server -- check it before trusting undo")}`,
+        );
+      }
     }
     for (const skip of plan.skipped) {
       out(`    ${style.quiet(skip.name.padEnd(18))} ${style.quiet(skip.why)}`);

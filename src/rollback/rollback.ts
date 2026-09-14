@@ -543,7 +543,8 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
  */
 function unverifiedBecause(action: ActionRow): string {
   return action.verify === undefined
-    ? "no pre-read declared, so drift could not be ruled out"
+    ? "no read declared for this tool, so drift could not be ruled out -- " +
+      "a `verify` read in its policy would give it one"
     : "the post-state was never captured, so drift could not be ruled out";
 }
 

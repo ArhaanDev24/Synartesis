@@ -145,6 +145,8 @@ export interface PlannedServer {
   readonly wrapped: ServerEntry;
   /** The bundled policy adopted for it, when one matched. */
   readonly adopted?: string;
+  /** How far that bundled policy has been tested. */
+  readonly provenance?: "live" | "documented";
   readonly tools?: number;
 }
 
@@ -247,7 +249,13 @@ export async function planInstall(
         wrapped: proxyEntry(manifestPath, key, entry, invoker),
         ...(draft.adopted === undefined
           ? {}
-          : { adopted: draft.adopted.server, tools: draft.adopted.tools }),
+          : {
+              adopted: draft.adopted.server,
+              tools: draft.adopted.tools,
+              ...(draft.adopted.provenance === undefined
+                ? {}
+                : { provenance: draft.adopted.provenance }),
+            }),
       });
     }
     plans.push({ site, servers: planned, skipped });

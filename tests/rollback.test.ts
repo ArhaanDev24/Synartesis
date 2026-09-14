@@ -15,6 +15,7 @@ import { createProxyServer } from "../src/proxy/proxy.js";
 import { createRouter, type Router } from "../src/proxy/routing.js";
 import { rollback } from "../src/rollback/rollback.js";
 import { parseManifest } from "../src/manifest/load.js";
+import type { Manifest } from "../src/manifest/types.js";
 import { autoApproveGate, inMemoryUpstream } from "./helpers/harness.js";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -39,7 +40,7 @@ interface Session {
 }
 
 async function session(
-  options: { beforeWrite?: () => void; realGate?: boolean } = {},
+  options: { beforeWrite?: () => void; realGate?: boolean; manifest?: Manifest } = {},
 ): Promise<Session> {
   const dir = mkdtempSync(join(tmpdir(), "synartesis-rollback-"));
   const journalPath = join(dir, "journal.db");
@@ -55,11 +56,12 @@ async function session(
   });
   const before = store.__snapshot();
 
+  const policy = options.manifest ?? MANIFEST;
   const upstream = await inMemoryUpstream(createToyCrmServer(store), "crm");
-  const router = createRouter([upstream], MANIFEST);
+  const router = createRouter([upstream], policy);
   const proxy = createProxyServer({
     upstreams: [upstream],
-    manifest: MANIFEST,
+    manifest: policy,
     journal,
     // The real gate refuses and waits to be retried; most tests here are about
     // rollback, not approval, so they take the instant yes.
@@ -471,7 +473,23 @@ describe("actions that cannot be undone", () => {
   });
 
   it("compensates an unverifiable action but says so", async () => {
-    const active = await session();
+    // A compensable policy that declares neither a pre-read nor a `verify`
+    // read. Nothing can rule out drift on it, so undo compensates and admits
+    // it did so blind. The shipped toy-crm policy declares a verify read now,
+    // which is why this one is written out here rather than reusing it.
+    const blind = parseManifest(
+      `version: 1
+servers: { crm: { command: node, args: [] } }
+tools:
+  - match: "crm.create_customer"
+    class: compensable
+    inverse:
+      tool: "crm.delete_customer"
+      args: { id: "$result.id" }
+`,
+      "blind.yaml",
+    );
+    const active = await session({ manifest: blind });
     await active.client.callTool({
       name: "create_customer",
       arguments: { name: "Made", email: "m@example.com" },
@@ -483,8 +501,25 @@ describe("actions that cannot be undone", () => {
     });
     const step = report.steps[0];
     expect(step?.kind).toBe("revert");
-    // A compensable action declares no pre-read, so drift cannot be ruled out.
     expect(step?.verified).toBe(false);
+    expect(step?.reason).toContain("drift could not be ruled out");
+    expect(active.store.__snapshot().customers["c_004"]).toBeUndefined();
+  });
+
+  it("verifies the same action once its policy declares a verify read", async () => {
+    // The shipped policy, for contrast: same call, same compensation, but the
+    // resource is read back afterwards so drift can be ruled out.
+    const active = await session();
+    await active.client.callTool({
+      name: "create_customer",
+      arguments: { name: "Made", email: "m@example.com" },
+    });
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+    expect(report.steps[0]?.verified).toBe(true);
     expect(active.store.__snapshot().customers["c_004"]).toBeUndefined();
   });
 });

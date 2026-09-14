@@ -24,6 +24,9 @@ servers:
     # Read from your shell; never written into this file.
     env:
       GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+    # Nothing here has met a real github; every shape below comes from
+    # documentation. That is a weaker claim than the others make.
+    provenance: documented
 
 tools:
   # --- reads -------------------------------------------------------------

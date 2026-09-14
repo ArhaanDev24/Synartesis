@@ -15,6 +15,7 @@ servers:
   git:
     command: uvx
     args: ["--from", "mcp-server-git", "mcp-server-git"]
+    provenance: live
 
 tools:
   # --- reads -------------------------------------------------------------

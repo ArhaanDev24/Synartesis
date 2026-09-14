@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { parseManifest } from "../manifest/load.js";
-import type { ToolPolicy } from "../manifest/types.js";
+import type { Provenance, ToolPolicy } from "../manifest/types.js";
 
 /**
  * Policies that already exist, for the servers most people start with.
@@ -42,6 +42,14 @@ export interface KnownPolicy {
   readonly name: string;
   /** The file's own `tools:` block, comments and all. */
   readonly source: string;
+  /**
+   * How far the bundled policy has been tested. Read from the file's text
+   * rather than from the parse above, which deliberately substitutes a
+   * stand-in servers block and so never sees the real one. It is carried
+   * forward into whatever init writes, or the warning would be lost at exactly
+   * the moment the policy starts being used.
+   */
+  readonly provenance?: Provenance;
 }
 
 export function knownPolicyFor(command: string, args: readonly string[]): KnownPolicy | undefined {
@@ -72,7 +80,14 @@ export function knownPolicyFor(command: string, args: readonly string[]): KnownP
       `version: 1\nservers:\n  ${key}:\n    command: "true"\ntools:\n${source}\n`,
       path,
     ).tools;
-    return { key, rules, name: hit.manifest, source };
+    const claimed = /^\s*provenance:\s*(live|documented)\s*$/m.exec(text)?.[1];
+    return {
+      key,
+      rules,
+      name: hit.manifest,
+      source,
+      ...(claimed === "live" || claimed === "documented" ? { provenance: claimed } : {}),
+    };
   } catch {
     return undefined;
   }

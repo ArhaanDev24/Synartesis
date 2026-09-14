@@ -74,6 +74,9 @@ export async function verifyAgainstServers(
     if (policy.inverse !== undefined) {
       check(policy.inverse.tool, "inverse", policy.match);
     }
+    if (policy.verify !== undefined) {
+      check(policy.verify.tool, "verify", policy.match);
+    }
   }
 
   if (problems.length > 0) {

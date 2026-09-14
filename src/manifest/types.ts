@@ -8,10 +8,25 @@ export type ToolClass = "readonly" | "reversible" | "compensable" | "irreversibl
  */
 export type GateMode = "always" | "on_write" | "never";
 
+/**
+ * How far the policy for a server has actually been tested.
+ *
+ * `live` means the policy met the real server and the shapes below were read
+ * off its own answers. `documented` means they were derived from the server's
+ * documentation and nothing has checked them -- which is not the same kind of
+ * claim, and the difference is the difference between an undo that works and
+ * one that looks like it will.
+ *
+ * Absent says nothing either way, which is the right default for a policy
+ * somebody wrote themselves: the tool has no business grading their work.
+ */
+export type Provenance = "live" | "documented";
+
 export interface ServerSpec {
   readonly command: string;
   readonly args: readonly string[];
   readonly env?: Readonly<Record<string, string>>;
+  readonly provenance?: Provenance;
 }
 
 export type TemplateValue =
@@ -55,6 +70,22 @@ export interface ToolPolicy {
   readonly refusal: RefusalMeaning;
   readonly snapshot?: CallTemplate;
   readonly inverse?: CallTemplate;
+  /**
+   * A read used only to tell whether anybody has touched the resource since.
+   *
+   * Drift checking normally rides on `snapshot`: the pre-read is repeated
+   * after the write to record a post-state, and undo compares the world
+   * against that. A compensable tool declares no pre-read -- it has a
+   * compensating action instead of a before-image -- so it had no post-state
+   * and undo could never rule out drift. It compensated anyway and said
+   * `[unverified]`.
+   *
+   * This fills that gap. It is resolved *after* the call, with `$result`
+   * available, so it can name a resource the call itself brought into
+   * existence. It is consulted only where `snapshot` produced no read, so it
+   * can never override a working pre-read with a differently shaped one.
+   */
+  readonly verify?: CallTemplate;
 }
 
 export interface Manifest {

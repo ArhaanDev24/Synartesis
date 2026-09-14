@@ -7,7 +7,11 @@ import { knownPolicyFor, toolsReferencedBy } from "./known.js";
 export interface Draft {
   readonly yaml: string;
   /** The bundled policy this used, if one fitted. */
-  readonly adopted?: { readonly server: string; readonly tools: number };
+  readonly adopted?: {
+    readonly server: string;
+    readonly tools: number;
+    readonly provenance?: "live" | "documented";
+  };
 }
 
 export interface DraftOptions {
@@ -180,13 +184,31 @@ export async function draftManifest(options: DraftOptions): Promise<Draft> {
     );
   }
 
+  const known = knownPolicyFor(options.command, options.args);
+
+  // Carried into the file being written, not just reported here. A warning
+  // that lived only in the bundled copy would go quiet the moment the policy
+  // was adopted, which is the moment it starts being relied on.
+  const claim =
+    known?.provenance === undefined
+      ? []
+      : [
+          ...(known.provenance === "documented"
+            ? [
+                `    # This policy has never been run against the real server. Check it`,
+                `    # against your own setup before trusting undo on it.`,
+              ]
+            : []),
+          `    provenance: ${known.provenance}`,
+        ];
+
   const server = [
     `  ${options.name}:`,
     `    command: ${quote(options.command)}`,
     `    args: [${options.args.map(quote).join(", ")}]`,
+    ...claim,
   ].join("\n");
 
-  const known = knownPolicyFor(options.command, options.args);
   const adopted = known === undefined ? undefined : adopt(known, options.name, tools);
   const policies =
     adopted?.source ?? tools.map((tool) => draftTool(options.name, tool)).join("\n\n");
@@ -217,13 +239,27 @@ export async function draftManifest(options: DraftOptions): Promise<Draft> {
     ].join("\n");
     return adopted === undefined || known === undefined
       ? { yaml }
-      : { yaml, adopted: { server: known.name, tools: adopted.covered } };
+      : {
+          yaml,
+          adopted: {
+            server: known.name,
+            tools: adopted.covered,
+            ...(known.provenance === undefined ? {} : { provenance: known.provenance }),
+          },
+        };
   }
 
   const merged = mergeInto(existing, server, policies, options.name);
   return adopted === undefined || known === undefined
     ? { yaml: merged }
-    : { yaml: merged, adopted: { server: known.name, tools: adopted.covered } };
+    : {
+        yaml: merged,
+        adopted: {
+          server: known.name,
+          tools: adopted.covered,
+          ...(known.provenance === undefined ? {} : { provenance: known.provenance }),
+        },
+      };
 }
 
 /**

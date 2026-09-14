@@ -18,6 +18,14 @@ tools:
       tool: "crm.delete_customer"
       args:
         id: "$result.id"
+    # No pre-read is possible -- the record does not exist until the call
+    # returns -- so without this there is no post-state and undo can never tell
+    # whether somebody edited the new record before it was compensated away.
+    # Resolved after the call, which is what makes $result usable here.
+    verify:
+      tool: "crm.get_customer"
+      args:
+        id: "$result.id"
 
   # A patch, so the inverse has to restore every field rather than re-apply the
   # patch: fields the agent did not touch must still come back unchanged if the
@@ -60,6 +68,10 @@ tools:
     class: compensable
     inverse:
       tool: "crm.delete_customer"
+      args:
+        id: "$.id"
+    verify:
+      tool: "crm.get_customer"
       args:
         id: "$.id"
 

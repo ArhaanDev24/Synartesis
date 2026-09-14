@@ -18,6 +18,7 @@ servers:
     # or the agent will remember into a different file than it reads from.
     env:
       MEMORY_FILE_PATH: "${MEMORY_FILE_PATH}"
+    provenance: live
 
 tools:
   # --- reads -------------------------------------------------------------
@@ -54,6 +55,16 @@ tools:
       tool: "memory.delete_entities"
       args:
         entityNames: "$result.entities[].name"
+    # Deleting an entity takes its observations and its relations with it. So
+    # the compensating delete is only safe while the entity is still the thing
+    # the agent made: if anybody has added to it since, undoing destroys work
+    # nobody recorded. There is no pre-read to compare against -- the entity
+    # did not exist before the call -- so this reads it back afterwards, and
+    # undo halts rather than deleting over somebody.
+    verify:
+      tool: "memory.open_nodes"
+      args:
+        names: "$result.entities[].name"
 
   - match: "memory.create_relations"
     class: compensable

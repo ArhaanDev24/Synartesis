@@ -27,6 +27,7 @@ import { mark } from "../style.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
 import { verifyAgainstServers } from "../manifest/verify.js";
+import { untested, warnUntested } from "../manifest/standing.js";
 import { createProxyServer } from "./proxy.js";
 import { connectStdioUpstream, type Upstream } from "./upstream.js";
 
@@ -144,6 +145,16 @@ async function main(): Promise<void> {
   }
   // Loaded before anything is spawned: never start with a broken policy.
   const manifest = loadManifest(argv.manifest);
+
+  // Before anything is connected. Whoever reads this log is the person who
+  // will be relying on undo, and a policy that has never met its server is the
+  // one most likely to disappoint them -- so it is said even on a start that
+  // goes on to fail, which is the likeliest outcome for an untried adapter.
+  const unproven = untested(manifest);
+  if (unproven.length > 0) {
+    log.warn({ servers: unproven }, warnUntested(unproven));
+  }
+
   const journal = openJournal(argv.journal);
 
   const declared = Object.entries(manifest.servers);

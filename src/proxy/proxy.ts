@@ -863,6 +863,21 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           // cannot undo it. Phase 4 fails closed when the post-state is
           // missing. A resource that is now absent is a captured post-state,
           // not a missing one.
+          // A compensable tool declares no pre-read, so nothing above gave it
+          // a verify read and undo could never rule out drift on it. A
+          // declared `verify` fills exactly that gap. It is resolved here
+          // rather than before the call so it can name a resource the call
+          // itself created, and it is consulted only where there is no read
+          // already -- overriding a working pre-read with a differently shaped
+          // one would make the post-state and the snapshot incomparable.
+          if (verify === undefined && policy.verify !== undefined) {
+            try {
+              verify = planRead(policy.verify, context);
+            } catch (error: unknown) {
+              warnings.push(`the drift check could not be planned: ${describe(error)}`);
+            }
+          }
+
           let postSnapshot: unknown;
           if (verify !== undefined) {
             try {

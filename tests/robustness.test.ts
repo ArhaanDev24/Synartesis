@@ -13,6 +13,7 @@ import { createToyCrmServer } from "../fixtures/toy-crm/server.js";
 import { ToyCrmStore } from "../fixtures/toy-crm/store.js";
 import { openJournal, type Journal } from "../src/journal/journal.js";
 import { loadManifest, parseManifest } from "../src/manifest/load.js";
+import type { Manifest } from "../src/manifest/types.js";
 import { createProxyServer } from "../src/proxy/proxy.js";
 import { createRouter, type Router } from "../src/proxy/routing.js";
 import { rollback } from "../src/rollback/rollback.js";
@@ -41,7 +42,7 @@ interface Session {
   readonly journalPath: string;
 }
 
-async function session(): Promise<Session> {
+async function session(manifest: Manifest = MANIFEST): Promise<Session> {
   const dir = mkdtempSync(join(tmpdir(), "synartesis-robust-"));
   const journalPath = join(dir, "journal.db");
   const journal = openJournal(journalPath);
@@ -52,10 +53,10 @@ async function session(): Promise<Session> {
 
   const store = new ToyCrmStore({ now: () => "2026-01-01T00:00:00.000Z" });
   const upstream = await inMemoryUpstream(createToyCrmServer(store), "crm");
-  const router = createRouter([upstream], MANIFEST);
+  const router = createRouter([upstream], manifest);
   const proxy = createProxyServer({
     upstreams: [upstream],
-    manifest: MANIFEST,
+    manifest,
     journal,
     gate: autoApproveGate,
   });
@@ -73,11 +74,27 @@ async function session(): Promise<Session> {
 
 describe("a dry run", () => {
   it("does not write to the journal, even where a real undo would halt", async () => {
-    const { client, journal, router, runId } = await session();
+    // A compensable policy with no pre-read and no `verify` read, so there is
+    // nothing anywhere to consult. The shipped toy-crm policy declares a
+    // verify read now, which lets undo resolve this crash by reading the
+    // world -- correct, and the opposite of the halt this test is about.
+    const blind = parseManifest(
+      `version: 1
+servers: { crm: { command: node, args: [] } }
+tools:
+  - match: "crm.create_customer"
+    class: compensable
+    inverse:
+      tool: "crm.delete_customer"
+      args: { id: "$result.id" }
+`,
+      "blind.yaml",
+    );
+    const { client, journal, router, runId } = await session(blind);
     await client.callTool({ name: "create_customer", arguments: { name: "Ada", email: "a@b.c" } });
 
     // An inverse went out and the process died before the reply: the one state
-    // undo cannot resolve without a pre-read to consult.
+    // undo cannot resolve with nothing to consult.
     const [action] = journal.getActions(runId);
     if (action === undefined) {
       throw new Error("expected an action");

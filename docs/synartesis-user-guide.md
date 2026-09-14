@@ -553,6 +553,51 @@ Four finished policies ship with Synartesis, for filesystem, memory, git and
 github. `init` uses them automatically when it recognises the server. They are
 worth reading as worked examples.
 
+## Saying what your policy has been tested against
+
+A policy written against a real server and one written from its documentation
+are different kinds of claim. Yours can say which:
+
+```yaml
+servers:
+  gh:
+    command: github-mcp-server
+    provenance: documented   # or: live
+```
+
+Leaving it out says nothing either way, which is fine — Synartesis will not
+guess. If you do say `documented`, `synartesis check` and the proxy will remind
+you, every start, that undo on that server has never actually been tried.
+
+Of the four policies that ship, `filesystem`, `git` and `memory` say `live`.
+`github` says `documented`: it has never been run against a real account. If you
+use it, run `synartesis check` against your own token and expect to correct
+something.
+
+## Checking something the agent created
+
+An action whose undo is a *compensating* call — a create undone by a delete —
+has no before-image, because the thing did not exist before the call. Without
+help, undo cannot tell whether anybody has touched it since, so it compensates
+anyway and marks the step `[unverified]`.
+
+Give it a read and it can:
+
+```yaml
+- match: "memory.create_entities"
+  class: compensable
+  inverse:
+    tool: "memory.delete_entities"
+    args: { entityNames: "$result.entities[].name" }
+  verify:
+    tool: "memory.open_nodes"
+    args: { names: "$result.entities[].name" }
+```
+
+`verify` runs after the call, so `$result` is available and it can name the thing
+that was just made. Undo reads it again later and halts if it has changed —
+which is what stops a compensating delete from taking your additions with it.
+
 ## Pinning the shape you wrote it for
 
 Your policy is a claim about what a tool does. The tool's name is a weak place to

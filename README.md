@@ -179,6 +179,64 @@ answers. `l` in the screen does the same.
 If you decide the recorded value is the one worth keeping, `undo --force` prints
 every line it would write over and stops; `--force --yes` goes ahead.
 
+## What each policy has actually been tested against
+
+A policy that has met a real server and one written from its documentation are
+not the same kind of claim, and the difference only shows up at the moment
+somebody needs undo to work. So a policy can say which it is:
+
+```yaml
+servers:
+  gh:
+    command: github-mcp-server
+    provenance: documented   # or: live
+```
+
+Of the four that ship, three say `live` — they were written against the real
+server and corrected where it disagreed with its own docs. **`github` says
+`documented`**: it has never been run against a real account, and its own header
+has always said so. Now `check` says it, the proxy says it at every start, and
+`install` says it at the moment the policy is adopted — rather than leaving it in
+a file for you to find afterwards.
+
+Absent means no claim either way, which is the right default for a policy you
+wrote yourself: the tool has no business grading your work. Nothing is inferred
+from silence, and all three states are printed, because if silence meant "fine"
+then an ungraded policy and a known-untested one would look identical.
+
+## Undoing something that was never read first
+
+Most undo rides on a pre-read: the value before the write is captured, and
+before putting it back, undo reads the world again and refuses if it has moved.
+
+A compensable action has no such read. `create_entities` makes something that
+did not exist a moment earlier, so there is nothing to capture — it has a
+compensating action instead, a delete that offsets the create. Which means undo
+had nothing to compare against and compensated regardless. If you had added to
+that record in the meantime, the delete took your work with it and the run
+reported success.
+
+A policy can now declare a read used only for that check:
+
+```yaml
+- match: "memory.create_entities"
+  class: compensable
+  inverse:
+    tool: "memory.delete_entities"
+    args: { entityNames: "$result.entities[].name" }
+  verify:
+    tool: "memory.open_nodes"
+    args: { names: "$result.entities[].name" }
+```
+
+It is resolved *after* the call, so `$result` is available and it can name a
+resource the call itself created. Undo then halts on drift the same way it does
+everywhere else, and shows you the diff.
+
+It is consulted only where there is no read already, so it can never displace a
+working pre-read with a differently shaped one — which would make the post-state
+and the snapshot incomparable and every later comparison meaningless.
+
 ## When the server changes underneath you
 
 A policy is a claim about what a tool does, and a tool's name is a weak place to
@@ -258,8 +316,11 @@ cannot start a process:** see the [user guide](docs/synartesis-user-guide.md).
 
 - **It cannot un-send what has been seen.** An email that has been read, a
   posted message, a file deleted with no backup. This is why the gate exists.
-- **Compensable actions cannot be checked for drift.** They declare no pre-read,
-  so undo compensates them and marks them `[unverified]`.
+- **Compensable actions can only be checked for drift if their policy declares a
+  `verify` read.** They have no pre-read — the thing they made did not exist
+  before the call — so without one, undo compensates them and marks them
+  `[unverified]`. With one, the resource is read back after the write and undo
+  halts rather than compensating over somebody else's edit.
 - **Undo halts on uncertainty, and steps over the merely permanent.** Drift, an
   unknown outcome, or a failed reversing call stop it. An action that simply
   cannot be undone is reported and left in place while everything else is

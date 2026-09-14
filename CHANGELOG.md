@@ -4,8 +4,9 @@ What changed, and why it mattered. Dates are release dates.
 
 ## 0.6.13 — 2026-09-14
 
-Both of these came from a stranger on Reddit who had clearly built something
-like this before. Both were real, and neither would have announced itself.
+Four things, all of them from one comment by a stranger on Reddit who had
+clearly built something like this before. Every one was real, and none of them
+would have announced itself.
 
 ### Security
 
@@ -55,6 +56,61 @@ like this before. Both were real, and neither would have announced itself.
   rather than replacing it, so a client's own `progressToken` survives. It
   remains advisory -- a server that ignores it gives no protection, which is
   why the journal's state transitions are still the real guard.
+
+- **A compensable action could be undone over somebody's work, silently.** An
+  action whose undo is a compensating call -- a create offset by a delete --
+  has no before-image, because the thing did not exist before the call. So
+  there was nothing for undo to compare against: it compensated regardless and
+  marked the step `[unverified]`.
+
+  A policy may now declare a `verify` read, resolved *after* the call so it can
+  name a resource the call itself created:
+
+  ```yaml
+  verify:
+    tool: "memory.open_nodes"
+    args: { names: "$result.entities[].name" }
+  ```
+
+  Undo then halts on drift the way it does everywhere else. Measured against
+  the real `@modelcontextprotocol/server-memory`: an agent creates an entity, a
+  person adds an observation to it by hand, and undo is asked for. Before, it
+  deleted the entity, took the hand-written observation with it, and reported
+  `rolled_back`. Now it halts, prints the added line, and writes nothing.
+
+  It is consulted only where no read exists already, so it can never displace a
+  working pre-read with a differently shaped one -- which would leave the
+  post-state and the snapshot describing different things and make every later
+  comparison meaningless.
+
+  `memory.create_entities` gets one. Deleting an entity takes its observations
+  and relations with it, which is exactly the case worth refusing.
+
+- **Nothing said which policies had actually been run against a real server.**
+  Three of the four that ship were written against the live server; `github`
+  never has been, and its own header has said so in plain words since it was
+  written. Nothing in the code read that header. `check` did not mention it,
+  `install` adopted the policy without a word, and a held GitHub call looked
+  exactly as confident as a held filesystem one.
+
+  A server may now state it, and the four that ship do:
+
+  ```yaml
+  servers:
+    gh:
+      command: github-mcp-server
+      provenance: documented   # or: live
+  ```
+
+  Surfaced by `check`, by the proxy at every start -- before it connects, since
+  the untried adapter is the one whose server is least likely to be installed
+  -- and by `install` at the moment the policy is adopted. `init` writes the
+  claim into the manifest it generates, or the warning would go quiet exactly
+  when the policy starts being used.
+
+  Absent means no claim either way, which is right for a policy somebody wrote
+  themselves. All three states are printed: if silence meant "fine", an
+  ungraded policy and a known-untested one would look identical from here.
 
 - `synartesis check` now says whether anything is pinned, either way. Silence
   when nothing was would have left the safer state and the unchecked one
