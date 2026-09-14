@@ -530,6 +530,24 @@ not include it: shipping a browser engine inside every install would be a poor t
 | `--journal <path>` | The record. Found the same way. |
 | `--json` | On `list`, `show` and `gates`. |
 | `SYNARTESIS_HOME` | Environment variable; moves where both are looked for. |
+| `SYNARTESIS_NO_HINTS` | Environment variable; turns off the next-step line described below. |
+
+### The last line of most commands
+
+Nearly every command ends by naming the one thing worth doing next, with the
+session id already filled in:
+
+```
+  local-agent-mode-filesystem changed something 6d ago:  synartesis show 7f1dc7dd
+```
+
+It is worked out from the journal, not from what you typed, so it changes as
+the state does — a call held for approval outranks everything else, and a
+session in which nothing was written is never offered for undo. There is at
+most one, it is absent from `--json`, and `SYNARTESIS_NO_HINTS` turns it off.
+
+A mistyped command gets the same treatment: `synartesis lst` answers
+`did you mean list?` and five commands, rather than the whole help page.
 
 | Code | Meaning |
 | --- | --- |

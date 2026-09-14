@@ -288,6 +288,8 @@ export interface Journal {
    * hundred megabytes read and parsed to print one screen of text.
    */
   tallyRuns(): ReadonlyMap<string, RunTally>;
+  /** The newest run an undo would actually reverse something in. */
+  newestUndoable(): RunRow | undefined;
   /** The newest actions across every run, for watching work as it happens. */
   recentActions(limit: number): readonly ActionRow[];
   /**
@@ -925,6 +927,37 @@ class SqliteJournal implements Journal {
         });
       }
       return tally;
+    });
+  }
+
+  /**
+   * The newest run that still holds something an undo would put back.
+   *
+   * Not simply the newest run, and not the newest run with an applied action
+   * either. A client that connects and reads opens a session like any other,
+   * and reads are recorded and left `applied` -- rollback steps past them --
+   * so `applied` alone regularly points at a session in which nothing
+   * happened. What makes a run worth offering is an action that is still
+   * applied and carries the inverse that would reverse it, which is the same
+   * test `undo` itself uses when it goes looking for the session somebody
+   * meant. That inverse is also what excludes the reads: the manifest loader
+   * refuses an inverse on a readonly tool, so a read can never carry one, and
+   * a second condition on the class would be a condition that cannot fire.
+   */
+  newestUndoable(): RunRow | undefined {
+    return this.#run("newestUndoable", () => {
+      const raw = this.#db
+        .prepare(
+          `SELECT runs.* FROM runs
+             JOIN actions ON actions.run_id = runs.id
+            WHERE actions.status = 'applied'
+              AND actions.inverse_json IS NOT NULL
+            GROUP BY runs.id
+            ORDER BY runs.started_at DESC, runs.rowid DESC
+            LIMIT 1`,
+        )
+        .get();
+      return raw === undefined ? undefined : toRun(raw);
     });
   }
 

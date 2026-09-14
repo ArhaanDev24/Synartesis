@@ -39,6 +39,19 @@ import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { inspect, verdict, type Resource } from "./rollback/inspect.js";
 import { banner, NOTHING_RECORDED_YET, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
+import {
+  afterStatus,
+  didYouMean,
+  firstOf,
+  heldCalls,
+  hintLine,
+  hintsWanted,
+  LEAVE_IT_RUNNING,
+  notPinned,
+  shortList,
+  whatChanged,
+  type Hint,
+} from "./hints.js";
 import { watch } from "./watch.js";
 import { openConsole } from "./console.js";
 import { cliCommand, proxyCommand } from "./invocation.js";
@@ -128,6 +141,10 @@ Neither path usually needs giving. A policy that belongs to a project sits in
 it and is found from any directory inside it, the way a version control tool
 finds its root; anything else lives in ~/.synartesis, which is where the
 journal is too. Set SYNARTESIS_HOME to put that somewhere else.
+
+Most commands end by naming the one thing worth doing next, worked out from
+what is actually in the journal rather than from what was typed. Set
+SYNARTESIS_NO_HINTS to turn that off; --json never carries it.
 
 Exit codes: 0 complete, 1 halted or partial, 2 bad usage or configuration.
 `;
@@ -307,6 +324,15 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   out("");
   out(`  ${style.quiet("Anything not mentioned here is treated as irreversible and guarded.")}`);
   out("");
+  // A policy that loads is not a policy anything is running through yet, and
+  // the gap between those two is where somebody stalls: check says everything
+  // is fine and nothing says what fine leads to.
+  hint(
+    firstOf(notPinned(manifest), {
+      why: "this is sound; to see which clients it covers",
+      run: "status",
+    }),
+  );
   return 0;
 }
 
@@ -556,6 +582,15 @@ function runStatus(argv: readonly string[]): number {
         : `  ${style.accent(`${String(waiting)} not covered.`)} ${style.quiet(`${cliCommand()} install covers them.`)}`,
     );
     out("");
+    // Only once there is nothing left to wire up. Two suggestions at once,
+    // one of them about coverage and one about a session, is the help page
+    // again in miniature.
+    // No journal is the state right after installing, and it is the state
+    // where somebody most needs telling what to do with the thing they have
+    // just wired up. It has no sessions to name, so there is only one answer.
+    if (waiting === 0) {
+      hint(afterStatus(journal));
+    }
   } finally {
     journal?.close();
   }
@@ -704,6 +739,27 @@ function out(line: string): void {
   process.stdout.write(`${line}\n`);
 }
 
+/**
+ * The one next thing, if there is one.
+ *
+ * Every caller passes candidates in the order that suits what it just printed,
+ * and this says at most the first of them.
+ *
+ * Nothing here checks --json. The two commands that take it print their object
+ * and return before reaching any of this, which is the guard that matters: a
+ * sentence addressed to a person is a syntax error to the parser reading that
+ * stream, so it has to be impossible rather than merely suppressed. A second
+ * check here would be a condition that cannot fire, and the sort that stops
+ * being true quietly.
+ */
+function hint(candidate: Hint | undefined): void {
+  if (candidate === undefined || !hintsWanted()) {
+    return;
+  }
+  out(hintLine(candidate));
+  out("");
+}
+
 function runList(journal: Journal, asJson: boolean, journalPath: string): number {
   // Most recent first: the run someone wants to undo is nearly always the last
   // thing that happened.
@@ -752,6 +808,10 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
     out(`  ${style.quiet(`This journal is ${sizeOf(journalPath)}; synartesis prune reclaims what is old enough to lose.`)}`);
     out("");
   }
+  // A screen of uuids with no verb on it. Whichever of these applies is the
+  // reason somebody ran this, and it names the session rather than leaving
+  // them to pick one out of forty by eye.
+  hint(firstOf(heldCalls(journal), whatChanged(journal)));
   return 0;
 }
 
@@ -874,6 +934,21 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
       out(
         `  ${style.quiet("undo stops at the first of them; ")}${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force`)}${style.quiet(" shows what it would write")}`,
       );
+    } else if (actions.some((action) => action.status === "applied" && action.inverse !== undefined)) {
+      // The whole point of having just read every resource is that the answer
+      // is now known: nothing has moved, so the undo would go through. Saying
+      // that and stopping leaves somebody holding a verdict and no verb.
+      //
+      // Guarded on there being something to undo, and not on the drift check
+      // alone. A session whose every call was held, or denied, or already
+      // rolled back also has nothing that has moved -- and offering to undo
+      // one of those is a hint that is wrong in the one case where somebody
+      // has gone to the trouble of asking.
+      out("");
+      hint({
+        why: "nothing has moved, so an undo would go through; to see it step by step",
+        run: `undo ${runId.slice(0, 8)} --dry-run`,
+      });
     }
   } else {
     out("");
@@ -1120,6 +1195,7 @@ function runClose(argv: readonly string[], journal: Journal): number {
     out("");
     out(`  ${style.quiet("nothing is open; every run has ended cleanly")}`);
     out("");
+    hint(firstOf(heldCalls(journal), whatChanged(journal)));
     return 0;
   }
   const run =
@@ -1145,6 +1221,9 @@ function runGates(journal: Journal, asJson: boolean): number {
     out("");
     out(`  ${style.quiet("Nothing is waiting for a decision.")}`);
     out("");
+    // An empty answer to a question is the one place where saying nothing
+    // else reads as a failure rather than as a clean result.
+    hint(firstOf(whatChanged(journal), LEAVE_IT_RUNNING));
     return 0;
   }
   out("");
@@ -1219,6 +1298,19 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
       `  ${style.accent(approving ? "approved" : "denied")} ${style.strong(`${action.server}.${action.tool}`)} ${style.quiet(action.id)}`,
     );
   }
+  // What approving does is the question this command never answered. Nothing
+  // is called from here -- the agent retries and the approval is spent on that
+  // retry -- so somebody who approves and then watches for something to happen
+  // is waiting on a thing that has already been handed back to the agent.
+  out("");
+  hint(
+    firstOf(
+      heldCalls(journal),
+      approving
+        ? { why: "the agent can make that call again now, and it will go through" }
+        : { why: "the call was refused; the agent is told, and decides what to do next" },
+    ),
+  );
   return failed === 0 ? 0 : 1;
 }
 
@@ -1310,6 +1402,16 @@ function report(result: RollbackReport, alreadyForcing = false): number {
     `  ${style.label("result")}  ${result.status === "rolled_back" ? result.status : style.accent(result.status)}`,
   );
   out("");
+  // A dry run that says `rolled_back` is the one line in this output that can
+  // be read as the thing having happened. It has not; the whole point of the
+  // flag is that nothing was written, and the command that writes it is one
+  // word shorter than the one just typed.
+  if (result.dryRun && result.status === "rolled_back") {
+    hint({
+      why: "nothing was written; to do exactly this for real",
+      run: `undo ${result.runId.slice(0, 8)}`,
+    });
+  }
   return result.status === "rolled_back" ? 0 : 1;
 }
 
@@ -1553,6 +1655,12 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
  * far smaller problem than `undo --jounral other.db` silently reading the
  * default journal and reversing whatever happened to be in it.
  */
+const KNOWN_COMMANDS = [
+  "install", "uninstall", "status", "init", "check", "pin", "list", "show",
+  "gates", "close", "prune", "proxy", "desktop", "watch", "approve", "deny",
+  "undo", "help", "version",
+];
+
 const FLAGS = new Set([
   // Two lists have to agree about a flag: this one decides whether it is
   // accepted at all, and the skip set in positional() decides whether its
@@ -1604,6 +1712,17 @@ function version(): string {
   }
 }
 
+/**
+ * A word that is not a command.
+ *
+ * Reached from two places: the dispatch below, and every command that needs a
+ * journal -- which is why it is a function rather than a template repeated.
+ */
+function unknownCommand(typed: string): string {
+  const meant = didYouMean(typed, KNOWN_COMMANDS);
+  return meant === undefined ? `unknown command ${typed}` : `unknown command ${typed}; did you mean ${meant}?`;
+}
+
 function rejectUnknownFlags(argv: readonly string[]): void {
   for (const token of argv) {
     // Everything past a bare `--` belongs to the command init is starting, and
@@ -1612,7 +1731,13 @@ function rejectUnknownFlags(argv: readonly string[]): void {
       return;
     }
     if (token.startsWith("-") && token !== "-" && !FLAGS.has(token)) {
-      throw new UsageError(`unknown flag ${token}`);
+      // A typo is the overwhelmingly likely cause, and the one thing that
+      // helps is the word that was meant -- not the list of every flag the
+      // program has, which is where the typo came from.
+      const meant = didYouMean(token, [...FLAGS]);
+      throw new UsageError(
+        meant === undefined ? `unknown flag ${token}` : `unknown flag ${token}; did you mean ${meant}?`,
+      );
     }
   }
 }
@@ -1782,7 +1907,7 @@ async function main(argv: readonly string[]): Promise<number> {
       case "undo":
         return await runUndo(argv, journal);
       default:
-        throw new UsageError(`unknown command ${command}`);
+        throw new UsageError(unknownCommand(command));
     }
   } finally {
     journal.close();
@@ -1815,8 +1940,12 @@ try {
   process.exitCode = await main(process.argv.slice(2));
 } catch (error: unknown) {
   if (error instanceof UsageError) {
+    // The everyday five, not the full page. `--help` is where somebody asks
+    // for all of it; answering a three-letter typo with forty lines buries
+    // the one line saying what went wrong, and thirty-nine of those lines are
+    // about something they were not doing.
     process.stderr.write(
-      error.listCommands ? `synartesis: ${error.message}\n\n${COMMANDS}` : `synartesis: ${error.message}\n`,
+      error.listCommands ? `synartesis: ${error.message}\n${shortList()}` : `synartesis: ${error.message}\n`,
     );
     process.exitCode = 2;
   } else if (error instanceof ManifestError) {
