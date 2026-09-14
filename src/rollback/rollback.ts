@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { canonical } from "../canonical.js";
+import { IDEMPOTENCY_META_KEY } from "../idempotency.js";
 import { DriftConflict, RollbackHalted, changedLines, describe } from "../errors.js";
 import type { ActionRow, ActionStatus, Journal } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
@@ -17,13 +18,6 @@ import {
 import { createPolicyResolver } from "../manifest/match.js";
 import { qualify, type Manifest } from "../manifest/types.js";
 
-/**
- * D7. Derived from the action rather than generated, so a retried rollback
- * presents the same key for the same action. It rides in `_meta`, which is
- * advisory: a server that ignores it gives no protection, which is why the
- * journal's own state transitions are the real guard against re-applying.
- */
-export const IDEMPOTENCY_META_KEY = "synartesis.dev/idempotency-key";
 
 export type StepKind =
   | "revert"

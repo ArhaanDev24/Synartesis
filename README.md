@@ -179,6 +179,45 @@ answers. `l` in the screen does the same.
 If you decide the recorded value is the one worth keeping, `undo --force` prints
 every line it would write over and stops; `--force --yes` goes ahead.
 
+## When the server changes underneath you
+
+A policy is a claim about what a tool does, and a tool's name is a weak place to
+anchor that claim. A server upgrade can keep `write_file` and add an argument to
+it. The policy still says reversible, the snapshot still reads a field that has
+moved, and the before-image captured no longer matches the write. Nothing fails.
+The undo is produced on request, confidently, and is wrong — which is worse than
+having no undo, because somebody acted on it.
+
+So you can pin the shape a tool had when you wrote its policy:
+
+```bash
+synartesis pin
+```
+
+It prints a block. Paste it into the manifest:
+
+```yaml
+pins:
+  fs:
+    write_file: "sha256:ce17c85e8a5883552a11555f9b893de497fadab965a5c7935c0cb8f3c55b91d6"
+    edit_file: "sha256:88459ef670b139a12a3e0335ae0a4584dd892f60f45f565b545e1004d7565dd5"
+```
+
+From then on, a tool whose shape has moved stops the proxy at startup and names
+both fingerprints, instead of quietly serving the old policy. Re-run `pin` when
+you have looked at what changed and decided the policy still holds.
+
+It prints rather than writes on purpose: pinning is you vouching for what a tool
+does today, and a command that silently rewrote your policy would let that happen
+without anyone reading it.
+
+Pinning is per server and all-or-nothing. A server with no pins is not checked,
+so every manifest written before this existed keeps working. A server with any
+pins is checked in full — a half-pinned server is the worst of both, because it
+reads as protected and is not. Tools that no policy matches need no pin: they are
+already fail-closed as irreversible and gated, so there is no classification for a
+schema change to corrupt.
+
 ## Commands
 
 `synartesis desktop` opens [the window](#the-desktop-window), and says where to
@@ -190,6 +229,7 @@ get it if it is not installed.
 | `install` / `uninstall` / `status` | Cover the clients on this machine, put them back, say what is covered |
 | `init <server> -- <cmd>` | Introspect a server and draft a manifest |
 | `check` | Load a manifest and verify it against the servers it names |
+| `pin` | Print the `pins:` block for the servers you have now |
 | `list` | Every recorded session |
 | `show <id>` | One session's timeline, with the undo for each step |
 | `show <id> --live` | The same, plus what has changed in the world since |

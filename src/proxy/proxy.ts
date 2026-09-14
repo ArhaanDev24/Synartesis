@@ -31,6 +31,7 @@ import {
   createPolicyResolver,
   type PolicyResolver,
 } from "../manifest/match.js";
+import { withIdempotencyKey } from "../idempotency.js";
 import { qualify, type Manifest } from "../manifest/types.js";
 import { createRouter, type Router } from "./routing.js";
 import {
@@ -777,9 +778,19 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           }
         }
 
+        // The key rides out with the call, not just with its inverse. A write
+        // that times out in flight is the case this exists for: the agent is
+        // free to try again, and without a key the server cannot tell that
+        // retry from a second intention. Two side effects would then sit
+        // behind one journal row, and undo would reverse one of them and
+        // report success.
         const forwarded: Request = {
           method: "tools/call",
-          params: { ...request.params, name: route.tool },
+          params: {
+            ...request.params,
+            name: route.tool,
+            _meta: withIdempotencyKey(request.params._meta, pending.idempotencyKey),
+          },
         };
 
         try {

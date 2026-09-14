@@ -553,6 +553,44 @@ Four finished policies ship with Synartesis, for filesystem, memory, git and
 github. `init` uses them automatically when it recognises the server. They are
 worth reading as worked examples.
 
+## Pinning the shape you wrote it for
+
+Your policy is a claim about what a tool does. The tool's name is a weak place to
+anchor that claim, because a server upgrade can keep the name and change the
+arguments. Your policy then still says `reversible`, your snapshot still reads a
+field that has moved, and the before-image it captures no longer matches the
+write. Nothing fails at the time. The undo is produced later, confidently, and is
+wrong.
+
+To close that:
+
+```bash
+synartesis pin
+```
+
+It prints a block of fingerprints, one per tool your policy governs. Paste it in:
+
+```yaml
+pins:
+  fs:
+    write_file: "sha256:ce17c85e8a5883552a11555f9b893de497fadab965a5c7935c0cb8f3c55b91d6"
+```
+
+After that, a tool whose shape has moved stops the proxy at startup and prints
+both fingerprints, rather than serving a policy that no longer describes it. When
+you have looked at the change and decided the policy still holds, run `pin` again
+and paste the new block.
+
+It prints instead of editing your file on purpose. Pinning is you vouching for
+what a tool does today; a command that rewrote the policy for you would let that
+happen with nobody reading it.
+
+Two things worth knowing. Pinning is per server and all-or-nothing: a server with
+no pins is not checked at all, and a server with any pins is checked completely,
+because a half-pinned server reads as protected and is not. And tools no policy
+matches need no pin — they are already treated as irreversible and held, so there
+is no classification for a schema change to spoil.
+
 ---
 
 # Troubleshooting
@@ -596,6 +634,7 @@ approve it each time.
 | `synartesis` | The screen, driven with arrow keys |
 | `synartesis init <name> -- <command>` | Ask a server what it can do, draft a policy |
 | `synartesis check` | Confirm the policy names tools that exist |
+| `synartesis pin` | Print the `pins:` block for the servers you have now |
 | `synartesis list` | Every run, most recent first |
 | `synartesis show [run]` | One run, step by step, with each undo |
 | `synartesis gates` | What is waiting on a person |

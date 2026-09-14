@@ -22,7 +22,8 @@ import { draftManifest } from "./init/draft.js";
 import { loadManifest, parseManifest } from "./manifest/load.js";
 import type { Manifest } from "./manifest/types.js";
 import { labelFor, openJournal, wasRefused, type ActionClass, type ActionRow, type Journal } from "./journal/journal.js";
-import { verifyAgainstServers } from "./manifest/verify.js";
+import { verifyAgainstServers, toolShapes } from "./manifest/verify.js";
+import { pinBlock, type ToolShape } from "./manifest/pin.js";
 import { createRouter, type Router } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
@@ -50,6 +51,7 @@ const COMMANDS = `
   synartesis status
   synartesis init <server> -- <command> [args...]  [--manifest <path>]
   synartesis check [--manifest <path>]
+  synartesis pin [--manifest <path>]
   synartesis list [--journal <path>]
   synartesis show <runId> [--full] [--live] [--journal <path>]
   synartesis gates [--journal <path>]
@@ -155,6 +157,52 @@ function positional(argv: readonly string[]): string[] {
 }
 
 /**
+ * Prints the `pins:` block for the servers this manifest names.
+ *
+ * It prints rather than writes. Pinning is a person vouching for what a tool
+ * does today, and a command that silently rewrote the policy file would let
+ * that happen without anyone reading it -- which is the whole value gone. What
+ * comes out is meant to be looked at, pasted in, and seen in a diff.
+ */
+async function runPin(argv: readonly string[]): Promise<number> {
+  const path = findManifest(flag(argv, "--manifest"));
+  const manifest = loadManifest(path);
+
+  const shapes = new Map<string, readonly ToolShape[]>();
+  const upstreams: Upstream[] = [];
+  try {
+    for (const [name, spec] of Object.entries(manifest.servers)) {
+      const upstream = await connectStdioUpstream({
+        name,
+        command: spec.command,
+        args: spec.args,
+        stderr: "capture",
+        ...(spec.env === undefined ? {} : { env: spec.env }),
+      });
+      upstreams.push(upstream);
+      shapes.set(name, await toolShapes(upstream));
+    }
+  } finally {
+    for (const upstream of upstreams) {
+      await upstream.close();
+    }
+  }
+
+  const block = pinBlock(shapes, manifest);
+  out("");
+  out(`  ${style.label("pins for")}  ${style.strong(path)}`);
+  out("");
+  for (const line of block.split("\n")) {
+    out(`  ${line}`);
+  }
+  out("");
+  out(`  ${style.quiet("Paste this into the manifest. From then on a tool whose shape")}`);
+  out(`  ${style.quiet("changes stops the proxy instead of quietly keeping its old policy.")}`);
+  out("");
+  return 0;
+}
+
+/**
  * Loads a manifest and checks it against the servers it names, without
  * touching a journal or serving anything. This is what you run before wiring
  * a policy into a client, rather than finding out from a client that will not
@@ -197,6 +245,21 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   out(`  ${style.quiet("servers ")} ${Object.keys(manifest.servers).join(", ")}`);
   out(`  ${style.quiet("policies")} ${[...counts].map(([k, v]) => `${String(v)} ${k}`).join(", ")}`);
   out(`  ${style.quiet("guarded ")} ${style.accent(String(gated))}`);
+
+  // Said either way. Silence when nothing is pinned would leave the safer
+  // state and the unchecked one looking identical from here.
+  const pinned = Object.entries(manifest.pins ?? {});
+  const servers = Object.keys(manifest.servers);
+  const unpinned = servers.filter((name) => !pinned.some(([held]) => held === name));
+  out(
+    `  ${style.quiet("pinned  ")} ${
+      pinned.length === 0
+        ? style.quiet("nothing -- run `synartesis pin`")
+        : pinned
+            .map(([name, tools]) => `${name} (${String(Object.keys(tools).length)})`)
+            .join(", ") + (unpinned.length === 0 ? "" : style.quiet(`; not ${unpinned.join(", ")}`))
+    }`,
+  );
   out("");
   out(`  ${style.quiet("Anything not mentioned here is treated as irreversible and guarded.")}`);
   out("");
@@ -1563,6 +1626,9 @@ async function main(argv: readonly string[]): Promise<number> {
   }
   if (command === "check") {
     return await runCheck(argv);
+  }
+  if (command === "pin") {
+    return await runPin(argv);
   }
   if (command === "install") {
     return await runInstall(argv);

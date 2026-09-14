@@ -2,6 +2,64 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.13 — 2026-09-14
+
+Both of these came from a stranger on Reddit who had clearly built something
+like this before. Both were real, and neither would have announced itself.
+
+### Security
+
+- **A server upgrade could silently invalidate the policy written for it.** A
+  policy is a claim about what a tool does, anchored to the tool's name -- and
+  a name is a weak anchor. A server can keep `write_file` and change what it
+  takes. The policy still says reversible, the snapshot still reads a field
+  that has moved, and the before-image captured no longer matches the write.
+  Nothing failed. The undo was produced later, on request, confidently, and was
+  wrong, which is worse than having no undo because somebody acted on it.
+
+  Startup already checked that the tools a policy names exist. It did not check
+  that they still have the shape the policy was written for.
+
+  A manifest may now pin that shape:
+
+  ```yaml
+  pins:
+    fs:
+      write_file: "sha256:ce17c85e8a58835..."
+  ```
+
+  `synartesis pin` prints the block for the servers you actually have. With it
+  in place, a tool whose shape has moved stops the proxy at startup and names
+  both fingerprints, instead of being quietly trusted.
+
+  It prints rather than rewriting the manifest: pinning is a person vouching
+  for what a tool does today, and a command that edited the policy for them
+  would let that happen with nobody reading it.
+
+  Pinning is per server and all-or-nothing. No pins means no checking, so every
+  manifest written before this keeps working. Any pins means that server is
+  checked in full -- a half-pinned server is the worst of both, because it
+  reads as protected and is not. Tools no policy matches need no pin; they are
+  already fail-closed as irreversible and gated.
+
+### Fixed
+
+- **Forward calls carried no idempotency key.** The key was minted for every
+  action and stored, and it was presented on the inverse -- but not on the
+  call going out. So a write that timed out in flight left the agent free to
+  retry, with nothing telling the server that the retry was the same intention.
+  Two side effects would sit behind one journal row, and undo would reverse one
+  of them and report success.
+
+  The key now rides out with the forward call as well, merged into `_meta`
+  rather than replacing it, so a client's own `progressToken` survives. It
+  remains advisory -- a server that ignores it gives no protection, which is
+  why the journal's state transitions are still the real guard.
+
+- `synartesis check` now says whether anything is pinned, either way. Silence
+  when nothing was would have left the safer state and the unchecked one
+  looking identical.
+
 ## 0.6.12 — 2026-09-13
 
 ### Security

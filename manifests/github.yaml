@@ -188,3 +188,10 @@ tools:
   - match: "github.create_release"
     class: irreversible
     gate: always
+
+# This policy is written for the server version named at the top. A later
+# version can keep a tool's name and change what it takes, which would leave
+# the policy above describing something else -- and undo would still produce an
+# answer. `synartesis pin` prints a `pins:` block for the server you actually
+# have; with it pasted in, a tool whose shape has moved stops the proxy at
+# startup instead of being quietly trusted.

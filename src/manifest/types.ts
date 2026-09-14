@@ -61,6 +61,18 @@ export interface Manifest {
   readonly version: 1;
   readonly servers: Readonly<Record<string, ServerSpec>>;
   readonly tools: readonly ToolPolicy[];
+  /**
+   * Per server, the shape each governed tool had when its policy was written.
+   *
+   * A policy is a claim about what a tool does, and a tool name is a poor
+   * anchor for that claim: a server upgrade can keep the name and change the
+   * arguments, leaving the policy confidently describing something else. A pin
+   * makes that visible at startup instead of at undo time.
+   *
+   * Absent means unchecked, which is what every manifest written before this
+   * existed wants. Present for a server means that server is checked in full.
+   */
+  readonly pins?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
 /** Qualified name used everywhere policy is looked up. */

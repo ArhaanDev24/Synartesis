@@ -45,6 +45,7 @@ const manifestSchema = z.strictObject({
   version: z.literal(1),
   servers: z.record(z.string(), serverSpec),
   tools: z.array(toolPolicy).default([]),
+  pins: z.record(z.string(), z.record(z.string(), z.string().min(1))).optional(),
 });
 
 type Path = readonly (string | number)[];
@@ -168,6 +169,14 @@ function validate(source: Source, manifest: Manifest): void {
   const servers = Object.keys(manifest.servers);
   if (servers.length === 0) {
     source.fail(["servers"], "at least one server must be declared");
+  }
+
+  // A pin block for a server that is not declared protects nothing and reads
+  // as though it does, which is the one thing pinning must never do.
+  for (const name of Object.keys(manifest.pins ?? {})) {
+    if (!servers.includes(name)) {
+      source.fail(["pins", name], `pins name server ${name}, which is not declared`);
+    }
   }
 
   const seen = new Map<string, number>();
@@ -305,6 +314,7 @@ export function parseManifest(text: string, file: string): Manifest {
       ]),
     ),
     tools: parsed.data.tools.map(withGate),
+    ...(parsed.data.pins === undefined ? {} : { pins: parsed.data.pins }),
   };
   validate(source, manifest);
   return manifest;
