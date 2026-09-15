@@ -9,9 +9,15 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { z } from "zod";
+
+/** Only the corner of the fixture's state this test edits. */
+const storeShape = z.looseObject({
+  customers: z.record(z.string(), z.looseObject({ notes: z.string() })),
+});
 
 const CLI = resolve("dist/cli.js");
 const POLICY = resolve("manifests/toy-crm.yaml");
@@ -177,6 +183,50 @@ describe("the lists that have to agree", () => {
       const said = await run(["list", flag, "-x", "--journal", journal]);
       expect(said.stderr, flag).not.toContain("unknown flag -x");
     }
+  });
+});
+
+describe("a run stopped by drift is not a run that is finished", () => {
+  it("does not answer --force with \"it has already been undone\"", async () => {
+    // A manifest of its own, pointing the fixture at a file, so the record
+    // survives between the write and the edit that conflicts with it.
+    const dir = workspace();
+    const journal = join(dir, "j.db");
+    const state = join(dir, "crm.json");
+    const manifest = join(dir, "synartesis.yaml");
+    writeFileSync(
+      manifest,
+      readFileSync(POLICY, "utf8").replace(
+        'args: ["dist/toy-crm.js"]',
+        `args: ["${resolve("dist/toy-crm.js")}", "--state", "${state}"]`,
+      ),
+    );
+
+    await run(
+      ["proxy", "--manifest", manifest, "--journal", journal],
+      `${HELLO}\n${call(2, "update_customer", { id: "c_001", notes: "by the agent" })}\n`,
+    );
+    // Somebody edits the same record by hand, outside the proxy -- which is
+    // the case that matters and, being outside, opens no newer session for
+    // `undo` to pick instead.
+    const held = storeShape.parse(JSON.parse(readFileSync(state, "utf8")));
+    const record = held.customers["c_001"];
+    if (record === undefined) {
+      throw new Error("the fixture no longer has c_001");
+    }
+    record.notes = "by a person";
+    writeFileSync(state, JSON.stringify(held));
+
+    const halted = await run(["undo", "--manifest", manifest, "--journal", journal]);
+    expect(halted.stdout).toContain("halted");
+
+    // The halt prints `undo <id> --force` as one of the three ways on. Running
+    // it counted only `applied` actions, found none, and said the run had
+    // already been undone -- about a change still sitting in the record, and
+    // refusing the command it had itself just recommended.
+    const forced = await run(["undo", "--force", "--manifest", manifest, "--journal", journal]);
+    expect(forced.stdout).not.toContain("already been undone");
+    expect(forced.stdout).toContain("--force --yes");
   });
 });
 

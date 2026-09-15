@@ -35,7 +35,7 @@ agent   node_modules   package.json   reset   synartesis.yaml   work/
 
 ```
 $ synartesis --version
-0.6.15
+0.6.16
 ```
 
 `-v`, `version`, `--help`, `-h` and `help` all answer too.

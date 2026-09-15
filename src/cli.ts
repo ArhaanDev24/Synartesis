@@ -1611,7 +1611,19 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   // the tool acting on its own.
   if (given === undefined) {
     const actions = journal.getActions(runId);
-    const left = actions.filter((action) => action.status === "applied").length;
+    // Anything an undo would still act on, which is not the same as `applied`.
+    // An action stopped by drift is `unrecoverable`, keeps its inverse, and is
+    // exactly what --force and --replan exist for -- but counting only
+    // `applied` read that as nothing to do, so the run said "it has already
+    // been undone" about a change still sitting in the file, and refused the
+    // very command its own halt had just recommended. `rolling_back` is a half
+    // finished attempt, which is likewise something rather than nothing.
+    const left = actions.filter(
+      (action) =>
+        action.status === "applied" ||
+        action.status === "rolling_back" ||
+        action.status === "unrecoverable",
+    ).length;
     out("");
     out(
       `  ${style.quiet("no session named, so the most recent:")} ${style.strong(runId.slice(0, 8))} ` +
@@ -1637,7 +1649,13 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
         .find(
           (run) =>
             run.id !== runId &&
-            journal.getActions(run.id).some((action) => action.status === "applied" && action.inverse !== undefined),
+            journal
+              .getActions(run.id)
+              .some(
+                (action) =>
+                  action.inverse !== undefined &&
+                  (action.status === "applied" || action.status === "unrecoverable"),
+              ),
         );
       if (other !== undefined) {
         out("");

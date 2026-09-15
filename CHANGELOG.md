@@ -2,6 +2,19 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.16 — 2026-09-15
+
+### Fixed
+
+- **A run stopped by drift said it had already been undone.** Undo halts on a
+  conflict and prints three ways on, one of them `undo <id> --force`. Running
+  that answered "Nothing in it is still applied; it has already been undone"
+  -- about a change still sitting in the file -- and refused the very command
+  it had just recommended. A halted action is `unrecoverable`, keeps its
+  inverse, and is exactly what `--force` and `--replan` exist for; the check
+  counted only `applied` and read that as nothing left to do. Found by walking
+  the drift case end to end rather than by reading the code.
+
 ## 0.6.15 — 2026-09-15
 
 One gap, named by a stranger on Reddit and real.
