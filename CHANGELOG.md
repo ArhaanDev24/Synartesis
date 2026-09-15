@@ -2,6 +2,39 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.17 — 2026-09-15
+
+### Changed
+
+- **The session list says what each session did.** Three sessions a second
+  apart -- one that wrote a file, one that read one, one that did nothing --
+  printed as three identical rows distinguished only by a uuid, so the command
+  you run to find the session you want told you nothing about which session you
+  want. There are two new columns and one fewer:
+
+  ```
+  session   started        did                         state                       agent
+  331e43de  16:41:21       write_file report.txt       done, can undo              agent
+  ac635294  16:41:21       read only                                               agent
+  5856e14a  16:41:21       create_directory x          waiting for you             agent
+  e52213e6  16:41:20       write_file notes.md         undone                      agent
+  ```
+
+  `did` is the last action that changed something, named the way `watch` and
+  the screen already name one. `state` is where that leaves it, including the
+  two that look identical otherwise: a run that has been undone and one that
+  has not.
+
+  Ids are printed at eight characters, widened only if that would not tell the
+  runs apart -- any unambiguous prefix has always been accepted, and thirty-six
+  characters of hex on every line was the price of a collision that has not
+  happened. The `status` column is gone: `complete` is true of nearly every
+  line and pushed the column that varies off the edge. `active` is not true of
+  nearly every line, so it survives as "still open" -- it means a proxy still
+  working or one that was killed, and it is the whole reason `close` exists.
+
+  `--json` is untouched: full ids, same fields. That is what scripts read.
+
 ## 0.6.16 — 2026-09-15
 
 ### Fixed

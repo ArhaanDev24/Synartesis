@@ -111,4 +111,16 @@ CREATE INDEX IF NOT EXISTS actions_undoable ON actions(run_id)
 -- rows it saves reading are the ones carrying the snapshots.
 CREATE INDEX IF NOT EXISTS actions_unresolved ON actions(run_id, server, tool)
   WHERE status = 'pending';
+
+-- Partial again, and for the third time the partial half is the point. The
+-- session list says what each session did, which means the last action in it
+-- that changed something. Without this, a run that read ten thousand files and
+-- wrote once is walked backwards through all ten thousand reads to find the
+-- write -- and those rows carry the snapshots.
+--
+-- The one of these three the planner finds on its own, so lastWrite does not
+-- name it: the query's WHERE clause is this predicate exactly, and seq is the
+-- ordering it asks for, so the index both filters and sorts.
+CREATE INDEX IF NOT EXISTS actions_writes ON actions(run_id, seq)
+  WHERE class <> 'readonly';
 `;

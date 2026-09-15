@@ -193,7 +193,13 @@ describe("the cli", () => {
     const listed = await run("node", [CLI, "list", "--journal", space.journal]);
     expect(listed.code).toBe(0);
     expect(listed.stdout).toContain("agent");
-    expect(listed.stdout).toContain("complete");
+    // `complete` was a column of its own and is not printed any more: true of
+    // nearly every line, it pushed the column that varies off the edge. What
+    // took its place says more about the same run -- which tool touched what,
+    // and whether that is still undoable. The last write of the three, since
+    // that is the one that says where the run got to.
+    expect(listed.stdout).toContain("create_customer");
+    expect(listed.stdout).toContain("can undo");
     expect(await runs(space.journal)).toMatchObject([{ label: "agent", actions: 3 }]);
   });
 

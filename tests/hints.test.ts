@@ -106,7 +106,7 @@ describe("which session a hint points at", () => {
     // sessions above it in the list.
     const rows = listed.stdout
       .split("\n")
-      .filter((line) => /^ {2}[0-9a-f]{8}-/.test(line))
+      .filter((line) => /^ {2}[0-9a-f]{8}\b/.test(line))
       .map((line) => line.trim().slice(0, 8));
     expect(rows).toHaveLength(3);
     const named = /synartesis show ([0-9a-f]{8})/.exec(hint[0] ?? "")?.[1];

@@ -28,6 +28,7 @@ import {
   type ActionClass,
   type ActionRow,
   type Journal,
+  type RunRow,
   type RunTally,
 } from "./journal/journal.js";
 import { verifyAgainstServers, toolShapes } from "./manifest/verify.js";
@@ -58,7 +59,7 @@ import { watch } from "./watch.js";
 import { openConsole } from "./console.js";
 import { cliCommand, proxyCommand } from "./invocation.js";
 import { ago, fullTime, shortTime } from "./clock.js";
-import { summariseArgs } from "./describe.js";
+import { plainly, subject, summariseArgs } from "./describe.js";
 import { discover, type ConfigSite } from "./install/clients.js";
 import { needsConnecting, scan, stateOf } from "./install/connections.js";
 import { applyInstall, applyUninstall, invokerFor, planInstall } from "./install/install.js";
@@ -795,6 +796,112 @@ function hint(candidate: Hint | undefined): void {
   out("");
 }
 
+/**
+ * The shortest prefix that still tells these runs apart.
+ *
+ * Eight is what every other view prints and what a person copies, and any
+ * unambiguous prefix is accepted -- but "unambiguous" is a property of the set
+ * on screen, not a constant. Widened where it has to be rather than printing
+ * thirty-six characters on every line against the chance of a collision.
+ */
+function idWidth(runs: readonly RunRow[]): number {
+  for (let width = 8; width < 36; width += 1) {
+    const seen = new Set(runs.map((run) => run.id.slice(0, width)));
+    if (seen.size === runs.length) {
+      return width;
+    }
+  }
+  return 36;
+}
+
+/**
+ * What a session did, in the words the rest of the views already use.
+ *
+ * This is the column the command exists for and it was not there. Three
+ * sessions a second apart, one of which wrote a file, one read one and one did
+ * nothing, printed as three identical rows distinguished only by a uuid --
+ * so the command you run to find the session you want told you nothing about
+ * which session you want.
+ *
+ * `subject` and `plainly` are the console's and watch's, deliberately: a
+ * fourth vocabulary for the same facts would be a fourth thing to keep true.
+ */
+interface Did {
+  /** What the session touched, or why there is nothing to name. */
+  readonly what: string;
+  /** Where that leaves it, and whether it is still the reader's problem. */
+  readonly state: string;
+}
+
+function didWhat(journal: Journal, run: RunRow, total: number): Did {
+  const write = journal.lastWrite(run.id);
+  if (write === undefined) {
+    // Not a failure and not an omission. A session that only read is one there
+    // is nothing to undo in, which is the most useful thing to know about it.
+    return {
+      what: style.quiet(total === 0 ? "nothing" : "read only"),
+      state: style.quiet(run.status === "active" ? "still open" : ""),
+    };
+  }
+  const what = subject(write.args);
+  const said = plainly(write);
+  const rest = total - 1;
+  return {
+    what:
+      `${style.strong(write.tool)}${what === "" ? "" : ` ${what}`}` +
+      (rest > 0 ? style.quiet(`  +${String(rest)} more`) : ""),
+    // A run still open outranks whatever its last action did. `complete` was
+    // dropped as a column because it is true of nearly every line, but
+    // `active` is not -- it is a proxy still working or one that was killed,
+    // and it is the whole reason `close` exists. Losing it with the column it
+    // shared would have been a real loss hidden inside a tidier table.
+    //
+    // Otherwise the action's own state, and always, not only when it asks
+    // something of the reader: a run that has been undone and one that has not
+    // look identical otherwise, and which of the two this is happens to be the
+    // question the command gets asked.
+    state:
+      run.status === "active"
+        ? style.accent("still open")
+        : said.needs
+          ? style.accent(said.text)
+          : style.quiet(said.text),
+  };
+}
+
+/**
+ * One cell, exactly `width` printable characters wide.
+ *
+ * Pads and truncates both, because a column that only pads breaks the moment
+ * something longer than expected turns up -- "changed since; not safe to undo"
+ * is thirty-one characters and pushed every column after it out of line. The
+ * escape codes carry no width, so they are measured out and then left in
+ * place; truncation cuts at the end, where a trailing reset does no harm.
+ */
+function laid(text: string, width: number): string {
+  const codes = /\u001b\[[0-9;]*m/g;
+  const bare = text.replace(codes, "");
+  if (bare.length <= width) {
+    return text + " ".repeat(width - bare.length);
+  }
+  // Rebuilt rather than sliced: slicing the styled string would cut through an
+  // escape sequence and spill it onto the screen.
+  let kept = "";
+  let shown = 0;
+  let at = 0;
+  for (const match of text.matchAll(codes)) {
+    const plain = text.slice(at, match.index);
+    const room = width - 1 - shown;
+    if (plain.length >= room) {
+      return `${kept}${plain.slice(0, room)}\u2026\u001b[0m`;
+    }
+    kept += plain + match[0];
+    shown += plain.length;
+    at = match.index + match[0].length;
+  }
+  return `${kept}${text.slice(at, at + width - 1 - shown)}\u2026`;
+}
+
 function runList(journal: Journal, asJson: boolean, journalPath: string): number {
   // Most recent first: the run someone wants to undo is nearly always the last
   // thing that happened.
@@ -804,6 +911,8 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
   const tally = journal.tallyRuns();
   const counted = (id: string): RunTally =>
     tally.get(id) ?? { actions: 0, unknown: 0, waiting: 0, applied: 0 };
+  // Unchanged, and deliberately: this is what scripts read. The id stays full
+  // length and the action count stays where it was.
   if (asJson) {
     out(JSON.stringify(runs.map((run) => ({ ...run, actions: counted(run.id).actions }))));
     return 0;
@@ -812,27 +921,36 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
     out("no runs recorded");
     return 0;
   }
+  const width = idWidth(runs);
   out("");
   out(`  ${style.label("sessions")}  ${style.quiet("most recent first")}`);
-  out(`  ${rule(96)}`);
+  out(`  ${rule(88)}`);
   out("");
   out(
     style.quiet(
-      `  ${"session".padEnd(36)}  ${"started".padEnd(15)}  ${"status".padEnd(12)}  actions  agent`,
+      `  ${"session".padEnd(width)}  ${"started".padEnd(13)}  ${"did".padEnd(26)}  ${"state".padEnd(26)}  agent`,
     ),
   );
   for (const run of runs) {
     const actions = counted(run.id);
     const { unknown, waiting } = actions;
+    // Only what the state column has not already said. It is drawn from the
+    // last action, so it says "waiting for you" about one held call -- and a
+    // note beside it saying "1 awaiting approval" is the same fact twice.
     const notes = [
       unknown === 0 ? "" : `${String(unknown)} of unknown outcome`,
-      waiting === 0 ? "" : `${String(waiting)} awaiting approval`,
+      waiting > 1 ? `${String(waiting)} awaiting approval` : "",
     ].filter((note) => note !== "");
     const note =
       notes.length === 0 ? "" : `  ${style.accent(`(${notes.join("; ")})`)}`;
+    // The run's own status is gone as a column. `complete` on nearly every
+    // line is a column of noise that pushes the one that varies off the edge,
+    // and what a reader wants from it -- was this undone, is it waiting on me
+    // -- is said better by the action than by the run.
+    const did = didWhat(journal, run, actions.actions);
     out(
-      `  ${style.strong(run.id)}  ${style.quiet(shortTime(run.startedAt).trimEnd().padEnd(13))}  ${run.status.padEnd(12)}  ` +
-        `${String(actions.actions).padStart(7)}  ${run.label ?? "-"}${note}`,
+      `  ${style.strong(run.id.slice(0, width))}  ${style.quiet(shortTime(run.startedAt).trimEnd().padEnd(13))}  ` +
+        `${laid(did.what, 26)}  ${laid(did.state, 26)}  ${style.quiet(run.label ?? "-")}${note}`,
     );
   }
   out("");
