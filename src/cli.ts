@@ -1160,18 +1160,20 @@ const BADGE_WIDTH = "irreversible".length + 2;
 /**
  * Padded before it is coloured: escape codes are not printable width.
  *
- * `pad` is off where nothing follows. The padding exists to line the next
- * column up, and once the tool name moved to a line of its own there was no
- * next column -- so every action carried a tail of spaces inside its own
- * escape codes, where trimming the finished line could not reach them.
+ * `pad` is required rather than defaulted, because it is off in the ordinary
+ * case. The padding exists to line the next column up, and once the tool name
+ * moved to a line of its own there was no next column -- so every action
+ * carried a tail of spaces inside its own escape codes, where trimming the
+ * finished line could not reach them. A default of true would be the wrong
+ * answer more often than the right one, and one no call site asks for.
  */
-function badgeOf(action: ActionRow, pad = true): string {
+function badgeOf(action: ActionRow, pad: boolean): string {
   const name = `${CLASS_MARK[action.class]} ${action.class}`;
   const plain = pad ? name.padEnd(BADGE_WIDTH) : name;
   return action.class === "irreversible" ? style.accent(plain) : style.quiet(plain);
 }
 
-function statusOf(action: ActionRow, pad = true): string {
+function statusOf(action: ActionRow, pad: boolean): string {
   const label = labelFor(action);
   const text = pad ? label.padEnd(13) : label;
   if (wasRefused(action)) {

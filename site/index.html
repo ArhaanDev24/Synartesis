@@ -1397,7 +1397,9 @@ html.js.settled .diff div { opacity:1!important; transform:none!important; clip-
   .example-bottom { flex-direction:column; align-items:stretch; gap:8px; }
   .example-bottom .label { font-size:10px; line-height:1.7; }
   .example-bottom .text-button { text-align:left; min-height:44px; }
-  .gallery-controls { display:grid; grid-template-columns:1fr 1fr; gap:0; }
+  /* Layout and type only. The 8px gap set with the two columns further up is
+     deliberate: these buttons carry their own border, so with no gap the four
+     of them close into one block and adjacent tap targets touch. */
   .gallery-controls button { text-align:left; font-size:16px; padding:12px; }
   .terminal-bar { flex-wrap:wrap; gap:4px 16px; }
   .terminal pre { padding:20px; }

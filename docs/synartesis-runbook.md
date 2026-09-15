@@ -35,7 +35,7 @@ agent   node_modules   package.json   reset   synartesis.yaml   work/
 
 ```
 $ synartesis --version
-0.6.18
+0.6.19
 ```
 
 `-v`, `version`, `--help`, `-h` and `help` all answer too.
@@ -189,12 +189,16 @@ One line per session, newest first.
 ```
 $ synartesis list
 
-  session                               started    status      actions  agent
-  14e8eacc-689d-4195-869e-0511b71d3a3c  22:08:26   complete          3  agent  (1 awaiting approval)
+  session   started        did                         state                       agent
+  b7c9b902  22:08:26       create_directory archive …  waiting for you             agent
 ```
 
-Add `--json` for a machine. The first eight characters of a session id are enough to name it
-anywhere.
+`did` is the last action that changed something; `state` is where that leaves it -- including
+`undone`, which is the one thing that otherwise looks identical to a session still in place. A
+session that only read says so. Ids print at eight characters and widen only if that would not
+tell two sessions apart.
+
+Add `--json` for a machine; it keeps the full ids.
 
 ## 07 · show
 
@@ -203,12 +207,20 @@ The timeline, with the undo recorded for each step. Called with no id it takes t
 ```
 $ synartesis show
 
-    1  <- reversible   applied   fs.write_file
-       path .../work/report.txt  content Q3 CLOSE north CLOSED...
-       undo: path .../work/report.txt  content Q3 CLOSE north OPEN...
-    2  <- reversible   applied   fs.edit_file
-    3  <- reversible   gated     fs.write_file
-       note: nothing was captured to restore, so this cannot be undone
+    1  fs.write_file
+       <- reversible applied
+       path .../work/report.txt  content Q3 CLOSE north CLOSED
+       undo: path .../work/report.txt  content 81 B
+
+    2  fs.edit_file
+       <- reversible applied
+       path .../work/ledger.csv  edits 1 items
+       undo: path .../work/ledger.csv  content region,amount north,412800 south,28...
+
+    3  fs.create_directory
+       ! irreversible gated
+       path .../work/archive
+       note: this action cannot be undone
 ```
 
 | Command | What changes |
@@ -223,7 +235,11 @@ Now change a file by hand and look again. This is the check worth knowing about:
 $ echo "east    REOPENED" >> work/report.txt
 $ synartesis show --live
 
-    1  <- reversible   applied   fs.write_file  changed since
+    1  fs.write_file
+       <- reversible   applied        changed since
+         at line 3:
+         + east    REOPENED
+         0 removed, 1 added.
 ```
 
 **What it proves.** Synartesis records what the *agent* did, not what happened to the file. Your
@@ -294,7 +310,8 @@ not authorise it forever.
 ```
 $ synartesis show <first id>
 
-    3  <- reversible   used      fs.write_file
+    3  fs.write_file
+       <- reversible used
        approved by arhaan at today at 22:09:01
        note: approval was used by action 782b63d3-...
 ```

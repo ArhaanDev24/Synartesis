@@ -257,10 +257,10 @@ synartesis list
 ```
 
 ```
-  R U N S  most recent first
+  S E S S I O N S  most recent first
 
-  run                                   started                   status      actions  agent
-  adbef700-7f5d-4c88-a69c-149ef1d62730  2026-09-01T11:16:09.000Z  complete          2  my-agent
+  session   started        did                         state                       agent
+  adbef700  2026-09-01     write_file roadmap.md  +1…  done, can undo              my-agent
 ```
 
 A run appears the first time an agent calls a tool through the proxy. If the
@@ -438,11 +438,14 @@ synartesis show
 ```
   T I M E L I N E
 
-    1  <- reversible   applied        files.write_file
-       {"path":"/Users/you/notes/roadmap.md", ...}
-       undo: {"server":"files","tool":"write_file","args":{...}}
-    2  !  irreversible gated          files.create_directory
-       {"path":"/Users/you/notes/junk"}
+    1  files.write_file
+       <- reversible applied
+       path /Users/you/notes/roadmap.md  content 2.1 kB
+       undo: path /Users/you/notes/roadmap.md  content 1.8 kB
+
+    2  files.create_directory
+       ! irreversible gated
+       path /Users/you/notes/junk
        note: this action cannot be undone
 
   2 actions: 1 applied, 1 gated | 1 with a recorded undo

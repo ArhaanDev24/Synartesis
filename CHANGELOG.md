@@ -2,6 +2,29 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.19 — 2026-09-15
+
+### Fixed
+
+- **Both guides showed output the command no longer produces.** The worked
+  examples of `show` were still the pre-0.6.18 single-line row, and the session
+  lists were still the pre-0.6.17 table of full uuids -- in the runbook, whose
+  pdf had just been rebuilt from that stale text, and in the user guide, whose
+  pdf had not been rebuilt at all, so the two shipped documents disagreed with
+  each other as well as with the terminal. Regenerated from real runs and both
+  pdfs built together.
+
+- **Four tap targets touching on a phone.** A rule added with the last release
+  set `gap:0` on the screenshot tabs, overriding the deliberate `gap:8px` set
+  with the two columns further up the same stylesheet. The buttons carry their
+  own border, so the four of them closed into one block with doubled seams and
+  no separation between adjacent targets. Measured at 375px: they abutted
+  exactly, at x=22 and x=188 across a width of 166.
+
+- `badgeOf` and `statusOf` took a `pad` that defaulted to true, and the one
+  call site of each passes it explicitly -- so the default could never apply,
+  and it was the wrong answer for the ordinary case anyway. Required now.
+
 ## 0.6.18 — 2026-09-15
 
 A pass over the terminal and the site, most of it drafted by another model and
