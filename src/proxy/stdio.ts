@@ -16,6 +16,7 @@ import { resolve } from "node:path";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
+import { PROXY_FLAGS } from "./flags.js";
 import { serveHttp } from "./http.js";
 
 import { describe } from "../errors.js";
@@ -67,7 +68,7 @@ function parseArgv(argv: readonly string[]): Argv {
     const at = argv.indexOf(flag);
     return at === -1 ? undefined : argv[at + 1];
   };
-  const known = ["--manifest", "--journal", "--server", "--gate-timeout", "--log-level", "--http", "--http-host", "--http-idle", "--token"];
+  const known: readonly string[] = PROXY_FLAGS;
   const unknown = argv.find((token) => token.startsWith("--") && !known.includes(token));
   if (unknown !== undefined) {
     throw new Error(`unknown flag ${unknown}; expected one of ${known.join(", ")}`);

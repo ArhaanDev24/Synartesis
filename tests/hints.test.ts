@@ -407,6 +407,29 @@ describe("guessing at what was meant", () => {
     expect(didYouMean("proxy", ["list", "show", "undo"])).toBeUndefined();
   });
 
+  it("keeps quiet rather than guessing wildly at a longer word", () => {
+    const flags = ["--live", "--to", "--json", "--force", "--journal", "--help"];
+    // Half the length of what was typed was the old ceiling, and on a word of
+    // eight characters that is four edits -- enough to reach anything. It
+    // answered --server with --live and --token with --to, neither of which
+    // anybody meant, and a wrong guess sends somebody off to read about a flag
+    // that was never the subject.
+    expect(didYouMean("--server", flags)).toBeUndefined();
+    expect(didYouMean("--token", flags)).toBeUndefined();
+    // Two characters is never enough to guess from: every one-letter flag is
+    // one edit from every other.
+    expect(didYouMean("-x", ["-h", "-v"])).toBeUndefined();
+  });
+
+  it("counts a swapped pair as the single mistake it feels like", () => {
+    // The commonest typo there is. Plain Levenshtein calls it two edits, which
+    // at a ceiling tight enough to throw out the nonsense above would put
+    // every one of these out of reach.
+    expect(didYouMean("shwo", ["show", "list"])).toBe("show");
+    expect(didYouMean("pruen", ["prune", "proxy"])).toBe("prune");
+    expect(didYouMean("--jounral", ["--journal", "--json"])).toBe("--journal");
+  });
+
   it("does not turn a one-letter word into a command", () => {
     // Half of one character is zero, and the ceiling is at least one, so `l`
     // is one edit from nothing here. It must not silently become `list`.

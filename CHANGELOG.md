@@ -2,6 +2,85 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.14 — 2026-09-15
+
+The terminal now says what to do next, and the argument parser stopped
+disagreeing with itself.
+
+### Added
+
+- **Most commands end by naming the one thing worth doing next**, with the
+  session id already filled in:
+
+  ```
+  fs.create_directory is held, and the agent is waiting on you:  synartesis approve f0c9935d
+  ```
+
+  It is worked out from the journal rather than from what was typed, so it
+  changes as the state does. A call held for approval outranks everything else
+  -- that is an agent stopped mid-task waiting on a person who may not know it
+  is waiting. Below that: the session that changed something, what is not
+  pinned, and `watch`. There is at most one, there is none when nothing
+  applies, and `--json` never carries it. `SYNARTESIS_NO_HINTS` turns it off.
+
+  The session it names is not simply the newest one. A client that connects
+  and reads opens a session like any other, so "the last thing that happened"
+  is regularly a session in which nothing happened; a session that only read,
+  or was already undone, or was held and never ran, is never offered for undo.
+
+- **A mistyped command gets the word that was meant.** `synartesis lst` used to
+  answer with forty lines of help, thirty-nine of them about something the
+  person was not doing. It now says `did you mean list?` and lists five
+  commands. Flags too: `--jounral`, `--dryrun`, `--forse` all resolve.
+
+- **A flag that belongs to `proxy` is named as such.** `--http`, `--token`,
+  `--server` and `--log-level` are in the help page, and answering one of them
+  with "unknown flag" sent people hunting through that page for a flag already
+  in it.
+
+### Fixed
+
+- **A wrapped server's own flags were read as ours.** `synartesis init db --
+  some-server --manifest audit.yaml` handed `--manifest` to the server
+  correctly and *also* took it, writing the policy to a path nobody asked for
+  -- on a machine where that path is real, one they already had. `positional`
+  and the unknown-flag check had always stopped at the bare `--`; the flag
+  reader had not.
+
+- **The value of a flag was read as a flag.** `deny --reason "-see ticket 42"`
+  answered `unknown flag -see ticket 42`, and `prune --older-than -5` answered
+  `unknown flag -5` instead of the message that knows what `--older-than` is
+  for. Three separate lists had to agree about which flags take a value and
+  did not; there is one now, and a test holds it against the help page.
+
+- **`undo --to 0` announced the session before refusing.** It printed "no
+  session named, so the most recent: a42bf93a" and only then rejected the
+  flag, which reads as though that session had been acted on.
+
+- **A hint that could not be pasted.** `list --journal ./bench.db` named a
+  session, and the `show` it offered read the *default* journal and answered
+  "no run matches". Hints now carry `--journal` and `--manifest` when those
+  were not the obvious ones, and `undo --replan --dry-run` offers a command
+  that still replans.
+
+- **Guessing at a typo was too eager.** A ceiling of half the word answered
+  `--server` with `--live` and `--token` with `--to`, neither of which anybody
+  meant. Two edits at most now, never for a word under three characters, and a
+  swapped pair counts as the one mistake it feels like -- which is what keeps
+  `shwo`, `pruen` and `--jounral` reachable at that ceiling.
+
+- **Colour was decided for both streams from stdout**, so `synartesis nonsense
+  2> errors.log` in a terminal wrote escape sequences into the file.
+
+### Performance
+
+- **`newestUndoable` runs on every `list`** and could only be answered by
+  reading the action rows, which carry the snapshots -- so the cost of one
+  screen of sessions grew with the size of the data rather than the number of
+  sessions. A partial index over exactly the rows it wants fixes that, but only
+  when named: left to choose, sqlite takes `actions_gated` and reads the rows
+  anyway. Measured on a 246MB journal: **56ms to 0.01ms**.
+
 ## 0.6.13 — 2026-09-14
 
 Four things, all of them from one comment by a stranger on Reddit who had

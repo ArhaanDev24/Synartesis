@@ -35,6 +35,7 @@ import { pinBlock, type ToolShape } from "./manifest/pin.js";
 import { describeStanding, standing, untested, warnUntested } from "./manifest/standing.js";
 import { createRouter, type Router } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
+import { PROXY_FLAGS } from "./proxy/flags.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { inspect, verdict, type Resource } from "./rollback/inspect.js";
 import { banner, NOTHING_RECORDED_YET, rule, style } from "./style.js";
@@ -167,27 +168,56 @@ class UsageError extends Error {
   }
 }
 
+/**
+ * Everything before a bare `--`. Past it the words belong to the command init
+ * is starting, and reading them as ours is how `init db -- some-server
+ * --manifest audit.yaml` came to write our policy to the server's path: the
+ * server was handed the flag correctly and we took it as well. positional()
+ * and rejectUnknownFlags() have always stopped here; this did not.
+ */
+function ours(argv: readonly string[]): readonly string[] {
+  const end = argv.indexOf("--");
+  return end === -1 ? argv : argv.slice(0, end);
+}
+
 function flag(argv: readonly string[], name: string): string | undefined {
-  const at = argv.indexOf(name);
+  const mine = ours(argv);
+  const at = mine.indexOf(name);
   if (at === -1) {
     return undefined;
   }
-  const value = argv[at + 1];
+  const value = mine[at + 1];
   if (value === undefined || value.startsWith("--")) {
     throw new UsageError(`${name} needs a value`);
   }
   return value;
 }
 
+/**
+ * The flags that are followed by a value.
+ *
+ * One set, because three separate things have to agree about it and they kept
+ * not doing: positional() must not read the value as a command name,
+ * rejectUnknownFlags() must not read it as a flag of its own -- which made
+ * `deny --reason "-see ticket 42"` answer "unknown flag -see ticket 42" -- and
+ * FLAGS must accept the flag itself. A test holds the last of those.
+ */
+const TAKES_VALUE = new Set([
+  "--manifest",
+  "--journal",
+  "--to",
+  "--by",
+  "--reason",
+  "--older-than",
+  "--client",
+]);
+
 function positional(argv: readonly string[]): string[] {
-  const skip = new Set(["--manifest", "--journal", "--to", "--by", "--reason", "--gate-timeout", "--older-than", "--client"]);
   const values: string[] = [];
-  // Everything after `--` belongs to the wrapped command, not to us.
-  const end = argv.indexOf("--");
-  const ours = end === -1 ? argv : argv.slice(0, end);
-  for (let i = 0; i < ours.length; i += 1) {
-    const token = ours[i] ?? "";
-    if (skip.has(token)) {
+  const mine = ours(argv);
+  for (let i = 0; i < mine.length; i += 1) {
+    const token = mine[i] ?? "";
+    if (TAKES_VALUE.has(token)) {
       i += 1;
       continue;
     }
@@ -954,7 +984,10 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
       // has gone to the trouble of asking.
       out("");
       hint({
-        why: "nothing has moved, so an undo would go through; to see it step by step",
+        // Not a restatement of the verdict directly above it, which has just
+        // said in its own words that nothing has moved. A hint that repeats
+        // the line above is a line nobody reads twice.
+        why: "to see the plan, before anything is written",
         run: `undo ${runId.slice(0, 8)} --dry-run`,
         needs: ["manifest", "journal"],
       });
@@ -1556,6 +1589,16 @@ async function performUndo(
 }
 
 async function runUndo(argv: readonly string[], journal: Journal): Promise<number> {
+  // Before anything is chosen or printed. This used to sit below the line that
+  // says which session was picked, so `undo --to 0` announced "no session
+  // named, so the most recent: a42bf93a" and only then refused -- which reads
+  // as though something had been acted on.
+  const rawTo = flag(argv, "--to");
+  const toSeq = rawTo === undefined ? undefined : Number(rawTo);
+  if (toSeq !== undefined && (!Number.isInteger(toSeq) || toSeq < 1)) {
+    throw new UsageError("--to needs a positive whole number");
+  }
+
   // Defaults to the most recent run: the thing anyone wants to undo is
   // almost always the last thing that happened.
   const given = positional(argv)[1];
@@ -1613,11 +1656,6 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     }
   }
 
-  const rawTo = flag(argv, "--to");
-  const toSeq = rawTo === undefined ? undefined : Number(rawTo);
-  if (toSeq !== undefined && (!Number.isInteger(toSeq) || toSeq < 1)) {
-    throw new UsageError("--to needs a positive whole number");
-  }
   // Past the end, every action is below the floor, so nothing is planned and
   // the empty plan reads exactly like a run with nothing left to undo. A typed
   // digit too many looked like a result.
@@ -1781,16 +1819,30 @@ function unknownCommand(typed: string): string {
 }
 
 function rejectUnknownFlags(argv: readonly string[]): void {
-  for (const token of argv) {
-    // Everything past a bare `--` belongs to the command init is starting, and
-    // that command has flags of its own.
-    if (token === "--") {
-      return;
+  // Everything past a bare `--` belongs to the command init is starting, and
+  // that command has flags of its own.
+  const mine = ours(argv);
+  for (let i = 0; i < mine.length; i += 1) {
+    const token = mine[i] ?? "";
+    // The value of a flag is not a flag. Scanning every token meant any value
+    // that happened to begin with a dash was read as one: `approve --by
+    // -alice` and `prune --older-than -5` were both refused as unknown flags,
+    // the second of which has a perfectly good error message of its own
+    // waiting a few lines further on.
+    if (TAKES_VALUE.has(token)) {
+      i += 1;
+      continue;
     }
     if (token.startsWith("-") && token !== "-" && !FLAGS.has(token)) {
-      // A typo is the overwhelmingly likely cause, and the one thing that
-      // helps is the word that was meant -- not the list of every flag the
-      // program has, which is where the typo came from.
+      // A real flag on the wrong command, first: `--http` and `--token` are in
+      // the help page, and answering one of them with "unknown flag" sends
+      // somebody hunting through that page for a flag already in it.
+      if ((PROXY_FLAGS as readonly string[]).includes(token)) {
+        throw new UsageError(`${token} is a flag for ${cliCommand()} proxy, not for this`);
+      }
+      // Otherwise a typo, which is the overwhelmingly likely cause, and the
+      // one thing that helps is the word that was meant -- not the list of
+      // every flag the program has, which is where the typo came from.
       const meant = didYouMean(token, [...FLAGS]);
       throw new UsageError(
         meant === undefined ? `unknown flag ${token}` : `unknown flag ${token}; did you mean ${meant}?`,

@@ -197,12 +197,23 @@ export function firstOf(...candidates: readonly (() => Hint | undefined)[]): Hin
 /**
  * The nearest thing somebody might have meant.
  *
- * Levenshtein with a ceiling that scales with the word: `lst` for `list` is
- * worth guessing at, `zzzzzz` for `list` is not, and a suggestion that is
- * wrong more often than right costs more than no suggestion at all.
+ * Two edits at most, and never for a word of one or two characters. A looser
+ * rule -- half the length of what was typed -- looked reasonable and was not:
+ * it answered `--server` with `--live`, `--token` with `--to` and `-x` with
+ * `-h`, none of which anybody meant. A wrong guess is worse than none, because
+ * it sends somebody off to read about a flag that was never the subject.
+ *
+ * Transpositions count as one edit rather than two, which is the whole reason
+ * this is Damerau rather than plain Levenshtein: `shwo`, `pruen` and
+ * `--jounral` are the commonest typos there are, and at a ceiling tight enough
+ * to throw out the nonsense above they are only reachable if swapping two
+ * neighbours is the single edit it feels like.
  */
 export function didYouMean(typed: string, known: readonly string[]): string | undefined {
-  const ceiling = Math.max(1, Math.floor(typed.length / 2));
+  if (typed.length < 3) {
+    return undefined;
+  }
+  const ceiling = typed.length <= 4 ? 1 : 2;
   let best: string | undefined;
   let bestAt = ceiling + 1;
   for (const candidate of known) {
@@ -215,25 +226,40 @@ export function didYouMean(typed: string, known: readonly string[]): string | un
   return bestAt <= ceiling ? best : undefined;
 }
 
+/**
+ * Damerau-Levenshtein, the full table rather than two rows: a transposition
+ * has to look back two rows, which the rolling pair cannot do. These are
+ * command names, so the table is a few hundred cells.
+ */
 function distance(from: string, to: string): number {
-  // One row at a time. These are command names, so the table would be tiny
-  // either way; this is just the shape that does not need a table.
-  let previous = Array.from({ length: to.length + 1 }, (_, at) => at);
+  const rows: number[][] = [];
+  for (let i = 0; i <= from.length; i += 1) {
+    const row = new Array<number>(to.length + 1).fill(0);
+    row[0] = i;
+    rows.push(row);
+  }
+  const top = rows[0];
+  for (let j = 0; j <= to.length && top !== undefined; j += 1) {
+    top[j] = j;
+  }
   for (let i = 1; i <= from.length; i += 1) {
-    const row = [i];
     for (let j = 1; j <= to.length; j += 1) {
       const same = from[i - 1] === to[j - 1];
-      row.push(
-        Math.min(
-          (previous[j] ?? 0) + 1,
-          (row[j - 1] ?? 0) + 1,
-          (previous[j - 1] ?? 0) + (same ? 0 : 1),
-        ),
+      let best = Math.min(
+        (rows[i - 1]?.[j] ?? 0) + 1,
+        (rows[i]?.[j - 1] ?? 0) + 1,
+        (rows[i - 1]?.[j - 1] ?? 0) + (same ? 0 : 1),
       );
+      if (i > 1 && j > 1 && from[i - 1] === to[j - 2] && from[i - 2] === to[j - 1]) {
+        best = Math.min(best, (rows[i - 2]?.[j - 2] ?? 0) + 1);
+      }
+      const row = rows[i];
+      if (row !== undefined) {
+        row[j] = best;
+      }
     }
-    previous = row;
   }
-  return previous[to.length] ?? to.length;
+  return rows[from.length]?.[to.length] ?? to.length;
 }
 
 /**
