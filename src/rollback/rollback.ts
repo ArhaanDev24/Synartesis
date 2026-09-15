@@ -40,6 +40,15 @@ export interface RollbackStep {
   readonly plan?: InversePlan;
   /** True when the inverse came from a corrected manifest, not the journal. */
   readonly replanned?: boolean;
+  /**
+   * What the journal says about how this action was captured, where that
+   * qualifies the line above it. The one that matters: a write whose server
+   * never confirmed it, recorded because a read-back showed the change had
+   * landed. `kind` and `reason` describe what the undo will do; this describes
+   * how much the record it is working from can be relied on, and without it a
+   * preview shows an inferred write and a confirmed one as the same line.
+   */
+  readonly note?: string;
 }
 
 export interface RollbackHalt {
@@ -138,7 +147,14 @@ function classify(action: ActionRow, replanning: boolean, goAhead: boolean): Dec
     case "pending":
       return {
         kind: "halt",
-        reason: "outcome unknown: the process died mid-call, so whether this applied cannot be determined",
+        // Not "the process died mid-call". That is one of the ways a row ends
+        // up here; a server that timed out, or answered with an error the
+        // read-back could not settle, arrives in exactly the same state and is
+        // told the same wrong story. The row's own error says which it was,
+        // and the halt prints it directly underneath.
+        reason:
+          "outcome unknown: the call went out and its outcome was never established, " +
+          "so whether this applied cannot be determined",
         verified: false,
       };
     case "gated":
@@ -287,7 +303,18 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
         action.class === "irreversible"
           ? `cannot be undone${approved}; left in place`
           : `no usable inverse was recorded${action.error === undefined ? "" : `: ${action.error}`}; left in place`;
-      steps.push({ ...describeStep(action), kind: "permanent", reason, verified: false });
+      // Only for the irreversible branch: the other one already quotes the row
+      // and a note would say it twice. This is the worst case of the lot -- a
+      // permanent action nothing confirmed, which is somebody asking whether
+      // the email went out and getting a line that does not say.
+      const unconfirmed = action.class === "irreversible" ? caveat(action) : undefined;
+      steps.push({
+        ...describeStep(action),
+        kind: "permanent",
+        reason,
+        verified: false,
+        ...(unconfirmed === undefined ? {} : { note: unconfirmed }),
+      });
       leftInPlace = true;
       continue;
     }
@@ -383,15 +410,29 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     // its policy declares no pre-read at all, so nothing was promised.
     if (!verified && action.class === "reversible" && !force) {
       const reason = unverifiedBecause(action);
+      // The row usually knows why there is no post-state, and saying only the
+      // consequence reads as an oversight -- as though a reading was simply
+      // not taken. When the real answer is that the server never confirmed the
+      // write at all, that is the first thing the person deciding needs, and
+      // it was sitting one column away the whole time.
+      const because = caveat(action);
       halted = {
         seq: action.seq,
         reason,
         detail:
+          (because === undefined ? "" : `${because}\n\n`) +
           "Without it there is no way to tell this resource from one somebody has edited since, " +
           "so the recorded value was not written.",
         conflict: true,
       };
-      steps.push({ ...describeStep(action), kind: "halt", reason, verified: false, plan });
+      steps.push({
+        ...describeStep(action),
+        kind: "halt",
+        reason,
+        verified: false,
+        plan,
+        ...(because === undefined ? {} : { note: because }),
+      });
       break;
     }
 
@@ -419,6 +460,7 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       projected.set(resourceKey(toResolvedRead(verifyRead.data)), after ?? UNFORESEEABLE);
     }
 
+    const recordedWith = caveat(action);
     steps.push({
       ...describeStep(action),
       kind: "revert",
@@ -428,6 +470,7 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       verified,
       plan,
       ...(rebuilt.inverse === undefined ? {} : { replanned: true }),
+      ...(recordedWith === undefined ? {} : { note: recordedWith }),
     });
 
     if (dryRun) {
@@ -554,6 +597,22 @@ function unverifiedBecause(action: ActionRow): string {
     ? "no read declared for this tool, so drift could not be ruled out -- " +
       "a `verify` read in its policy would give it one"
     : "the post-state was never captured, so drift could not be ruled out";
+}
+
+/**
+ * The row's own caveat about its capture, where it has one.
+ *
+ * `error` carries something different under every status -- a refusal, a
+ * conflict seen on an earlier attempt, the reason an outcome is unknown -- and
+ * each of those is already read out where it belongs. Under `applied` it holds
+ * the warning markApplied recorded, which is the only one nothing else shows:
+ * the inverse could not be built, the post-state could not be read, or the
+ * write was never confirmed and was established by reading the resource back.
+ */
+function caveat(action: ActionRow): string | undefined {
+  return action.status === "applied" && action.error !== undefined && action.error !== ""
+    ? action.error
+    : undefined;
 }
 
 function describeStep(action: ActionRow): { seq: number; server: string; tool: string } {

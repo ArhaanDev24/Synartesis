@@ -448,7 +448,10 @@ export class Desk {
         dryRun: true,
       });
       for (const step of plan.steps) {
-        lines.push(`${step.kind} · ${step.server}.${step.tool} · ${step.reason}`);
+        lines.push(
+          `${step.kind} · ${step.server}.${step.tool} · ${step.reason}` +
+            (step.note === undefined ? "" : ` · ${step.note}`),
+        );
       }
       if (plan.halted !== undefined) {
         lines.push(`It would stop at step ${String(plan.halted.seq)}: ${plan.halted.reason}`);

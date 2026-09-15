@@ -1557,6 +1557,17 @@ function report(result: RollbackReport, alreadyForcing = false, as = ""): number
       `  ${style.quiet(String(step.seq).padStart(3))}  ${kind} ` +
         `${style.strong(`${step.server}.${step.tool}`)}  ${style.quiet(step.reason)}${unverified}`,
     );
+    // Under the line it qualifies, and in the attention colour, because the
+    // whole failure this fixes was a line that looked exactly like a sound
+    // one. A caveat rendered quietly enough to skip is the same bug again.
+    if (step.note !== undefined && step.kind !== "halt") {
+      // Wrapped, not truncated, for the reason the gates screen wraps: the
+      // tail of this is the server's own words about what went wrong, and
+      // cutting it removes the only part that says anything new.
+      for (const [at, line] of wrapped(step.note, 62).entries()) {
+        out(`       ${at === 0 ? style.accent("caveat") : "      "}  ${style.quiet(line)}`);
+      }
+    }
     if (step.plan !== undefined && step.kind === "revert") {
       const verb = `${step.replanned === true ? "replanned, " : ""}${result.dryRun ? "would call" : "called"}`;
       out(

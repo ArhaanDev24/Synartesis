@@ -372,6 +372,29 @@ synartesis undo --dry-run
 anything. `state matches` means the resource is still as that step left it, so
 the undo is safe.
 
+### When a step says `caveat`
+
+A tool call can succeed and still fail to say so — the server writes the record,
+then times out, or answers with an error on its way out. Synartesis does not
+read that answer as proof nothing happened. It goes and reads the resource, and
+if the change is there it records it as a change, which is what makes it
+undoable at all.
+
+That step is still sound, and it will still be reversed. But it is on the list
+because Synartesis went and looked, not because anything confirmed it, and the
+preview says so:
+
+```
+    1  revert           crm.update_customer  state matches; applying inverse
+       caveat  the upstream answered with an error and the change was
+               established by reading the resource back, so nothing confirmed
+               it: Request timed out
+       would call crm.update_customer id c_001  name Ada Lovelace ...
+```
+
+Nothing to do about it. It is there so that a step resting on an inference does
+not read exactly like one resting on an answer.
+
 ## Do it
 
 ```

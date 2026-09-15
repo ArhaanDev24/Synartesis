@@ -2,6 +2,38 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.20 — 2026-09-15
+
+### Fixed
+
+- **The undo preview showed a write nobody confirmed as one that was
+  confirmed.** A tool call can land and then fail to say so -- the server
+  writes the record and times out, or answers with an error on its way out.
+  Synartesis already handled this correctly: it refuses to read `isError` as a
+  promise that nothing happened, reads the resource back, and records the
+  change so it stays recoverable. What it did not do was say so afterwards.
+  The row that came out of that path carried no trace of it at all -- the
+  refusal was written to the log, which nobody reads, at the moment it
+  happens, which is not the moment it matters -- so `undo --dry-run` printed
+  `revert ... state matches; applying inverse`, character for character what a
+  confirmed write prints. The row now records how it was established, and the
+  preview prints it under the step as `caveat`. Same in the app's
+  `preview_undo`, so a model cannot describe an inferred write to somebody as
+  a confirmed one.
+
+- **A halt that named the consequence and hid the cause.** Where the transport
+  failed and the read-back proved the write had landed, undo correctly stopped
+  rather than reverting on an unverified assumption -- but said only "the
+  post-state was never captured, so drift could not be ruled out", which reads
+  as a missed reading. The reason there was no reading, which the row knew all
+  along, is now printed with it.
+
+- An action whose outcome is unknown was told it got that way because "the
+  process died mid-call". A timeout, or an error the read-back could not
+  settle, arrives in exactly the same state and was told the same wrong story.
+  It now says what is actually known, and the row's own error says which of
+  them it was.
+
 ## 0.6.19 — 2026-09-15
 
 ### Fixed

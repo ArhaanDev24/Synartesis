@@ -175,7 +175,12 @@ export function createToolset(options: ToolsetOptions): McpServer {
         dryRun: true,
       });
       const steps = plan.steps.map(
-        (step) => `${String(step.seq)}  ${step.kind}  ${step.server}.${step.tool}  ${step.reason}`,
+        (step) =>
+          `${String(step.seq)}  ${step.kind}  ${step.server}.${step.tool}  ${step.reason}` +
+          // The model is about to tell a person what undoing would do. An
+          // action nothing confirmed must not reach them described as one that
+          // was, and the model can only pass on what this hands it.
+          (step.note === undefined ? "" : `\n    caveat: ${step.note}`),
       );
       const halt =
         plan.halted === undefined

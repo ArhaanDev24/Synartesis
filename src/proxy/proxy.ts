@@ -841,6 +841,19 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             signal: extra.signal,
           });
 
+          /**
+           * Set when this action reaches the journal because a read-back said
+           * the change had landed, not because the upstream confirmed it.
+           *
+           * It has to survive into the row. An undo preview that cannot tell
+           * an inferred write from a confirmed one renders the two
+           * identically, and that difference is the whole question a person
+           * has in front of them when they decide whether to undo. The log
+           * line below says it to an operator reading logs, which is nobody,
+           * at the moment it happens, which is not the moment it matters.
+           */
+          let inferred: string | undefined;
+
           // The server understood the call and did not do it. Recording that
           // as an action would be worse than not recording it at all: an
           // inverse resolved from a refusal is a compensating call for
@@ -878,6 +891,9 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             }
             // It changed something on its way to failing. Recording it as
             // applied is what makes that change recoverable at all.
+            inferred =
+              `the upstream answered with an error and the change was established by reading ` +
+              `the resource back, so nothing confirmed it: ${refused}`;
             log?.warn(
               { seq: pending.seq, tool: route.tool, reason: refused },
               "the upstream reported an error after changing the resource",
@@ -886,6 +902,11 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
 
           const context = { args, snapshot, result: toPayload(result) };
           const warnings: string[] = [];
+          // First, because it is the one that changes how everything else here
+          // should be read.
+          if (inferred !== undefined) {
+            warnings.push(inferred);
+          }
           if (missingPriorState !== undefined) {
             warnings.push(
               `no prior state existed, so there is nothing to restore: ${missingPriorState}`,

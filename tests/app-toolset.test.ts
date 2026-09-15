@@ -154,6 +154,38 @@ describe("Synartesis offered to the model", () => {
     expect(readFileSync(path, "utf8")).toBe("after\n");
   });
 
+  it("does not let the model call an unconfirmed write a confirmed one", async () => {
+    const { engine, root } = await bench();
+    const path = join(root, "plan.md");
+    await damage(engine, path);
+
+    // A second write, recorded the way the proxy records one whose server
+    // never confirmed it: applied because reading the file back showed the
+    // change, with no post-state and the reason why on the row. Seeded,
+    // because nothing here can make a live server fail that particular way.
+    const unsure = engine.journal.recordPending({
+      runId: engine.runId,
+      server: "fs",
+      tool: "write_file",
+      args: { path, content: "later\n" },
+      class: "reversible",
+    });
+    engine.journal.markApplied(unsure.actionId, {
+      result: undefined,
+      inverse: { server: "fs", tool: "write_file", args: { path, content: "after\n" } },
+      warning: "the call applied but its answer never arrived: Request timed out",
+    });
+
+    const plan = await engine.call(engine.ownTool("preview_undo"), { session: engine.runId });
+    expect(plan.failed).toBe(false);
+    // The model is about to put this into words for a person. If the only
+    // thing it is handed is "halt -- the post-state was never captured", the
+    // sentence it writes for them is that Synartesis missed a reading, which
+    // is not what happened.
+    expect(plan.text).toContain("caveat");
+    expect(plan.text).toContain("its answer never arrived");
+  });
+
   it("holds an undo for a person, and does not do it unasked", async () => {
     const held: string[] = [];
     const { engine, root } = await bench({
