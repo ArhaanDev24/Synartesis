@@ -1390,6 +1390,22 @@ html.js.settled .diff div { opacity:1!important; transform:none!important; clip-
 .demo-steps>div { position:relative; }
 .phase-line { position:absolute; top:-2px; left:0; right:0; height:3px; background:var(--wine); transform-origin:left; pointer-events:none; }
 @media(max-width:600px) { .demo-phase { padding:14px 20px; } .travel-copy { left:20px; right:auto; } .undo-copy { top:-18px; bottom:auto; } }
+
+/* At 375px the example caption left the undo arrow alone on a second line.
+   Give the action its own row instead of shrinking the 16px control text. */
+@media(max-width:600px) {
+  .example-bottom { flex-direction:column; align-items:stretch; gap:8px; }
+  .example-bottom .label { font-size:10px; line-height:1.7; }
+  .example-bottom .text-button { text-align:left; min-height:44px; }
+  .gallery-controls { display:grid; grid-template-columns:1fr 1fr; gap:0; }
+  .gallery-controls button { text-align:left; font-size:16px; padding:12px; }
+  .terminal-bar { flex-wrap:wrap; gap:4px 16px; }
+  .terminal pre { padding:20px; }
+}
+/* Numbers in the evidence should keep their columns as the value changes;
+   this changes typography, not the animation's capture/write/restore order. */
+.diff,.stage-card,.terminal pre { font-variant-numeric:tabular-nums; }
+.example { box-shadow:none; }
 </style>
 <script>document.documentElement.classList.add('js')</script>
 <body>

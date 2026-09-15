@@ -709,6 +709,19 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
  .guide-index p { padding:0; }
 }
 @media(max-width:450px) { .guide-index nav { grid-template-columns:1fr; } }
+
+/* The two introduction columns start together, but their first text lines
+   used to miss by a full line. Keep a shared top edge and a readable measure. */
+.guide .guide-start .desktop-install { padding:20px 28px 28px; }
+.guide .guide-start .lede { max-width:48ch; }
+.client-options summary { line-height:1.4; padding:22px 0; }
+.client-options details[open] summary { border-bottom:1px solid var(--line); margin-bottom:22px; }
+.guide .terminal pre { line-height:1.75; font-variant-numeric:tabular-nums; }
+@media(max-width:600px) {
+  .guide .guide-start .desktop-install { padding:22px; }
+  .guide .terminal-bar { flex-wrap:wrap; gap:4px 16px; }
+  .guide .terminal pre { padding:20px; }
+}
 </style>
 <script>document.documentElement.classList.add('js')</script><body><a class="skip" href="#main">Skip to content</a>
 <div class="guide-header">

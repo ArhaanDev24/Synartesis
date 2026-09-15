@@ -85,6 +85,14 @@ function line(action: ActionRow, now: Date): string {
  * at the proxy, and the proxy is what creates the journal. A watch that will
  * not begin until something has already happened is no use at the only moment
  * anyone wants one.
+ *
+ * The turning mark stays. It was read once as implying an agent was at work on
+ * an empty journal, which is worth saying plainly: it sits beside "watching"
+ * and "no journal here yet", and both of those are statements about this
+ * command rather than about an agent. What it answers is the only question a
+ * quiet screen raises -- whether this is still running -- and nothing else in
+ * the frame changes to answer it, because every time on it is a wall clock
+ * reading of something that already happened.
  */
 function waitingForJournal(options: WatchOptions, tick: number): string {
   const spinner = options.live ? `${style.accent(FRAMES[tick % FRAMES.length] ?? "")} ` : "";

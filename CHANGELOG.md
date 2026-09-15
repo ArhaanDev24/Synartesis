@@ -2,6 +2,48 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.18 — 2026-09-15
+
+A pass over the terminal and the site, most of it drafted by another model and
+reviewed here.
+
+### Changed
+
+- **`show` leads each action with the tool that ran.** It used to begin the row
+  with sequence, class and status, putting the tool name at column thirty-eight
+  where a long server name could push it off. The class and status now sit on
+  the line below it, and each action is separated by a blank line rather than
+  each action's recovery data being separated from the action.
+
+- **A held call is set in the accent colour**, which the palette reserves for
+  the one thing that wants a person. It was set in ink, like an ordinary fact.
+
+- **The site keeps its columns on a phone.** At 375px the interactive example's
+  caption left the undo control stranded alone on a second line; it takes its
+  own row now, with a tap target that meets the usual minimum. Figures in the
+  evidence blocks are set in tabular figures so they hold their columns as the
+  numbers change, and the install guide's two opening columns share a top edge.
+
+### Fixed
+
+- **Trailing whitespace on every action in `show`.** The padding that used to
+  line up the next column had nothing after it once the tool name moved, so it
+  dangled at the end of each line -- inside the escape codes, where trimming
+  the finished line cannot reach. Padded now only where a third column follows,
+  which is `--live` and usually absent.
+
+### Kept
+
+- **The turning mark in `watch` and the screen stays.** It was read as implying
+  an agent was at work on an empty journal. It sits beside "watching" and "no
+  journal here yet", which are statements about the command rather than about
+  an agent, and it answers the only question a quiet screen raises -- whether
+  this is still running. Nothing else in the frame changes to answer it: every
+  time shown is a wall clock reading of something that already happened, so
+  without the mark a live `watch` on a quiet journal is indistinguishable from
+  a crashed one. That is the command meant to be left running. There is now a
+  test.
+
 ## 0.6.17 — 2026-09-15
 
 ### Changed

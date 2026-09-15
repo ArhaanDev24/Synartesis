@@ -1004,7 +1004,8 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
   }
 
   out("");
-  out(`  ${style.label("session")}  ${style.strong(run.label ?? "an agent")}  ${style.quiet(run.id)}`);
+  out(`  ${style.label("session")}  ${style.strong(run.label ?? "an agent")}`);
+  out(`  ${style.quiet(run.id)}`);
   out(`  ${rule(54)}`);
   out("");
   out(`  ${style.quiet("agent  ")} ${run.label ?? "-"}`);
@@ -1022,7 +1023,6 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
   }
 
   out("");
-  out("");
   out(`  ${style.label("timeline")}`);
   out(`  ${rule(72)}`);
   out("");
@@ -1030,8 +1030,15 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
   for (const action of actions) {
     const now = live.get(action.seq);
     out(
-      `  ${style.quiet(String(action.seq).padStart(3))}  ${badgeOf(action)} ` +
-        `${statusOf(action)}  ${style.strong(`${action.server}.${action.tool}`)}` +
+      `  ${style.quiet(String(action.seq).padStart(3))}  ${style.strong(`${action.server}.${action.tool}`)}`,
+    );
+    // The old row started the tool at column 38 after its sequence, class and status.
+    // Put those facts beneath it so long server names do not hide what ran.
+    // Padded only where a third column follows it, which is a --live reading
+    // of the resource and usually absent.
+    const alongside = now !== undefined;
+    out(
+      `       ${badgeOf(action, alongside)} ${statusOf(action, alongside)}` +
         (now === undefined ? "" : `  ${conditionOf(now)}`),
     );
     if (now?.diff !== undefined) {
@@ -1075,12 +1082,13 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
           out(`         ${line}`);
         }
       } else {
-        out(`       ${style.quiet("undo:")} ${style.quiet(summariseArgs(inverseArgs(action.inverse), 90))}`);
+        out(`       ${style.quiet("undo:")} ${style.strong(summariseArgs(inverseArgs(action.inverse), 90))}`);
       }
     }
+    // Space belongs between calls, not between an action and its recovery data.
+    out("");
   }
 
-  out("");
   out(`  ${summarise(actions)}`);
   if (inspection !== undefined) {
     out("");
@@ -1149,19 +1157,28 @@ const CLASS_MARK: Record<ActionClass, string> = {
 /** Wide enough for the longest class name plus its marker. */
 const BADGE_WIDTH = "irreversible".length + 2;
 
-/** Padded before it is coloured: escape codes are not printable width. */
-function badgeOf(action: ActionRow): string {
-  const plain = `${CLASS_MARK[action.class]} ${action.class}`.padEnd(BADGE_WIDTH);
+/**
+ * Padded before it is coloured: escape codes are not printable width.
+ *
+ * `pad` is off where nothing follows. The padding exists to line the next
+ * column up, and once the tool name moved to a line of its own there was no
+ * next column -- so every action carried a tail of spaces inside its own
+ * escape codes, where trimming the finished line could not reach them.
+ */
+function badgeOf(action: ActionRow, pad = true): string {
+  const name = `${CLASS_MARK[action.class]} ${action.class}`;
+  const plain = pad ? name.padEnd(BADGE_WIDTH) : name;
   return action.class === "irreversible" ? style.accent(plain) : style.quiet(plain);
 }
 
-function statusOf(action: ActionRow): string {
-  const text = labelFor(action).padEnd(13);
+function statusOf(action: ActionRow, pad = true): string {
+  const label = labelFor(action);
+  const text = pad ? label.padEnd(13) : label;
   if (wasRefused(action)) {
     return style.accent(text);
   }
   if (action.status === "gated") {
-    return style.strong(text);
+    return style.accent(text);
   }
   return style.quiet(text);
 }

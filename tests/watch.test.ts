@@ -96,6 +96,27 @@ describe("watching the journal", () => {
     expect(text).toContain(SHOW_CURSOR);
   });
 
+  it("shows that it is still running, on a journal where nothing is happening", async () => {
+    const path = journalWith(() => undefined);
+    const text = await capture(path, true, 4);
+    // Every other thing in the frame is fixed: the counts do not move and the
+    // times on the rows are wall clock readings of things that already
+    // happened. So without a turning mark a live watch on a quiet journal is
+    // indistinguishable from a crashed one -- and this is the command meant to
+    // be left running.
+    const frames = text.split(CLEAR).slice(1);
+    expect(frames.length).toBe(4);
+
+    // The status line itself, not the whole frame. Whole frames differ no
+    // matter what, because the last one carries the cursor being put back --
+    // which made the first version of this test pass with the mark removed.
+    const status = frames.map(
+      (frame) => frame.split("\n").find((line) => line.includes("watching")) ?? "",
+    );
+    expect(status.every((line) => line !== "")).toBe(true);
+    expect(new Set(status).size).toBe(4);
+  });
+
   it("prints once into a pipe rather than spraying escape codes", async () => {
     const path = journalWith(() => undefined);
     expect(await capture(path)).not.toContain(CLEAR);
