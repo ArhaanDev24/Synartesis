@@ -778,12 +778,18 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           }
         }
 
-        // The key rides out with the call, not just with its inverse. A write
-        // that times out in flight is the case this exists for: the agent is
-        // free to try again, and without a key the server cannot tell that
-        // retry from a second intention. Two side effects would then sit
-        // behind one journal row, and undo would reverse one of them and
-        // report success.
+        // The key rides out with the call, not just with its inverse, so a
+        // server that keeps them can tie a side effect to the journal row that
+        // owns it -- and a re-sent inverse presents the same key as the one
+        // before it, which is what D7 is for.
+        //
+        // What it does not do, and an earlier version of this comment claimed
+        // it did, is let a server collapse an agent's retry of an ambiguous
+        // write. The key is `runId:seq` and a retry is a new row, so the two
+        // attempts go out under different keys and no server can tell they
+        // were one intention. Undo is still safe -- an unresolved attempt is
+        // left `pending` and rollback halts on it rather than stepping over --
+        // but the second side effect is real and nothing here prevents it.
         const forwarded: Request = {
           method: "tools/call",
           params: {
