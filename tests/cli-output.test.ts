@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
+import { asInstalled } from "./helpers/installed.js";
 
 /** The --json shapes these tests read; parsed rather than asserted. */
 const withIds = z.array(z.object({ id: z.string() }));
@@ -33,7 +34,13 @@ interface Ran {
 
 function run(args: readonly string[], stdin?: string): Promise<Ran> {
   return new Promise<Ran>((done, fail) => {
-    const child = spawn("node", [CLI, ...args], { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("node", [CLI, ...args], {
+      stdio: ["pipe", "pipe", "pipe"],
+      // The short command list this file reads is written as `synartesis ...`
+      // only where that command exists, so the test says which world it is in
+      // rather than inheriting one from the machine.
+      env: { ...process.env, ...asInstalled(dirs) },
+    });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (c: Buffer) => (stdout += c.toString()));

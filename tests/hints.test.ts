@@ -14,6 +14,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
+import { asInstalled } from "./helpers/installed.js";
 
 import { afterStatus, didYouMean, LEAVE_IT_RUNNING } from "../src/hints.js";
 import { openJournal } from "../src/journal/journal.js";
@@ -48,7 +49,9 @@ function run(args: readonly string[], stdin?: string, env: Record<string, string
   return new Promise<Ran>((done, fail) => {
     const child = spawn("node", [CLI, ...args], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, ...env },
+      // Spelled `synartesis ...` rather than `node /long/path/cli.js ...`,
+      // whatever this machine happens to have installed.
+      env: { ...process.env, ...asInstalled(dirs), ...env },
     });
     let stdout = "";
     let stderr = "";
