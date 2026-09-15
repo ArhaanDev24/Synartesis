@@ -275,6 +275,22 @@ export interface Journal {
     tool: string;
     args: unknown;
   }): ActionRow | undefined;
+  /**
+   * An earlier attempt at this exact call whose outcome was never established.
+   *
+   * Distinct from findGated, which finds a call nobody has answered yet. This
+   * finds one that went out, came back as a timeout or a dropped connection,
+   * and could not be resolved by reading the resource afterwards -- so whether
+   * the side effect happened is genuinely unknown. An agent told nothing
+   * useful will try the same call again, and that retry is the one thing
+   * nobody should do on a guess.
+   */
+  findPending(query: {
+    runId: string;
+    server: string;
+    tool: string;
+    args: unknown;
+  }): ActionRow | undefined;
   getAction(actionId: string): ActionRow | undefined;
   listRuns(): readonly RunRow[];
   getRun(runId: string): RunRow | undefined;
@@ -850,6 +866,37 @@ class SqliteJournal implements Journal {
         .prepare(
           `SELECT * FROM actions
             WHERE run_id = ? AND server = ? AND tool = ? AND status = 'gated'
+            ORDER BY seq`,
+        )
+        .all(query.runId, query.server, query.tool)
+        .map(toAction);
+      const wanted = canonical(query.args ?? {});
+      return rows.find((row) => canonical(row.args) === wanted);
+    });
+  }
+
+  findPending(query: {
+    runId: string;
+    server: string;
+    tool: string;
+    args: unknown;
+  }): ActionRow | undefined {
+    return this.#run("findPending", () => {
+      // Scoped to the run for the same reason findGated is: an unresolved
+      // attempt belongs to the run that made it, and one inherited from a dead
+      // session would stop a call this run has no way to reason about.
+      //
+      // INDEXED BY, and it has to be. This runs on the way in to every write,
+      // so its cost is paid per call for the whole of a session; left to
+      // choose, sqlite takes actions_by_run and walks every action in the run
+      // -- rows that carry the snapshots -- to find the handful that are
+      // pending. Measured on a single run of twenty thousand actions with
+      // two-kilobyte snapshots: 24ms a call, against 0.004ms from the partial
+      // index that holds only the pending ones.
+      const rows = this.#db
+        .prepare(
+          `SELECT * FROM actions INDEXED BY actions_unresolved
+            WHERE run_id = ? AND server = ? AND tool = ? AND status = 'pending'
             ORDER BY seq`,
         )
         .all(query.runId, query.server, query.tool)

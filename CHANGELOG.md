@@ -2,7 +2,48 @@
 
 What changed, and why it mattered. Dates are release dates.
 
-## 0.6.14 — 2026-09-15
+## 0.6.15 — 2026-09-15
+
+One gap, named by a stranger on Reddit and real.
+
+### Security
+
+- **A retry of a call whose outcome nobody could establish is now held for a
+  person.** The tri-state was already there -- a write that times out is not
+  called `failed`, the resource is re-read to see which way it went, and what
+  cannot be settled is left `pending`, which undo refuses to step over. What
+  was missing was the other half: nothing stopped the agent from simply making
+  the call again.
+
+  The idempotency key cannot close this. It is `runId:seq`, so a retry is a new
+  row under a different key and no upstream can tell the two attempts were one
+  intention -- checked against the real proxy, which records `seq=1 key=…:1`
+  and `seq=2 key=…:2`. A comment beside the forward call claimed otherwise and
+  has been corrected.
+
+  So the person who can go and look is asked before a second side effect
+  exists. It reuses the gate rather than inventing a second mechanism: the call
+  appears in `synartesis gates` with a reason that says what happened, rather
+  than the generic policy text.
+
+  Three things it deliberately does not do. It never holds a **read** -- a read
+  that timed out is left `pending` like anything else, but reading twice
+  changes nothing, and an agent may always look freely. It holds only the
+  **identical** call, matched on server, tool and arguments: the uncertainty is
+  about one call, not about the tool. And approving the retry **does not
+  resolve the first attempt** -- that row stays `pending` and undo still stops
+  on it, because saying yes to going forward is not a claim about what already
+  happened.
+
+### Performance
+
+- `findPending` runs on the way in to every write, and left to choose sqlite
+  walked every action in the run -- rows that carry the snapshots -- to find
+  the handful that are pending. A partial index over exactly those rows, named
+  explicitly, on a single run of twenty thousand actions with two-kilobyte
+  snapshots: **24ms a call to 0.004ms**.
+
+## 0.6.14 — 2026-09-15 (tagged, never published)
 
 The terminal now says what to do next, and the argument parser stopped
 disagreeing with itself.

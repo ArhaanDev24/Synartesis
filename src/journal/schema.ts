@@ -104,4 +104,11 @@ CREATE INDEX IF NOT EXISTS actions_run_status ON actions(run_id, status);
 -- build opening the same file afterwards neither notices nor cares.
 CREATE INDEX IF NOT EXISTS actions_undoable ON actions(run_id)
   WHERE status = 'applied' AND inverse_json IS NOT NULL;
+
+-- Partial for the same reason: findPending runs on the way in to every write,
+-- looking for an earlier attempt at that exact call whose outcome was never
+-- established. Those are rare, so the index holds almost nothing -- while the
+-- rows it saves reading are the ones carrying the snapshots.
+CREATE INDEX IF NOT EXISTS actions_unresolved ON actions(run_id, server, tool)
+  WHERE status = 'pending';
 `;

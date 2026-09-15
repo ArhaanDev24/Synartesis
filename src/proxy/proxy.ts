@@ -549,10 +549,41 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         const wantsGate =
           policy.gate === "always" || (policy.gate === "on_write" && shouldGateOnWrite(args));
 
+        // An earlier attempt at this exact call that nobody could resolve.
+        //
+        // Never for a read. A read that timed out is left `pending` like any
+        // other -- with no pre-read there is nothing to ask the world -- but
+        // reading a resource twice costs nothing and changes nothing, and
+        // holding one would break the plainest promise this makes: an agent
+        // may look freely and asks only before it changes something.
+        //
+        // Looked up before a row is recorded for this attempt, because
+        // recordPending writes `pending` too and would find itself.
+        //
+        // This is the retry half of an ambiguous outcome. Undo already refuses
+        // to step over an unresolved action; nothing stopped the agent from
+        // simply making the call again, and the idempotency key cannot help --
+        // it is `runId:seq`, so the retry goes out under a different key and no
+        // upstream can tell the two attempts were one intention. So the person
+        // who can go and look is asked before a second side effect exists.
+        const unresolved =
+          policy.class === "readonly"
+            ? undefined
+            : journal.findPending({
+                runId: activeRun,
+                server: route.upstream.name,
+                tool: route.tool,
+                args,
+              });
+        // Both questions are answered by one yes, because the person is shown
+        // both reasons. Asking twice for one call is how an approval prompt
+        // becomes something people click through.
+        const mustAsk = wantsGate || unresolved !== undefined;
+
         // A retry after an out-of-band approval reuses the row that was
         // approved, so the approval ends up on the action that actually ran
         // rather than on an abandoned twin of it.
-        const granted = wantsGate
+        const granted = mustAsk
           ? journal.findApproval({
               server: route.upstream.name,
               tool: route.tool,
@@ -571,7 +602,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         // row it is already waiting on keeps one call to one decision, which
         // is what `synartesis gates` and `approve` both assume.
         const waiting =
-          granted === undefined && wantsGate
+          granted === undefined && mustAsk
             ? journal.findGated({
                 runId: activeRun,
                 server: route.upstream.name,
@@ -679,12 +710,18 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         // D4/3.4: a policy gate suspends before anything is read or written, so
         // a gated action never even looks at the resource.
         // decide() throws on refusal, so getting past this means approved.
-        const askedAlready = wantsGate;
+        const askedAlready = mustAsk;
         // `!spent` is an approval that existed a moment ago and belongs to
         // somebody else's call now. That is the same position as never having
         // had one.
-        if (wantsGate && (granted === undefined || !spent)) {
-          await decide("this action cannot be undone");
+        if (mustAsk && (granted === undefined || !spent)) {
+          const because = [
+            unresolved === undefined
+              ? undefined
+              : `an earlier attempt at this exact call, action ${String(unresolved.seq)}, went out and its outcome could never be established, so sending it again may apply the change a second time`,
+            wantsGate ? "this action cannot be undone" : undefined,
+          ].filter((one): one is string => one !== undefined);
+          await decide(because.join(", and "));
         }
 
         // The pre-read happens before the write goes out, and a failure stops
