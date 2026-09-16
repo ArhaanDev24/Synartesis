@@ -83,8 +83,8 @@ $ synartesis check
   servers  fs
            fs shapes read from the real server
            `live` means the policy has met its server, not that undo has been
-           round-tripped against it. Of the policies that ship, only
-           filesystem has.
+           round-tripped against it. Of the policies that ship, filesystem
+           and memory have been; git and github have not.
   policies 10 readonly, 2 reversible, 2 irreversible
   guarded  2
   pinned   fs (14)
@@ -95,8 +95,9 @@ $ synartesis check
 *"shapes read from the real server"* is the policy's own claim about how far it has been tested,
 and it is a narrow one: the tools exist and take the arguments the policy passes them. Whether
 undo actually puts anything back is a separate question, which is why `check` says so underneath
-rather than letting `live` stand for both. The four shipped policies all say `live` except
-`github`, which says it has never met a real account.
+rather than letting `live` stand for both. Two of the four — filesystem and memory — have been
+round-tripped against the real server; `git` has not, and `github` says outright that it has
+never met a real account.
 
 The last line is the one to read before you hand a server to an agent. A tool no policy mentions
 is treated as irreversible and held for a person the first time it is called — safe, but it

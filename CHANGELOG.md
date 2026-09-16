@@ -2,6 +2,36 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.22 — 2026-09-16
+
+### Added
+
+- **The memory policy's undo is now proven, not just plausible.** It has always
+  declared `provenance: live` -- the tools were checked against the real server
+  and the shapes read off its own answers -- while the README said its recovery
+  guarantees were unproven. Both were true, and the gap between them is where a
+  policy can name every tool correctly, take exactly the arguments the server
+  wants, and still resolve an inverse that puts nothing back. That failure
+  looks like success: the drift check passes and the report says `rolled_back`.
+
+  `tests/adapter-memory.test.ts` makes each change against a real knowledge
+  graph, undoes it, and compares the file. What the agent added is gone and
+  what was already there is untouched; an entity the agent only *tried* to
+  create -- this server ignores a duplicate name -- is left alone rather than
+  deleted out from under its owner; a relation drawn or removed goes back; and
+  a delete of an entity is held for a person rather than approximated, because
+  one inverse cannot put back both the entity and the relations that went with
+  it. Every one of those was confirmed by breaking the policy and watching the
+  matching test fail.
+
+  Two of the four shipped policies are now round-tripped end to end.
+  `synartesis check`, the README and both guides say which, and `git` is still
+  named plainly as untested.
+
+- `check` also confirms the memory policy covers every tool that server offers,
+  so a server that grows one fails here rather than in front of somebody's
+  agent.
+
 ## 0.6.21 — 2026-09-16
 
 ### Fixed

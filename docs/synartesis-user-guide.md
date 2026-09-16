@@ -624,12 +624,17 @@ It does **not** say undo has been tried. A policy can be right about every tool
 name and every argument and still record an inverse that restores nothing, and
 that failure only shows up at the moment somebody needs it.
 
-Of the four policies that ship, `filesystem`, `git` and `memory` say `live` —
-but only **filesystem** has been round-tripped end to end: byte-for-byte
-restoration, drift refusal, and absence told apart from a read that failed.
-`memory` and `git` are checked for tool existence and nothing further, so
-treat undo on them as untested. If your agent writes something to one of them
-that you cannot afford to lose, do not rely on this to get it back yet.
+Of the four policies that ship, `filesystem`, `git` and `memory` say `live`.
+Two of those have been round-tripped end to end — the change made against the
+real server and then undone, with the result compared. **filesystem**:
+byte-for-byte restoration, drift refusal, and absence told apart from a read
+that failed. **memory**: the graph put back as it was, an entity the agent only
+tried to create left alone, and a delete of an entity held rather than
+approximated.
+
+`git` is checked for tool existence and nothing further, so treat undo on it as
+untested. If your agent does something to a repository that you cannot afford
+to lose, do not rely on this to get it back yet.
 
 `github` says `documented`: it has never been run against a real account. If you
 use it, run `synartesis check` against your own token and expect to correct

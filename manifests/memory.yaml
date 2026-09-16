@@ -1,8 +1,14 @@
 # Policy for @modelcontextprotocol/server-memory, the knowledge graph an agent
 # keeps about you between sessions.
 #
-# Verified against the real server: every tool named here was listed by it, and
-# the shapes below were read off its own responses rather than from docs.
+# Verified against the real server twice over: every tool named here was listed
+# by it and the shapes below were read off its own responses rather than from
+# docs -- and then the undo itself was run. tests/adapter-memory.test.ts makes
+# each change against a real graph, undoes it, and compares the file: what the
+# agent added is gone, what was already there is untouched, an entity it only
+# tried to create is left alone, and a delete of an entity is held rather than
+# approximated. Every one of those was checked by breaking this policy and
+# watching the test fail.
 #
 # This is the server the taxonomy fits best. Almost everything it does has an
 # exact opposite sitting next to it in the same toolbox, which is what

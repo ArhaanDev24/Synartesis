@@ -1,6 +1,6 @@
 {
   "name": "synartesis",
-  "version": "0.6.21",
+  "version": "0.6.22",
   "description": "An undo layer for AI agents.",
   "type": "module",
   "private": false,
@@ -86,6 +86,7 @@
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "@google/genai": "^2.22.0",
     "@modelcontextprotocol/server-filesystem": "^2026.7.10",
+    "@modelcontextprotocol/server-memory": "^2026.8.31",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
     "@types/react": "^19.3.0",

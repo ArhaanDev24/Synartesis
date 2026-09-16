@@ -333,16 +333,18 @@ cannot start a process:** see the [user guide](docs/synartesis-user-guide.md).
   resolved when the call happens, so a mistake in a manifest is baked into every
   run made under it. `undo --replan` rebuilds them from a corrected one.
 
-The bundled **filesystem** policy is tested against the real server: exact
-byte-for-byte restoration, drift refusal, and absence told apart from a read
-that failed. The **memory, git and github** policies are checked only for tool
-existence — their recovery guarantees are not yet proven.
+Two bundled policies are tested against the real server, by making the change
+and undoing it. **filesystem**: exact byte-for-byte restoration, drift refusal,
+and absence told apart from a read that failed. **memory**: the graph is put
+back as it was, entities the agent only tried to create are left alone, and a
+delete of an entity is held rather than approximated. **git and github** are
+checked only for tool existence — their recovery guarantees are not yet proven.
 
-Three of those four declare `provenance: live`, and that word is narrower than
-it looks: it says the policy has met its server and the tools take the
-arguments it passes them, not that undo has been round-tripped. Only filesystem
-has. `synartesis check` says so under the server list rather than leaving
-`live` to stand for both.
+All three of filesystem, memory and git declare `provenance: live`, and that
+word is narrower than it looks: it says the policy has met its server and the
+tools take the arguments it passes them, not that undo has been round-tripped.
+`synartesis check` says so under the server list rather than leaving `live` to
+stand for both.
 
 **A tool no policy mentions is irreversible and held for a person** the first
 time it is called. That is the safe end of the trade, and it means a server

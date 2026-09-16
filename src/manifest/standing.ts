@@ -58,7 +58,8 @@ export function describeStanding(entry: Standing): string {
  */
 export const LIVE_IS_NOT_RECOVERY =
   "`live` means the policy has met its server, not that undo has been " +
-  "round-tripped against it. Of the policies that ship, only filesystem has.";
+  "round-tripped against it. Of the policies that ship, filesystem and memory " +
+  "have been; git and github have not.";
 
 /**
  * What to say when a policy that has never met its server is about to be

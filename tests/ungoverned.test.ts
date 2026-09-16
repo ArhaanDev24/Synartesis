@@ -118,6 +118,24 @@ describe("tools no policy covers", () => {
     expect(checked.out).toContain("Every tool these servers offer has a policy");
   }, 30000);
 
+  it("covers every tool the real memory server offers", async () => {
+    // The second shipped policy whose undo is proven. If the server grows a
+    // tool, this fails here rather than in front of somebody's agent.
+    const server = resolve("node_modules/@modelcontextprotocol/server-memory/dist/index.js");
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-memcover-"));
+    dirs.push(dir);
+    process.env["MEMORY_FILE_PATH"] = join(dir, "memory.json");
+    const manifest = join(dir, "synartesis.yaml");
+    writeFileSync(
+      manifest,
+      readFileSync("manifests/memory.yaml", "utf8")
+        .replace(/^ {4}command:.*$/m, '    command: "node"')
+        .replace(/^ {4}args:.*$/m, `    args: ["${server}"]`),
+    );
+    const checked = await run("node", [CLI, "check", "--manifest", manifest]);
+    expect(checked.out).toContain("Every tool these servers offer has a policy");
+  }, 30000);
+
   it("names them in check rather than describing the rule", async () => {
     const space = workspace("send_email");
     const checked = await run("node", [CLI, "check", "--manifest", space.manifest]);

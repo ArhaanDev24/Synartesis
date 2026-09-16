@@ -51,6 +51,9 @@ importers:
       '@modelcontextprotocol/server-filesystem':
         specifier: ^2026.7.10
         version: 2026.7.10(zod@4.4.3)
+      '@modelcontextprotocol/server-memory':
+        specifier: ^2026.8.31
+        version: 2026.8.31(zod@4.4.3)
       '@types/better-sqlite3':
         specifier: ^9.6.0
         version: 9.6.0
@@ -437,6 +440,10 @@ packages:
 
   '@modelcontextprotocol/server-filesystem@2026.7.10':
     resolution: {integrity: sha512-Mmjg4anFBD5OzbPnGJOA0jPPN8645ERhQk38HQLpSenx1ox9bfdPkmAzUnNjeQtqQGFLtKe13J20RtLBmUKMZA==}
+    hasBin: true
+
+  '@modelcontextprotocol/server-memory@2026.8.31':
+    resolution: {integrity: sha512-ljj/3S4aGjxdNSQWw6gucKKGnTLdBPWxzapyY/MT2tOVyZwvxChvevXSLPwx59nKJAlVpUVW+cOlnVRXRwiqMQ==}
     hasBin: true
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
@@ -3169,6 +3176,14 @@ snapshots:
       diff: 8.0.4
       glob: 10.5.0
       minimatch: 10.2.6
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - supports-color
+      - zod
+
+  '@modelcontextprotocol/server-memory@2026.8.31(zod@4.4.3)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.30.0(zod@4.4.3)
     transitivePeerDependencies:
       - '@cfworker/json-schema'
       - supports-color
