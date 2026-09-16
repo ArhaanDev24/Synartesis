@@ -46,6 +46,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Before anything is built, let alone attached to a release. Tagging
+      # runs this workflow directly, so without a gate here it was possible to
+      # produce and publish signed installers from a commit that fails CI --
+      # the checks ran on main, and a tag is not obliged to point at a commit
+      # that passed them. One runner, because this is about the code rather
+      # than the platform, and the matrix in check.yml is where platform
+      # differences are caught.
+      - name: The same gate as every other push
+        if: matrix.os == 'ubuntu-latest'
+        run: pnpm check
+
       # Signing and notarisation happen only where the secrets exist. Without
       # them the build still succeeds and produces an unsigned application,
       # which is what a fork gets: see app/README.md.
@@ -116,9 +127,28 @@ jobs:
             echo "  gave up after five attempts: $*"
             return 1
           }
+          # The changelog entry for this tag, which is the most carefully
+          # written file in the repository and never reached the release page:
+          # --generate-notes builds a list of commit subjects instead. Pulled
+          # out by version heading; if there is no entry, the generated notes
+          # are still better than nothing.
+          VERSION="${TAG#v}"
+          NOTES=""
+          if awk -v v="## $VERSION" '
+                index($0, v) == 1 { on = 1; next }
+                on && /^## / { exit }
+                on { print }
+              ' CHANGELOG.md > release-notes.md && [ -s release-notes.md ]; then
+            NOTES="--notes-file release-notes.md"
+            echo "notes from CHANGELOG.md:"; head -5 release-notes.md
+          else
+            NOTES="--generate-notes"
+            echo "no CHANGELOG entry for $VERSION; using generated notes"
+          fi
           # A release for this tag may already exist; make one only if it does
           # not, and never overwrite notes somebody has written by hand.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            try gh release create "$TAG" --title "$TAG" --generate-notes
+            # shellcheck disable=SC2086
+            try gh release create "$TAG" --title "$TAG" $NOTES
           fi
           try gh release upload "$TAG" installers/* --clobber

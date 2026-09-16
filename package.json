@@ -58,7 +58,7 @@
     "demo": "tsup --silent && ./demo/filesystem-demo.sh",
     "demo:memory": "tsup --silent && ./demo/memory-demo.sh",
     "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test",
-    "prepublishOnly": "tsup"
+    "prepublishOnly": "pnpm check"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

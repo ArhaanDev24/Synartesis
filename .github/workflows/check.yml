@@ -45,8 +45,23 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
 
+      # The desktop app, built but not packaged. Nothing here ran it before, so
+      # a broken renderer build or a bundle that reaches for a module it was
+      # not given was found at release time, on a tag, rather than on the pull
+      # request that caused it. app-packaging.test.ts checks that the three
+      # config files agree; this checks that the thing they describe compiles.
+      - run: pnpm app:build
+
       # The demo is the thing a stranger runs first, so it has to keep working.
       - run: ./demo/filesystem-demo.sh
+        env:
+          DEMO_PAUSE: 0
+          GATE_TIMEOUT: 2
+
+      # The other demo, which CONTRIBUTING says should keep working and which
+      # nothing was checking. It is the only thing in CI that exercises the
+      # memory adapter end to end outside the test suite.
+      - run: ./demo/memory-demo.sh
         env:
           DEMO_PAUSE: 0
           GATE_TIMEOUT: 2

@@ -385,11 +385,17 @@ pnpm test
 ```
 
 ```bash
-pnpm typecheck && pnpm lint
+pnpm check
 ```
 
-Every push runs those on Linux and macOS across Node 22 and 24, plus the demo
-and the installer.
+Every push runs that on Linux and macOS across Node 22 and 24, plus both demos,
+the installer, and a build of the desktop app.
+
+**Windows is built and not tested.** The release attaches a Windows installer,
+and no CI job compiles or exercises it — the test matrix is Linux and macOS. It
+is expected to work, the code has no platform-specific paths outside
+`src/locate.ts` and `src/install/clients.ts`, and nobody has proved it. If you
+run Windows and something is wrong there, that is worth an issue.
 
 ## Licence
 
