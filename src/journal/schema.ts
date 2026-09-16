@@ -123,4 +123,18 @@ CREATE INDEX IF NOT EXISTS actions_unresolved ON actions(run_id, server, tool)
 -- ordering it asks for, so the index both filters and sorts.
 CREATE INDEX IF NOT EXISTS actions_writes ON actions(run_id, seq)
   WHERE class <> 'readonly';
+
+-- Covering, like actions_run_status and for the same reason. status asks when
+-- each server was last used; without this the group-by walks the table, and
+-- the table carries the snapshots, so the cost of drawing a connection list
+-- grew with the size of the data those connections had touched rather than
+-- with how many there were. Both columns the query reads are here, so sqlite
+-- never reaches into a row -- the plan says COVERING INDEX, and it is the
+-- covering half that does the work. Measured on sixty thousand actions across
+-- twelve servers with two-kilobyte snapshots: 75ms to 3.5ms.
+--
+-- Added the same way as the ones above and for the same reason: no row
+-- changes, no meaning changes, IF NOT EXISTS makes it idempotent, and an older
+-- build opening the same file afterwards neither notices nor cares.
+CREATE INDEX IF NOT EXISTS actions_seen ON actions(server, ts);
 `;

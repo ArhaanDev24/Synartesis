@@ -27,6 +27,8 @@ const storeShape = z.looseObject({
 
 /** What --json promises to scripts, which this must not have changed. */
 const listShape = z.array(z.object({ id: z.string(), actions: z.number() }));
+const countShape = z.array(z.object({ id: z.string(), actionCount: z.number() }));
+const shownShape = z.object({ actionCount: z.number(), actions: z.array(z.unknown()) });
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -229,5 +231,23 @@ describe("telling one session from another", () => {
     // Full length, still: a script matching on an id must keep working.
     expect(parsed[0]?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
     expect(parsed[0]?.actions).toBe(1);
+  });
+
+  it("offers one name that means the same thing here and in show", async () => {
+    // `actions` is a count here and the array of actions in `show --json`.
+    // That cannot be renamed -- the shape above is a promise -- so the
+    // unambiguous name is added beside it, in both commands.
+    const journal = join(workspace(), "j.db");
+    await session(journal, call(2, "update_customer", { id: "c_001", notes: "one" }));
+
+    const listed = countShape.parse(JSON.parse((await run(["list", "--json", "--journal", journal])).stdout));
+    const id = listed[0]?.id ?? "";
+    expect(listed[0]?.actionCount).toBe(1);
+
+    const shown = shownShape.parse(
+      JSON.parse((await run(["show", id, "--json", "--journal", journal])).stdout),
+    );
+    expect(shown.actionCount).toBe(1);
+    expect(shown.actionCount).toBe(shown.actions.length);
   });
 });

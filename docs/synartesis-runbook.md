@@ -83,8 +83,9 @@ $ synartesis check
   servers  fs
            fs shapes read from the real server
            `live` means the policy has met its server, not that undo has been
-           round-tripped against it. Of the policies that ship, filesystem
-           and memory have been; git and github have not.
+           round-tripped against it. Whether it puts anything back is a
+           separate question, and only a test against the real server answers
+           it.
   policies 10 readonly, 2 reversible, 2 irreversible
   guarded  2
   pinned   fs (14)

@@ -67,7 +67,13 @@ import { openConsole } from "./console.js";
 import { cliCommand, proxyCommand } from "./invocation.js";
 import { ago, fullTime, shortTime } from "./clock.js";
 import { plainly, subject, summariseArgs } from "./describe.js";
-import { discover, type ConfigSite } from "./install/clients.js";
+import {
+  CLIENT_IDS,
+  discover,
+  isClientId,
+  type ClientId,
+  type ConfigSite,
+} from "./install/clients.js";
 import { needsConnecting, scan, stateOf } from "./install/connections.js";
 import { applyInstall, applyUninstall, invokerFor, planInstall } from "./install/install.js";
 import { findDesktop, whereToGetIt } from "./desktop.js";
@@ -156,7 +162,8 @@ Most commands end by naming the one thing worth doing next, worked out from
 what is actually in the journal rather than from what was typed. Set
 SYNARTESIS_NO_HINTS to turn that off; --json never carries it.
 
-Exit codes: 0 complete, 1 halted or partial, 2 bad usage or configuration.
+Exit codes: 0 did what was asked, 1 stopped or left something in place,
+            2 bad usage or configuration.
 `;
 
 class UsageError extends Error {
@@ -288,6 +295,32 @@ async function runPin(argv: readonly string[]): Promise<number> {
  * a policy into a client, rather than finding out from a client that will not
  * start.
  */
+/**
+ * `--client`, checked against the clients this actually knows.
+ *
+ * Unvalidated, a typo filtered every site away and install then reported "No
+ * MCP client config was found on this machine" -- a statement about the
+ * machine, when the fault was the word just typed. Uninstall was worse: it
+ * said "Nothing was covered, so nothing was changed", which reads as
+ * confirmation that there was nothing to undo. Everywhere else this CLI goes
+ * to real trouble over a typo; this was the one place it blamed the user's
+ * setup for the user's spelling.
+ */
+function namedClient(argv: readonly string[]): ClientId | undefined {
+  const typed = flag(argv, "--client");
+  if (typed === undefined) {
+    return undefined;
+  }
+  if (!isClientId(typed)) {
+    const near = didYouMean(typed, CLIENT_IDS);
+    throw new UsageError(
+      `--client ${typed} is not a client this knows${near === undefined ? "" : `; did you mean ${near}?`}` +
+        `\nIt knows: ${CLIENT_IDS.join(", ")}`,
+    );
+  }
+  return typed;
+}
+
 async function runCheck(argv: readonly string[]): Promise<number> {
   const path = findManifest(flag(argv, "--manifest"));
   const manifest = loadManifest(path);
@@ -425,7 +458,7 @@ async function runCheck(argv: readonly string[]): Promise<number> {
  */
 async function runInstall(argv: readonly string[]): Promise<number> {
   const manifestPath = findManifest(flag(argv, "--manifest"));
-  const only = flag(argv, "--client");
+  const only = namedClient(argv);
   const dryRun = argv.includes("--dry-run");
   const printOnly = argv.includes("--print");
 
@@ -521,7 +554,7 @@ async function runInstall(argv: readonly string[]): Promise<number> {
 
 async function runUninstall(argv: readonly string[]): Promise<number> {
   const manifestPath = findManifest(flag(argv, "--manifest"));
-  const only = flag(argv, "--client");
+  const only = namedClient(argv);
   const sites = discover(process.cwd()).filter(
     (site) => only === undefined || site.client === only,
   );
@@ -954,10 +987,27 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
   const tally = journal.tallyRuns();
   const counted = (id: string): RunTally =>
     tally.get(id) ?? { actions: 0, unknown: 0, waiting: 0, applied: 0 };
-  // Unchanged, and deliberately: this is what scripts read. The id stays full
-  // length and the action count stays where it was.
+  // The id stays full length: this is what scripts read, and the display's
+  // shortening is a display decision.
+  //
+  // `actions` here is a count; in `show --json` it is the array of actions.
+  // One name, two types, across the two commands a script uses together --
+  // which is a trap, but renaming it is not the way out: this shape is a
+  // stability promise with a test holding it, and quietly changing what a
+  // script already reads would be a worse fault than the one being fixed.
+  //
+  // So `actionCount` is added rather than swapped in, and `show --json` emits
+  // it too. A new script can use one name that means the same thing in both
+  // places; an old one keeps working.
   if (asJson) {
-    out(JSON.stringify(runs.map((run) => ({ ...run, actions: counted(run.id).actions }))));
+    out(
+      JSON.stringify(
+        runs.map((run) => {
+          const actions = counted(run.id).actions;
+          return { ...run, actions, actionCount: actions };
+        }),
+      ),
+    );
     return 0;
   }
   if (runs.length === 0) {
@@ -1040,6 +1090,9 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
       JSON.stringify({
         run,
         actions: journal.getActions(runId),
+        // The same name means the same thing in `list --json`, where `actions`
+        // has always been a count and cannot change.
+        actionCount: journal.getActions(runId).length,
         ...(inspection === undefined ? {} : { live: inspection.resources }),
       }),
     );
@@ -1681,7 +1734,13 @@ function report(result: RollbackReport, alreadyForcing = false, as = ""): number
       needs: ["manifest", "journal"],
     });
   }
-  return result.status === "rolled_back" ? 0 : 1;
+  // Not read off the status. `partial` is the right word for the run -- it was
+  // not fully reversed -- but a floor makes every --to undo partial by
+  // construction, so a command that did precisely what it was asked exited 1
+  // and no script could tell it from one that halted on somebody's edit. The
+  // question the exit code answers is whether anything stopped it, and that is
+  // exactly these two.
+  return result.halted === undefined && permanent.length === 0 ? 0 : 1;
 }
 
 /**
@@ -1891,6 +1950,14 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     process.stderr.write("synartesis: --yes only means anything with --force; ignoring it\n");
   }
 
+  const dryRun = argv.includes("--dry-run");
+
+  // A dry run writes nothing, so the two-step ask has nothing to protect: it
+  // exists so that overwriting somebody's work takes a second, deliberate
+  // command, and a preview overwrites nothing. Requiring --yes here meant the
+  // one way to find out what forcing would do was to force it.
+  const forcePlan = forcing && (said || dryRun);
+
   if (forcing && !said) {
     // Every conflict, not the first one. This was a dry-run rollback, which
     // halts -- so somebody could approve after seeing one diff and have three
@@ -1922,10 +1989,17 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
         }
       }
       out("");
-      out(`  ${style.quiet("nothing has been written. To go ahead and lose that:")}`);
-      out(`  ${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force --yes`)}`);
-      out("");
-      return 1;
+      // On a dry run this is half the answer and the plan below is the other
+      // half -- returning here gave somebody who asked what forcing would do
+      // the list of what they would lose and no plan at all, which is the one
+      // thing --dry-run exists to print. The command to do it for real is in
+      // the footer either way.
+      if (!dryRun) {
+        out(`  ${style.quiet("nothing has been written. To go ahead and lose that:")}`);
+        out(`  ${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force --yes`)}`);
+        out("");
+        return 1;
+      }
     }
     // Nothing would be written over, so there is nothing to be asked about.
   }
@@ -1933,16 +2007,19 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   const replan = argv.includes("--replan");
   return report(
     await performUndo(manifestPath, journal, runId, {
-      dryRun: argv.includes("--dry-run"),
+      dryRun,
       ...(toSeq === undefined ? {} : { toSeq }),
       replan,
-      ...(forcing && said ? { force: true } : {}),
+      ...(forcePlan ? { force: true } : {}),
     }),
     forcing,
     // --to is deliberately absent, and cannot reach here: a floor leaves
     // actions below it alone, which makes the result `partial`, and the hint
     // is only offered on `rolled_back`.
-    `${replan ? " --replan" : ""}${forcing && said ? " --force --yes" : ""}`,
+    // forcePlan, not `forcing && said`: on a dry run the command that does
+    // this for real is the forced one, and offering it without --force would
+    // hand back something that halts on the drift the preview just showed.
+    `${replan ? " --replan" : ""}${forcePlan ? " --force --yes" : ""}`,
   );
 }
 

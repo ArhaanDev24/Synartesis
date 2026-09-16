@@ -58,6 +58,15 @@ export function labelFor(client: ClientId): string {
   return LABELS[client];
 }
 
+/** Every client this knows how to find, for validating what somebody typed. */
+export const CLIENT_IDS: readonly ClientId[] = Object.keys(LABELS).filter(
+  (name): name is ClientId => name in LABELS,
+);
+
+export function isClientId(value: string): value is ClientId {
+  return CLIENT_IDS.some((known) => known === value);
+}
+
 /** Claude Desktop's config, which is the one place that differs per platform. */
 function claudeDesktopPath(): string {
   const home = homedir();

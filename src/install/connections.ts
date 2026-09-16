@@ -40,17 +40,13 @@ export interface ClientGroup {
 /** Anything through this server within the window counts as active now. */
 const ACTIVE_WITHIN_MS = 2 * 60 * 1000;
 
-function lastSeenByServer(journal: Journal): Map<string, string> {
-  const seen = new Map<string, string>();
-  // Enough history to answer "when did this last do anything" for every server
-  // somebody has, without reading a journal that may be very large.
-  for (const action of journal.recentActions(500)) {
-    const known = seen.get(action.server);
-    if (known === undefined || action.ts > known) {
-      seen.set(action.server, action.ts);
-    }
-  }
-  return seen;
+function lastSeenByServer(journal: Journal): ReadonlyMap<string, string> {
+  // Every action, not the newest five hundred. A window answers "when did this
+  // last do anything" only for servers used recently; for one whose last use
+  // had scrolled out of it, the answer came back empty and stateOf read that
+  // as "covered, nothing through it yet" -- a different claim, and a
+  // reassuring one, about a server somebody may use every day.
+  return journal.lastSeenPerServer();
 }
 
 /** An absolute command that is not there; a bare name is left to PATH. */

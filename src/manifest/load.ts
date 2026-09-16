@@ -247,6 +247,19 @@ function validate(source: Source, manifest: Manifest): void {
       }
       checkCall(source, [...path, "inverse"], policy.inverse, servers, allowed);
     }
+    // Checked like the other two, and for a sharper reason. A mistyped
+    // snapshot or inverse fails loudly at the moment it is needed; a mistyped
+    // verify is caught by the proxy, turned into "the drift check could not be
+    // planned" on the action, and stepped over -- so the policy loads, check
+    // passes, and the tool silently has no drift detection at all. It resolves
+    // after the call with the same context the inverse gets.
+    if (policy.verify !== undefined) {
+      const allowed = ["$.", "$result."];
+      if (policy.snapshot !== undefined) {
+        allowed.push("$snapshot.");
+      }
+      checkCall(source, [...path, "verify"], policy.verify, servers, allowed);
+    }
   });
 }
 

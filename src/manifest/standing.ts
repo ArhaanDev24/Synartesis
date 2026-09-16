@@ -55,11 +55,17 @@ export function describeStanding(entry: Standing): string {
  * nothing anyway. So the line above says what was actually checked, and this
  * says plainly what was not -- once, under the list, rather than repeated
  * against every server.
+ *
+ * It named the shipped policies at first, which was true and in the wrong
+ * place: this prints for whatever manifest is loaded, so somebody checking a
+ * policy they wrote themselves was told which of Synartesis's four files had
+ * been round-tripped. Which those are belongs in the documentation, where it
+ * is about Synartesis; here the sentence has to be about the file in hand.
  */
 export const LIVE_IS_NOT_RECOVERY =
   "`live` means the policy has met its server, not that undo has been " +
-  "round-tripped against it. Of the policies that ship, filesystem and memory " +
-  "have been; git and github have not.";
+  "round-tripped against it. Whether it puts anything back is a separate " +
+  "question, and only a test against the real server answers it.";
 
 /**
  * What to say when a policy that has never met its server is about to be

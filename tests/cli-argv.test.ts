@@ -231,6 +231,108 @@ describe("a run stopped by drift is not a run that is finished", () => {
     expect(forced.stdout).not.toContain("already been undone");
     expect(forced.stdout).toContain("--force --yes");
   });
+
+  it("still shows the plan when a forced undo is only a dry run", async () => {
+    const dir = workspace();
+    const journal = join(dir, "j.db");
+    const state = join(dir, "crm.json");
+    const manifest = join(dir, "synartesis.yaml");
+    writeFileSync(
+      manifest,
+      readFileSync(POLICY, "utf8").replace(
+        'args: ["dist/toy-crm.js"]',
+        `args: ["${resolve("dist/toy-crm.js")}", "--state", "${state}"]`,
+      ),
+    );
+    await run(
+      ["proxy", "--manifest", manifest, "--journal", journal],
+      `${HELLO}\n${call(2, "update_customer", { id: "c_001", notes: "by the agent" })}\n`,
+    );
+    const held = storeShape.parse(JSON.parse(readFileSync(state, "utf8")));
+    const record = held.customers["c_001"];
+    if (record === undefined) {
+      throw new Error("the fixture no longer has c_001");
+    }
+    record.notes = "by a person";
+    writeFileSync(state, JSON.stringify(held));
+    const edited = readFileSync(state, "utf8");
+
+    // --dry-run --force asks one question: if I forced this, what would
+    // happen? It answered half of it -- the overwrite list -- and returned
+    // before the plan, so the flag that exists to show you the plan showed
+    // you no plan.
+    const dry = await run([
+      "undo", "--dry-run", "--force", "--manifest", manifest, "--journal", journal,
+    ]);
+    expect(dry.stdout).toContain("would write over");
+    expect(dry.stdout).toContain("D R Y   R U N");
+    expect(dry.stdout).toContain("revert");
+    // And the whole point of the flag.
+    expect(readFileSync(state, "utf8")).toBe(edited);
+  });
+});
+
+describe("undoing down to a floor", () => {
+  it("reports success when it did exactly what was asked", async () => {
+    const dir = workspace();
+    const journal = join(dir, "j.db");
+    const state = join(dir, "crm.json");
+    const manifest = join(dir, "synartesis.yaml");
+    writeFileSync(
+      manifest,
+      readFileSync(POLICY, "utf8").replace(
+        'args: ["dist/toy-crm.js"]',
+        `args: ["${resolve("dist/toy-crm.js")}", "--state", "${state}"]`,
+      ),
+    );
+    await run(
+      ["proxy", "--manifest", manifest, "--journal", journal],
+      `${HELLO}\n${call(2, "update_customer", { id: "c_001", notes: "first" })}\n` +
+        `${call(3, "update_customer", { id: "c_002", notes: "second" })}\n`,
+    );
+
+    // Undo the newest only. Nothing halts, nothing is permanent, and the one
+    // action below the floor is left alone because that is what --to means.
+    const undone = await run(["undo", "--to", "2", "--manifest", manifest, "--journal", journal]);
+    expect(undone.stdout).toContain("left alone");
+    // A floor makes the run `partial` by construction -- correctly, the run is
+    // not fully reversed -- and the exit code was read straight off that. So a
+    // --to undo that did precisely what it was told could not be told apart
+    // from one that halted on somebody's edit.
+    expect(undone.code).toBe(0);
+
+    const left = storeShape.parse(JSON.parse(readFileSync(state, "utf8")));
+    expect(left.customers["c_001"]?.notes).toBe("first");
+    expect(left.customers["c_002"]?.notes).not.toBe("second");
+  });
+});
+
+describe("a client name that is not one", () => {
+  it("blames the word, not the machine", async () => {
+    // Unvalidated, this filtered every site away and install reported "No MCP
+    // client config was found on this machine" -- which is about the machine,
+    // when the fault is the word. Uninstall said "Nothing was covered, so
+    // nothing was changed", which reads as confirmation.
+    const said = await run(["install", "--client", "cursur"]);
+    expect(said.code).toBe(2);
+    expect(said.stderr).toContain("cursur");
+    expect(said.stderr).toContain("did you mean cursor");
+    expect(said.stdout).not.toContain("was found on this machine");
+  });
+
+  it("refuses it on uninstall too, where the wrong answer reads as reassurance", async () => {
+    const said = await run(["uninstall", "--client", "clod-code"]);
+    expect(said.code).toBe(2);
+    expect(said.stderr).toContain("clod-code");
+    expect(said.stdout).not.toContain("nothing was changed");
+  });
+
+  it("still takes the four it knows", async () => {
+    for (const known of ["claude-code", "claude-desktop", "cursor", "codex"]) {
+      const said = await run(["install", "--client", known, "--print"]);
+      expect(said.stderr).not.toContain("is not a client this knows");
+    }
+  });
 });
 
 describe("refusing a flag before acting on the session", () => {

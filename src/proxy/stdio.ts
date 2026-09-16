@@ -232,7 +232,6 @@ async function main(): Promise<void> {
       upstreams,
       manifest,
       journal,
-      gateTimeoutMs: argv.gateTimeoutMs,
       logger: log,
       // Absolute, because whoever approves may be in any directory at all.
       approveHint: (actionId: string): string =>

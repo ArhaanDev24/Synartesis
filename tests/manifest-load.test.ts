@@ -51,6 +51,79 @@ function expectRejection(source: string): ManifestError {
   return thrown;
 }
 
+/**
+ * A `verify:` read that names something that does not exist.
+ *
+ * Every other call in a policy is checked against the servers at load time,
+ * because a mistyped tool name is indistinguishable at run time from the
+ * resource simply not being there. `verify` was left out of that check, and it
+ * is the one call whose failure is silent: the proxy catches it, appends "the
+ * drift check could not be planned" to the action, and carries on -- so the
+ * policy still loads, `synartesis check` still passes, and drift detection for
+ * that tool quietly does not exist.
+ */
+const VERIFY = (block: string): string => `
+version: 1
+servers:
+  crm:
+    command: node
+    args: ["dist/toy-crm.js"]
+tools:
+  - match: "crm.create_customer"
+    class: compensable
+    inverse:
+      tool: "crm.delete_customer"
+      args:
+        id: "$result.id"
+${block}
+`;
+
+describe("a verify read that names nothing real", () => {
+  it("is refused when its server is not declared", () => {
+    const thrown = expectRejection(
+      VERIFY(`    verify:
+      tool: "billing.get_customer"
+      args:
+        id: "$result.id"`),
+    );
+    expect(thrown.message).toContain("billing");
+  });
+
+  it("is refused when the tool is not qualified by a server", () => {
+    const thrown = expectRejection(
+      VERIFY(`    verify:
+      tool: "get_customer"
+      args:
+        id: "$result.id"`),
+    );
+    expect(thrown.message.length).toBeGreaterThan(0);
+  });
+
+  it("is refused when it reads a namespace it cannot be given", () => {
+    // A compensable tool declares no snapshot, so $snapshot. resolves to
+    // nothing here however well-formed it looks.
+    const thrown = expectRejection(
+      VERIFY(`    verify:
+      tool: "crm.get_customer"
+      args:
+        id: "$snapshot.id"`),
+    );
+    expect(thrown.message).toContain("$snapshot");
+  });
+
+  it("accepts one that names a declared server and a readable namespace", () => {
+    expect(() =>
+      parseManifest(
+        VERIFY(`    verify:
+      tool: "crm.get_customer"
+      args:
+        id: "$result.id"`),
+        "manifest.yaml",
+      ),
+    ).not.toThrow();
+  });
+});
+
 describe("manifest loading", () => {
   it("parses a well-formed manifest", () => {
     const manifest = parseManifest(VALID, "manifest.yaml");

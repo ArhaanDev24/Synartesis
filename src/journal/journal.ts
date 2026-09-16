@@ -115,6 +115,8 @@ const runSchema = z.object({
   status: z.enum(["active", "complete", "rolled_back", "partial"]),
 });
 
+const seenSchema = z.object({ server: z.string(), ts: z.string() });
+
 /** SUM() over an empty group is null, and COUNT() is always a number. */
 const tallySchema = z.object({
   run_id: z.string(),
@@ -316,6 +318,8 @@ export interface Journal {
   lastWrite(runId: string): ActionRow | undefined;
   /** The newest actions across every run, for watching work as it happens. */
   recentActions(limit: number): readonly ActionRow[];
+  /** The newest timestamp per server, over the whole journal. */
+  lastSeenPerServer(): ReadonlyMap<string, string>;
   /**
    * Runs old enough to discard and finished enough that discarding one loses
    * nothing anybody can still act on. Everything still in play is excluded
@@ -1048,6 +1052,36 @@ class SqliteJournal implements Journal {
         )
         .get(runId);
       return raw === undefined ? undefined : toAction(raw);
+    });
+  }
+
+  /**
+   * When each server was last used, over everything, not over a window.
+   *
+   * This was a scan of the newest five hundred actions, which answers a
+   * different question: on a busy journal a server whose last use had fallen
+   * out of that window came back as never used at all, and `status` reported
+   * "covered, nothing through it yet" about a server somebody uses daily.
+   * Wrong, and reassuringly so -- it reads as though the connection were
+   * merely new.
+   *
+   * Exact instead, and answered entirely from actions_seen: the query reads
+   * only the two columns that index holds, so it never touches the rows
+   * carrying snapshots.
+   */
+  lastSeenPerServer(): ReadonlyMap<string, string> {
+    return this.#run("lastSeenPerServer", () => {
+      const rows = this.#db
+        .prepare("SELECT server, MAX(ts) AS ts FROM actions GROUP BY server")
+        .all();
+      const seen = new Map<string, string>();
+      for (const row of rows) {
+        const read = seenSchema.safeParse(row);
+        if (read.success) {
+          seen.set(read.data.server, read.data.ts);
+        }
+      }
+      return seen;
     });
   }
 

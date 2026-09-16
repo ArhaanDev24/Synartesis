@@ -177,17 +177,6 @@ export function isDisconnected(error: unknown): boolean {
   return message.includes("Not connected") || message.includes("Connection closed");
 }
 
-/**
- * Whether the call may already have arrived. The sdk says "Not connected" when
- * there was no transport to write to, which means it was never sent; it says
- * "Connection closed" when the transport went while a reply was still owed,
- * which says nothing at all about whether the far end acted on it.
- */
-export function mayHaveArrived(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes("Connection closed");
-}
-
 export async function runRead(
   router: Router,
   read: ResolvedRead,

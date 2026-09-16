@@ -32,7 +32,7 @@ import {
   type PolicyResolver,
 } from "../manifest/match.js";
 import { withIdempotencyKey } from "../idempotency.js";
-import { qualify, type Manifest } from "../manifest/types.js";
+import { qualify, type Manifest, type ToolPolicy } from "../manifest/types.js";
 import { createRouter, type Router } from "./routing.js";
 import {
   observeState,
@@ -53,7 +53,6 @@ export interface ProxyOptions {
   readonly journal: Journal;
   /** Defaults to out-of-band approval through the journal. */
   readonly gate?: Gate;
-  readonly gateTimeoutMs?: number;
   readonly logger?: Logger;
   /** Builds the exact command a person here would run to approve an action. */
   readonly approveHint?: ApproveHint;
@@ -308,6 +307,37 @@ function compatible(
     return tool;
   }
   return { ...tool, outputSchema: withoutDialect(tool["outputSchema"], seen) };
+}
+
+/**
+ * The inverse for a write that landed while its answer was lost.
+ *
+ * Separate because it is the only part of that path a test can reach: the
+ * branch it belongs to needs a transport that dies for one request while
+ * staying alive for the read-back that proves the write landed, which nothing
+ * in-process can arrange. It is also the part most likely to fail, and for a
+ * reason worth saying out loud -- an inverse resolved from `$result.` cannot
+ * be built when the result is exactly what went missing.
+ *
+ * Returns the reason rather than swallowing it. The identical failure on the
+ * ordinary path is recorded as a warning; this one was caught bare, so undo
+ * reported "cannot be undone" and never said why.
+ */
+export function recoverInverse(
+  policy: ToolPolicy,
+  captured: { readonly args: unknown; readonly snapshot: unknown },
+  noPriorState: boolean,
+): { inverse?: unknown; warning?: string } {
+  if (policy.inverse === undefined || noPriorState) {
+    return {};
+  }
+  try {
+    return { inverse: planInverse(policy.inverse, { ...captured, result: undefined }) };
+  } catch (error: unknown) {
+    return {
+      warning: `and its inverse could not be resolved without that answer: ${describe(error)}`,
+    };
+  }
 }
 
 export function createProxyServer(options: ProxyOptions): ProxyServer {
@@ -984,20 +1014,25 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
               journal.markUnknown(pending.actionId, describe(error));
             } else {
               // It landed and the answer was lost. That is a recoverable
-              // change, and the inverse for it was resolvable all along.
-              let recovered: unknown;
-              if (policy.inverse !== undefined && missingPriorState === undefined) {
-                try {
-                  recovered = planInverse(policy.inverse, { args, snapshot, result: undefined });
-                } catch {
-                  recovered = undefined;
-                }
-              }
+              // change, and the inverse for it may still be resolvable -- or
+              // may not, because the answer is exactly what an inverse reading
+              // $result. needed. Either way the reason is recorded: this used
+              // to swallow the failure whole and leave "done, cannot undo"
+              // with nothing to say why, on the one path where undo matters
+              // most.
+              const recovered = recoverInverse(
+                policy,
+                { args, snapshot },
+                missingPriorState !== undefined,
+              );
               journal.markApplied(pending.actionId, {
                 result: undefined,
-                ...(recovered === undefined ? {} : { inverse: recovered }),
+                ...(recovered.inverse === undefined ? {} : { inverse: recovered.inverse }),
                 ...(verify === undefined ? {} : { verify }),
-                warning: `the call applied but its answer never arrived: ${describe(error)}`,
+                warning: [
+                  `the call applied but its answer never arrived: ${describe(error)}`,
+                  ...(recovered.warning === undefined ? [] : [recovered.warning]),
+                ].join("; "),
               });
             }
           }

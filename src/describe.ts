@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 
-import type { ActionRow } from "./journal/journal.js";
+import { labelFor, type ActionRow } from "./journal/journal.js";
 
 /**
  * Saying what happened, in the words someone would use.
@@ -78,7 +78,15 @@ export function plainly(action: ActionRow): Plain {
     case "rolling_back":
       return { text: "undoing", needs: false };
     case "denied":
-      return { text: "refused", needs: false };
+      // Through labelFor, never off the raw status. A row retired because its
+      // approval moved onto the call that actually ran is stored as `denied`
+      // and is not a refusal -- and this function is what watch and the
+      // console render, so reading the status directly told a person their
+      // own yes had been a no, on the screen they were watching when they
+      // gave it.
+      return labelFor(action) === "used"
+        ? { text: "used", needs: false }
+        : { text: "refused", needs: false };
     case "failed":
       return { text: "failed", needs: false };
     case "approved":
@@ -98,10 +106,6 @@ export function plainly(action: ActionRow): Plain {
   }
 }
 
-/** `sim.edit_file` is two facts; the tool is the one that varies down a list. */
-export function toolOnly(action: ActionRow): string {
-  return action.tool;
-}
 
 /** Bytes as a person says them. */
 function size(bytes: number): string {

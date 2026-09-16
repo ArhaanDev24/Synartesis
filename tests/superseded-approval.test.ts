@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { labelFor, openJournal, type ActionRow, type Journal } from "../src/journal/journal.js";
+import { plainly } from "../src/describe.js";
 
 const dirs: string[] = [];
 let journal: Journal | undefined;
@@ -72,6 +73,18 @@ describe("a row whose approval moved to the call that ran", () => {
     const { row } = supersededRow();
     expect(labelFor(row)).toBe("used");
     expect(labelFor(row)).not.toBe("denied");
+  });
+
+  it("is not called a refusal by the live views either", () => {
+    // labelFor was added for this, and list and show were taught to use it.
+    // plainly was not -- and plainly is what watch and the console render, so
+    // the two screens a person actually has open while an agent works were
+    // still telling them their own approval had been a refusal, moments after
+    // they gave it. The fix was applied everywhere except the places it was
+    // written for.
+    const { row } = supersededRow();
+    expect(plainly(row).text).toBe("used");
+    expect(plainly(row).text).not.toBe("refused");
   });
 
   it("keeps saying denied for a call somebody actually refused", () => {
