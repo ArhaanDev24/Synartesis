@@ -2,6 +2,21 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.23 — 2026-09-16
+
+### Docs
+
+- **What to do with a tool that does two things at once.** A call that both
+  writes something recoverable and does something that is not -- saves a file
+  and posts to an API, updates a record and sends the email about it -- takes
+  the class of its least recoverable part, because a rule matches a tool name
+  and gives it one class. The guide now says so, says why the alternative is
+  worse (undo puts the file back, reports `rolled_back`, and says nothing about
+  the request still out there), points at `move_file` as the shipped example of
+  the same shape, and shows the one way out: a `compensable` rule whose inverse
+  neutralises the unrecoverable half. Asked often enough to be worth writing
+  down rather than answering again.
+
 ## 0.6.22 — 2026-09-16
 
 ### Added

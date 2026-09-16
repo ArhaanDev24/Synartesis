@@ -640,6 +640,45 @@ to lose, do not rely on this to get it back yet.
 use it, run `synartesis check` against your own token and expect to correct
 something.
 
+## A tool that does two things at once
+
+Sooner or later you will meet a tool that both writes something you could put
+back and does something you could not — saves a file *and* posts to an API,
+updates a record *and* sends the email about it.
+
+A rule matches a tool name and gives it one class. There is no way to say "the
+write is reversible, the request is not", so a call like that takes the class
+of its **least** recoverable part: `irreversible`, gated, held for a person
+before it goes out. That is not a limitation worked around; it is the only
+honest answer. The alternative is undo putting the file back, reporting
+`rolled_back`, and saying nothing about the request that is still out there —
+and a confident wrong undo is worse than no undo at all.
+
+The shipped filesystem policy already has one. `move_file` is reversible or not
+depending on whether the destination existed, and no pre-read tells the two
+apart: a snapshot that finds nothing is how a policy spells "cannot be undone",
+which is backwards here, because finding nothing is the *safe* case. So it is
+`irreversible` with `gate: always`.
+
+**The one way out is `compensable`.** If the unrecoverable half has something
+that neutralises it — a retraction for the email, a refund for the charge —
+name that as the inverse and the whole call becomes recoverable:
+
+```yaml
+- match: "billing.charge_and_notify"
+  class: compensable
+  inverse:
+    tool: "billing.refund"
+    args: { chargeId: "$result.chargeId" }
+```
+
+You still cannot split the call. You get one compensating action for the whole
+of it, and it has to be enough on its own.
+
+If neither fits, the honest reading is that the *tool* is doing too much, and a
+policy cannot unbundle what a server bundled. Gate it and let a person decide,
+which is what Synartesis does when you say nothing at all.
+
 ## Checking something the agent created
 
 An action whose undo is a *compensating* call — a create undone by a delete —
