@@ -27,8 +27,8 @@ import { createLogger, isLogLevel, LOG_LEVELS, type LogLevel } from "../logging.
 import { mark } from "../style.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
-import { verifyAgainstServers } from "../manifest/verify.js";
-import { untested, warnUntested } from "../manifest/standing.js";
+import { toolShapes, verifyAgainstServers } from "../manifest/verify.js";
+import { ungoverned, untested, warnUntested } from "../manifest/standing.js";
 import { createProxyServer } from "./proxy.js";
 import { connectStdioUpstream, type Upstream } from "./upstream.js";
 
@@ -197,12 +197,32 @@ async function main(): Promise<void> {
         },
   );
 
+  // Named at startup for the same reason `check` names them: these are the
+  // calls that will stop and wait for a person, and the operator reading this
+  // line is the one who can write a policy before that happens rather than
+  // after. Warn, not info: it is the only thing here that predicts an
+  // interruption.
+  const uncovered = ungoverned(
+    manifest,
+    new Map(await Promise.all(upstreams.map(async (upstream) => [
+      upstream.name,
+      (await toolShapes(upstream)).map((tool) => tool.name),
+    ] as const))),
+  );
+  for (const entry of uncovered) {
+    log.warn(
+      { server: entry.server, tools: entry.tools },
+      "no policy covers these tools; they will be held for approval when called",
+    );
+  }
+
   log.info(
     {
       manifest: argv.manifest,
       journal: argv.journal,
       servers: upstreams.map((upstream) => upstream.name),
       policies: manifest.tools.length,
+      ungoverned: uncovered.reduce((sum, entry) => sum + entry.tools.length, 0),
     },
     "proxy ready",
   );

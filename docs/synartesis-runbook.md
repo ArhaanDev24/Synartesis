@@ -81,15 +81,27 @@ after every edit. It writes nothing and touches no journal.
 $ synartesis check
 
   servers  fs
-           fs checked against the real server
+           fs shapes read from the real server
+           `live` means the policy has met its server, not that undo has been
+           round-tripped against it. Of the policies that ship, only
+           filesystem has.
   policies 10 readonly, 2 reversible, 2 irreversible
   guarded  2
   pinned   fs (14)
+
+  Every tool these servers offer has a policy.
 ```
 
-*"checked against the real server"* is the policy's own claim about how far it has been tested.
-The four policies that ship all say `live` except `github`, which says it has never met a real
-account — and `check` tells you so before it connects.
+*"shapes read from the real server"* is the policy's own claim about how far it has been tested,
+and it is a narrow one: the tools exist and take the arguments the policy passes them. Whether
+undo actually puts anything back is a separate question, which is why `check` says so underneath
+rather than letting `live` stand for both. The four shipped policies all say `live` except
+`github`, which says it has never met a real account.
+
+The last line is the one to read before you hand a server to an agent. A tool no policy mentions
+is treated as irreversible and held for a person the first time it is called — safe, but it
+stops the agent mid-task. `check` names them here so you can write a policy first; the proxy
+also warns at startup.
 
 **What it proves.** The policy and the server agree today. A mistyped tool name in a snapshot is
 otherwise indistinguishable at run time from a file that is not there.

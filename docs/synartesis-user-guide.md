@@ -143,14 +143,37 @@ synartesis check
   P O L I C Y  /Users/you/.synartesis/synartesis.yaml
 
   servers  files
+           files shapes read from the real server
   policies 10 readonly, 2 reversible, 2 irreversible
   guarded  2
 
-  Anything not mentioned here is treated as irreversible and guarded.
+  Every tool these servers offer has a policy.
 ```
 
 `check` confirms the policy names tools that actually exist. Run it after any
 edit. It is faster than finding out from a failed call.
+
+The last line is the one to read before you point an agent at a server. A tool
+that no policy mentions is treated as irreversible and **held for a person**
+the first time it is called. That is the safe end of the trade — a server that
+gains a tool in an update does not quietly get a free pass — but it stops your
+agent mid-task on a call you were not expecting. So `check` names them. Here is
+the same policy with the rules for two tools taken out:
+
+```
+  policies 10 readonly, 2 reversible
+  guarded  0
+
+  guarded by default 2 tools here have no policy, so they are treated as
+  irreversible and held for a person the first time an agent calls
+  one. Write a policy for any you would rather it got on with.
+
+  fs       create_directory, move_file
+```
+
+The proxy says the same thing at startup, so a server that grows a tool while
+you are not looking still tells you. With the policy as it ships you will see
+neither: it covers every tool the filesystem server offers.
 
 ## The four classes
 
@@ -595,7 +618,19 @@ Leaving it out says nothing either way, which is fine — Synartesis will not
 guess. If you do say `documented`, `synartesis check` and the proxy will remind
 you, every start, that undo on that server has never actually been tried.
 
-Of the four policies that ship, `filesystem`, `git` and `memory` say `live`.
+`live` is a narrower claim than it sounds, and worth being exact about: it says
+the policy has met its server and the tools take the arguments it passes them.
+It does **not** say undo has been tried. A policy can be right about every tool
+name and every argument and still record an inverse that restores nothing, and
+that failure only shows up at the moment somebody needs it.
+
+Of the four policies that ship, `filesystem`, `git` and `memory` say `live` —
+but only **filesystem** has been round-tripped end to end: byte-for-byte
+restoration, drift refusal, and absence told apart from a read that failed.
+`memory` and `git` are checked for tool existence and nothing further, so
+treat undo on them as untested. If your agent writes something to one of them
+that you cannot afford to lose, do not rely on this to get it back yet.
+
 `github` says `documented`: it has never been run against a real account. If you
 use it, run `synartesis check` against your own token and expect to correct
 something.

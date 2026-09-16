@@ -33,7 +33,14 @@ import {
 } from "./journal/journal.js";
 import { verifyAgainstServers, toolShapes } from "./manifest/verify.js";
 import { pinBlock, type ToolShape } from "./manifest/pin.js";
-import { describeStanding, standing, untested, warnUntested } from "./manifest/standing.js";
+import {
+  describeStanding,
+  LIVE_IS_NOT_RECOVERY,
+  standing,
+  ungoverned,
+  untested,
+  warnUntested,
+} from "./manifest/standing.js";
 import { createRouter, type Router } from "./proxy/routing.js";
 import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { PROXY_FLAGS } from "./proxy/flags.js";
@@ -298,6 +305,10 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   }
 
   const upstreams: Upstream[] = [];
+  // Every tool each server offers, kept rather than discarded. verify reads
+  // the same list to check the policies against the servers; reading it twice
+  // would mean two round trips for one answer.
+  const offered = new Map<string, readonly string[]>();
   try {
     for (const [name, spec] of Object.entries(manifest.servers)) {
       upstreams.push(
@@ -311,6 +322,9 @@ async function runCheck(argv: readonly string[]): Promise<number> {
       );
     }
     await verifyAgainstServers(upstreams, manifest);
+    for (const upstream of upstreams) {
+      offered.set(upstream.name, (await toolShapes(upstream)).map((tool) => tool.name));
+    }
   } finally {
     for (const upstream of upstreams) {
       await upstream.close();
@@ -336,6 +350,13 @@ async function runCheck(argv: readonly string[]): Promise<number> {
       }`,
     );
   }
+  // Once, under the servers, where somebody reading a `live` next to their own
+  // server is deciding how much that word is worth.
+  if (standing(manifest).some((entry) => entry.provenance === "live")) {
+    for (const line of wrapped(LIVE_IS_NOT_RECOVERY, 66)) {
+      out(`  ${style.quiet("        ")} ${style.quiet(line)}`);
+    }
+  }
   out(`  ${style.quiet("policies")} ${[...counts].map(([k, v]) => `${String(v)} ${k}`).join(", ")}`);
   out(`  ${style.quiet("guarded ")} ${style.accent(String(gated))}`);
 
@@ -354,7 +375,29 @@ async function runCheck(argv: readonly string[]): Promise<number> {
     }`,
   );
   out("");
-  out(`  ${style.quiet("Anything not mentioned here is treated as irreversible and guarded.")}`);
+  // Named, not summarised. "Anything not mentioned here is guarded" was true
+  // and unusable: it described a rule while the list it applied to sat one
+  // round trip away, so the way to find out which tools it meant was to watch
+  // an agent stop on one.
+  const uncovered = ungoverned(manifest, offered);
+  if (uncovered.length === 0) {
+    out(`  ${style.quiet("Every tool these servers offer has a policy.")}`);
+  } else {
+    const total = uncovered.reduce((sum, entry) => sum + entry.tools.length, 0);
+    out(
+      `  ${style.accent("guarded by default")} ${style.quiet(
+        `${String(total)} tool${total === 1 ? "" : "s"} here ${total === 1 ? "has" : "have"} no policy, so ${total === 1 ? "it is" : "they are"} treated as`,
+      )}`,
+    );
+    out(`  ${style.quiet("irreversible and held for a person the first time an agent calls")}`);
+    out(`  ${style.quiet(`${total === 1 ? "it" : "one"}. Write a policy for any you would rather it got on with.`)}`);
+    out("");
+    for (const entry of uncovered) {
+      for (const line of wrapped(entry.tools.join(", "), 60)) {
+        out(`  ${style.quiet(entry.server.padEnd(8))} ${style.strong(line)}`);
+      }
+    }
+  }
   out("");
   // A policy that loads is not a policy anything is running through yet, and
   // the gap between those two is where somebody stalls: check says everything

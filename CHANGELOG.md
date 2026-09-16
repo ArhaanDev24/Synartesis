@@ -2,6 +2,45 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.6.21 — 2026-09-16
+
+### Fixed
+
+- **`live` claimed more than it meant, and the docs contradicted each other
+  about it.** `provenance: live` says a policy has met its server and that the
+  tools take the arguments it passes them. `check` printed that as "checked
+  against the real server", which reads as a claim that undo works -- and it is
+  not one: a policy can be right about every tool name and still record an
+  inverse that restores nothing. Meanwhile the README said memory's recovery
+  guarantees were unproven while the user guide listed memory among the
+  policies that say `live`, so a reader who saw one came away with the opposite
+  of what the other meant. `check` now says "shapes read from the real server"
+  and adds, once under the server list, that `live` is not a recovery claim and
+  that only filesystem has been round-tripped. README and both guides say the
+  same thing.
+
+### Added
+
+- **`check` names the tools no policy covers, instead of describing the rule.**
+  An unmatched tool has always been fail-closed -- irreversible, held for a
+  person the first time it is called -- and `check` said so as a sentence about
+  tools in general while the actual list sat one round trip away. It already
+  connects to every server and reads the whole tool list to verify the
+  policies, so the answer was in hand and thrown away, and the first anybody
+  learned a tool was ungoverned was an agent stopping on it mid-task. Now
+  named, per server, with a count. The proxy warns at startup for the same
+  reason, and `proxy ready` carries an `ungoverned` count so a policy with no
+  gaps and a build that forgot to look do not read alike.
+
+  For what almost everybody runs, the answer is none: the shipped filesystem
+  policy covers every tool that server offers, and there is a test that will
+  fail if that stops being true.
+
+- The build targeted `node20` while the package requires `>=22`, which is the
+  floor better-sqlite3 sets -- on Node 20 it segfaults the moment a database
+  opens. Targeting lower was harmless but said the wrong thing about what this
+  supports, in the one place a reader could check. Now `node22`.
+
 ## 0.6.20 — 2026-09-15
 
 ### Fixed

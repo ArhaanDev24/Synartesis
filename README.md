@@ -338,6 +338,19 @@ byte-for-byte restoration, drift refusal, and absence told apart from a read
 that failed. The **memory, git and github** policies are checked only for tool
 existence — their recovery guarantees are not yet proven.
 
+Three of those four declare `provenance: live`, and that word is narrower than
+it looks: it says the policy has met its server and the tools take the
+arguments it passes them, not that undo has been round-tripped. Only filesystem
+has. `synartesis check` says so under the server list rather than leaving
+`live` to stand for both.
+
+**A tool no policy mentions is irreversible and held for a person** the first
+time it is called. That is the safe end of the trade, and it means a server
+that gains a tool in an update does not quietly get a free pass — but it also
+means an agent stopping mid-task on a call nobody expected. `synartesis check`
+names every such tool, and the proxy warns about them at startup, so you can
+write a policy before meeting one rather than after.
+
 ## Trust
 
 A manifest names commands and Synartesis runs them. Treat one you did not write
