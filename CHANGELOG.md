@@ -2,6 +2,96 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.7.0 — 2026-09-16
+
+A pass over everything, after an audit of the desktop app, the core and the
+release. Most of what it found was not broken code but things that stated
+something untrue.
+
+### Fixed
+
+- **Every desktop binary since 0.6.12 carried the wrong version.**
+  electron-builder reads the version from `app/package.json`, which nothing
+  else reads, so it stayed put while the root moved. The nine installers
+  attached to v0.6.23 were all named `0.6.12`, byte-identical in name to the
+  ones on v0.6.12 — two people on different releases could not tell their
+  builds apart. `app-packaging.test.ts` already checked seven agreements
+  between the packaging files; the absence of the eighth is why this ran for
+  eleven releases.
+
+- **A spent approval read as "refused" in `watch` and the console.** `labelFor`
+  was written for exactly this and `list` and `show` were taught to use it;
+  `plainly` was not — and `plainly` is what the two live screens render, so a
+  person was told their own yes had been a no, seconds after giving it.
+
+- **`undo --dry-run --force` printed no plan.** It showed what forcing would
+  write over and returned, so the flag whose whole job is to print the plan
+  printed none. A dry run no longer needs `--yes` either: the two-step ask
+  protects a write, and a preview writes nothing.
+
+- **A `verify:` read was never validated.** `snapshot` and `inverse` are
+  checked against the servers at load; `verify` was not, and it is the one
+  whose failure is silent — the proxy turns it into a soft warning and carries
+  on, so a typo meant that tool had no drift detection at all while both the
+  policy and `check` said it was fine.
+
+- **A failed inverse on the lost-answer path was swallowed whole.** An inverse
+  reading `$result.` cannot be rebuilt when the answer is what went missing,
+  and undo reported "cannot be undone" without saying why — on the path where
+  undo matters most.
+
+- **`--client` with a typo blamed the machine**, reporting "No MCP client
+  config was found on this machine". On `uninstall` it said "Nothing was
+  covered, so nothing was changed", which reads as reassurance.
+
+- **`undo --to` always exited 1.** A floor makes a run `partial` by
+  construction, correctly, and the exit code was read off that — so an undo
+  that did exactly what it was told could not be told from one that halted on
+  somebody's edit.
+
+- **`status` read "when was this server last used" off the newest five hundred
+  actions**, so a server whose last use had scrolled out of that window came
+  back as never used: "covered, nothing through it yet". Asked exactly now,
+  from a covering index — 75ms to 3.5ms on sixty thousand actions.
+
+### Fixed — the desktop window
+
+- **With no policy the window could not be quit.** The branch that drew the
+  no-policy screen returned before the IPC handlers were registered and before
+  the quit handlers were attached; on Windows and Linux that left a process
+  running with no window. Everything after `whenReady` is now one path in
+  `boot.ts`, which imports no Electron — which is also how the key-page
+  allowlist became testable.
+
+- **Two spurious errors before the no-policy screen.** The window asked the
+  engine two questions the moment it mounted, which with no policy came back as
+  "No handler registered" and were drawn as errors. The push is now a pull.
+
+- **`Bridge` was declared twice and neither copy was connected to the
+  preload** — the only one that was true. They had already drifted. The shared
+  one survives, the exposed object is annotated rather than inferred, and both
+  the compiler and a test now catch a future drift.
+
+- **A server that would not start vanished**: no event, no log, nothing in the
+  window, and a briefing that went on announcing it as connected. It now
+  reaches the transcript with the server's own words, and the model is told not
+  to plan around tools that are not there.
+
+### Changed
+
+- `pnpm check` runs build, typecheck, lint and the suite in one command.
+- The release workflow runs that gate before building installers, builds the
+  desktop app in CI, runs the memory demo, and takes its release notes from
+  `CHANGELOG.md` instead of a list of commit subjects.
+- `npm publish` runs the whole gate rather than only a build.
+- `list --json` and `show --json` both carry `actionCount`, so one name means
+  one thing in both. The existing `actions` shape is untouched.
+- The site points at `/releases/latest` rather than a pinned version.
+- The user guide covers `install`, `uninstall`, `status` and `desktop`, and is
+  no longer stamped twenty releases back. `CONTRIBUTING.md` no longer shows a
+  manifest syntax that throws on load, or asks for a C toolchain the project
+  disables.
+
 ## 0.6.23 — 2026-09-16
 
 ### Docs

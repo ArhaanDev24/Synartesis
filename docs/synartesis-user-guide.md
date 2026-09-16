@@ -3,7 +3,7 @@
 ## An undo layer for AI agents
 
 Every command, output and file path in this guide was run against Synartesis
-0.6.23 before it was written down.
+0.7.0 before it was written down.
 
 ---
 
@@ -60,7 +60,7 @@ synartesis --version
 ```
 
 ```
-0.6.23
+0.7.0
 ```
 
 If your shell answers `command not found`, npm's global bin directory is not on
