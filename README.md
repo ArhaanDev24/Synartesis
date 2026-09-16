@@ -156,7 +156,15 @@ Every tool gets one of four classifications, written down in a manifest:
 
 A tool your manifest does not mention is treated as `irreversible`. That is
 deliberate: silently forwarding an unknown destructive call is the one failure
-worth avoiding most.
+worth avoiding most. `synartesis check` names them, so you meet that decision
+before your agent does.
+
+A few calls are reversible only when nothing is in the way — moving a file onto
+a free path is undone by moving it back, moving it onto an existing file
+destroys what was there. For those, `expect: absent` on the pre-read swaps the
+two: finding nothing is the reversible case, finding something is held for a
+person and recorded with no inverse, so undo says it cannot be undone rather
+than putting half of it back and calling that success.
 
 ## Has anybody touched it since?
 

@@ -152,9 +152,14 @@ describe("a real engine, telling a model what it is holding", () => {
 
     expect(of("read_file")).toContain("read-only");
     expect(of("write_file")).toContain("can be put back");
-    // The filesystem server has no delete, so a new path cannot be taken back
-    // by anything it offers -- which is why this one stops and waits.
-    expect(of("move_file")).toContain("held for the person's approval");
+    // move_file is reversible now, but only where the destination is free --
+    // `expect: absent` decides that from the pre-read, per call, so the model
+    // is told what the class says and the proxy holds the calls that turn out
+    // not to qualify.
+    expect(of("move_file")).toContain("can be put back");
+    // create_directory still stops and waits: the filesystem server offers no
+    // rmdir, so a directory once made cannot be taken back by anything it has.
+    expect(of("create_directory")).toContain("held for the person's approval");
     expect(of("undo_session")).toContain("held for the person's approval");
     expect(of("what_changed")).toContain("read-only");
     // And the server's own words are still there.

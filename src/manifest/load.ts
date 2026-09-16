@@ -24,6 +24,10 @@ const callTemplate = z.strictObject({
   absent_when: z
     .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
     .optional(),
+  // Only `absent` for now. `present` would mean "refuse unless something is
+  // already here", which is a different feature nobody has asked for, and a
+  // value with no meaning behind it is worse than one that is missing.
+  expect: z.literal("absent").optional(),
 });
 
 const toolPolicy = z.strictObject({
@@ -235,14 +239,34 @@ function validate(source: Source, manifest: Manifest): void {
       source.fail([...path, "snapshot"], "a readonly tool must not declare a snapshot");
     }
 
+    // `expect: absent` inverts what the pre-read means, so the things that
+    // follow from it are checked here rather than discovered at undo time.
+    const expectsAbsent = policy.snapshot?.expect === "absent";
+    if (policy.verify?.expect !== undefined) {
+      source.fail(
+        [...path, "verify", "expect"],
+        "expect belongs on a snapshot; a verify read runs after the call, when there is nothing left to expect",
+      );
+    }
+    if (expectsAbsent && policy.class !== "reversible") {
+      source.fail(
+        [...path, "snapshot", "expect"],
+        `expect: absent says this call is reversible exactly when the read finds nothing, which only means something for a reversible tool, not a ${policy.class} one`,
+      );
+    }
+
     if (policy.snapshot !== undefined) {
       // The snapshot runs before the forward call, so neither the result nor a
       // snapshot exists yet.
       checkCall(source, [...path, "snapshot"], policy.snapshot, servers, ["$."]);
     }
     if (policy.inverse !== undefined) {
+      // With expect: absent there is no captured state for the inverse to
+      // read -- the state it puts back is absence itself -- so $snapshot.
+      // could never resolve. Caught here, because at run time it resolves to
+      // nothing and the action is recorded as applied with no inverse.
       const allowed = ["$.", "$result."];
-      if (policy.snapshot !== undefined) {
+      if (policy.snapshot !== undefined && !expectsAbsent) {
         allowed.push("$snapshot.");
       }
       checkCall(source, [...path, "inverse"], policy.inverse, servers, allowed);
@@ -271,6 +295,7 @@ function withGate(policy: z.infer<typeof toolPolicy>): ToolPolicy {
     tool: string;
     args: Record<string, TemplateValue>;
     absent_when?: string | string[] | undefined;
+    expect?: "absent" | undefined;
   }): CallTemplate => ({
     tool: call.tool,
     args: call.args,
@@ -280,6 +305,7 @@ function withGate(policy: z.infer<typeof toolPolicy>): ToolPolicy {
           absentWhen:
             typeof call.absent_when === "string" ? [call.absent_when] : [...call.absent_when],
         }),
+    ...(call.expect === undefined ? {} : { expect: call.expect }),
   });
 
   const gate = policy.gate ?? (policy.class === "irreversible" ? "always" : "never");

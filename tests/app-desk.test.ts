@@ -208,7 +208,10 @@ describe("what the model is told before anybody says anything", () => {
     // And the particulars, which is the half that cannot be written in
     // advance: this manifest, these servers, this session.
     expect(said).toContain("Connected: fs, synartesis");
-    expect(said).toContain("fs.move_file");
+    // A tool from this manifest that really is held. move_file used to be one
+    // and is not any more: it is reversible where the destination is free, and
+    // the proxy decides that per call from the pre-read rather than in advance.
+    expect(said).toContain("fs.create_directory");
     expect(said).toMatch(/session [0-9a-f]{8}/);
   });
 
@@ -228,7 +231,7 @@ describe("what the model is told before anybody says anything", () => {
     };
 
     expect(of("write_file")).toContain("[Synartesis: reversible");
-    expect(of("move_file")).toContain("held for the person's approval");
+    expect(of("create_directory")).toContain("held for the person's approval");
     expect(of("read_file")).toContain("read-only");
     // The server's own description is still there; the note is added, not
     // substituted.

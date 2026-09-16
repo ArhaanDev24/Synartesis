@@ -135,8 +135,13 @@ describe("a server we already have a finished policy for", () => {
     );
     const byMatch = new Map(manifest.tools.map((t) => [t.match, t]));
     // Adopting a known policy must not quietly turn a gate off.
-    expect(byMatch.get("files.move_file")?.gate).toBe("always");
+    expect(byMatch.get("files.create_directory")?.gate).toBe("always");
     expect(byMatch.get("files.create_directory")?.class).toBe("irreversible");
+    // Nor drop the condition a conditional rule depends on. move_file is
+    // reversible only where the destination is free, and `expect: absent` is
+    // the whole of that -- adopted without it, the rule reads as an
+    // unconditional promise the tool cannot keep.
+    expect(byMatch.get("files.move_file")?.snapshot?.expect).toBe("absent");
   });
 
   it("leaves an unknown server exactly as it was", async () => {

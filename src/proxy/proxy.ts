@@ -764,23 +764,71 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         // "did anything happen" when the call's own answer does not say, and a
         // creation needs that answer as much as a replacement does.
         let probe: ResolvedRead | undefined;
-        let missingPriorState: string | undefined;
+        /**
+         * Why this call has no way back, settled by the pre-read before it
+         * goes out, and how to say it in the two places it is said: once to
+         * the person being asked, once onto the journal row.
+         *
+         * Two causes, opposite to each other. Ordinarily a pre-read that finds
+         * nothing means there is nothing to restore. Under `expect: absent`
+         * that is the reversible case and finding *something* is what cannot
+         * be undone.
+         */
+        let noWayBack: { readonly asked: string; readonly recorded: string } | undefined;
+        /** The pre-read ran and the resource was not there. */
+        let foundNothing = false;
+        const expectsAbsent = policy.snapshot?.expect === "absent";
         if (policy.snapshot !== undefined) {
           try {
             verify = planRead(policy.snapshot, { args });
             probe = verify;
             snapshot = await runRead(router, verify, extra.signal);
-            journal.attachSnapshot(pending.actionId, snapshot);
+            if (expectsAbsent) {
+              // The read was supposed to find nothing and found something, so
+              // this call is about to overwrite it. One inverse cannot both
+              // put back what this call moves and restore what it lands on,
+              // and an inverse that did half of that would report success over
+              // a file it destroyed. The snapshot stays attached as evidence
+              // of what was there; what it cannot do is make this reversible.
+              noWayBack = {
+                asked:
+                  `something is already there, so this cannot be undone — putting back what this ` +
+                  `call moves would leave nothing where the old contents were`,
+                recorded:
+                  `the pre-read expected nothing and found something, so this call overwrote it ` +
+                  `and no single inverse can put both back`,
+              };
+              verify = undefined;
+            } else {
+              journal.attachSnapshot(pending.actionId, snapshot);
+            }
           } catch (error: unknown) {
             const reason = describe(error);
             if (error instanceof SnapshotError && error.absent) {
-              // Nothing exists here yet, so this call creates rather than
-              // replaces and there is nothing to put back. It is an
-              // irreversible action wearing a reversible policy. Refusing
-              // outright would mean an agent could never create anything, so
-              // it falls through to the same question the gate asks.
-              missingPriorState = reason;
-              verify = undefined;
+              foundNothing = true;
+              if (expectsAbsent) {
+                // Finding nothing is the point. The state this call replaces
+                // is absence, and the inverse restores absence by moving the
+                // thing back off it -- so there is nothing to capture and
+                // nothing missing. `verify` is kept: after the call the
+                // resource exists, the post-read records it, and undo can
+                // still refuse to step over somebody's edit.
+                log?.debug(
+                  { seq: pending.seq, tool: route.tool },
+                  "pre-read found nothing, which is what makes this reversible",
+                );
+              } else {
+                // Nothing exists here yet, so this call creates rather than
+                // replaces and there is nothing to put back. It is an
+                // irreversible action wearing a reversible policy. Refusing
+                // outright would mean an agent could never create anything, so
+                // it falls through to the same question the gate asks.
+                noWayBack = {
+                  asked: `nothing was captured to restore, so this cannot be undone — the read said: ${reason}`,
+                  recorded: `no prior state existed, so there is nothing to restore: ${reason}`,
+                };
+                verify = undefined;
+              }
             } else {
               journal.markFailed(pending.actionId, reason);
               log?.error(
@@ -799,12 +847,16 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         // post-read returns, so the two can be compared when the answer to the
         // call turns out not to say what happened. Absent where no pre-read
         // ran, in which case nothing is comparable and nothing is claimed.
+        // What the probe actually found, not why the call is unrecoverable.
+        // Those came apart with `expect: absent`: a pre-read that finds
+        // nothing there leaves this call perfectly reversible, and one that
+        // finds something leaves it beyond undo with a prior state captured.
         const priorState: StateObservation =
-          probe === undefined || missingPriorState !== undefined
+          probe === undefined || foundNothing
             ? { present: false }
             : { present: true, value: snapshot };
 
-        if (missingPriorState !== undefined && !askedAlready) {
+        if (noWayBack !== undefined && !askedAlready) {
           // An approval granted out of band counts here too. It was only ever
           // looked up for a policy that asked to be gated, so a write whose
           // prior state was missing -- an agent creating a file, the commonest
@@ -824,9 +876,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             // unundoable write was shown absence and given no way to learn
             // otherwise until after they had allowed it. Say what happened and
             // hand over the server's own words.
-            await decide(
-              `nothing was captured to restore, so this cannot be undone — the read said: ${missingPriorState}`,
-            );
+            await decide(noWayBack.asked);
           } else if (journal.adoptApproval(pending.actionId, standing)) {
             // Moved onto the row that actually runs, which also spends it: an
             // approval answers one call, not every call that looks like it.
@@ -839,9 +889,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             // path already treats that as having no approval; this branch
             // dropped the answer on the floor and went ahead regardless,
             // which is the same one-yes-two-calls hole in a second place.
-            await decide(
-              `nothing was captured to restore, so this cannot be undone — the read said: ${missingPriorState}`,
-            );
+            await decide(noWayBack.asked);
           }
         }
 
@@ -937,15 +985,13 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           if (inferred !== undefined) {
             warnings.push(inferred);
           }
-          if (missingPriorState !== undefined) {
-            warnings.push(
-              `no prior state existed, so there is nothing to restore: ${missingPriorState}`,
-            );
+          if (noWayBack !== undefined) {
+            warnings.push(noWayBack.recorded);
           }
 
           // Resolved now rather than at rollback time (D5).
           let inverse: unknown;
-          if (policy.inverse !== undefined && missingPriorState === undefined) {
+          if (policy.inverse !== undefined && noWayBack === undefined) {
             try {
               inverse = planInverse(policy.inverse, context);
             } catch (error: unknown) {
@@ -1023,7 +1069,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
               const recovered = recoverInverse(
                 policy,
                 { args, snapshot },
-                missingPriorState !== undefined,
+                noWayBack !== undefined,
               );
               journal.markApplied(pending.actionId, {
                 result: undefined,

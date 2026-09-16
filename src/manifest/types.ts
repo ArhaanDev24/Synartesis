@@ -52,6 +52,28 @@ export interface CallTemplate {
    * is refused outright.
    */
   readonly absentWhen?: readonly string[];
+  /**
+   * `absent` says this read is here to find nothing, and that finding
+   * something is what makes the call unrecoverable.
+   *
+   * Every other pre-read is a before-image: it captures what the call is about
+   * to replace, so undo can put it back, and a read that finds nothing means
+   * there is nothing to restore. For a handful of calls that is exactly
+   * inverted. Moving a file onto a path where nothing exists is undone by
+   * moving it back; moving it onto a path where something does destroys what
+   * was there, and one inverse cannot both move the file back and restore the
+   * contents it overwrote.
+   *
+   * So the machinery's usual reading -- "the pre-read found nothing, therefore
+   * this cannot be undone" -- gets the safe case and the dangerous one the
+   * wrong way round for these. With `expect: absent` the two swap: finding
+   * nothing is the reversible case and the inverse runs, finding something
+   * makes it unrecoverable and a person is asked.
+   *
+   * The inverse of such a call must read only `$.`, because there is no
+   * captured state to read: the state it puts back is absence itself.
+   */
+  readonly expect?: "absent";
 }
 
 export type RefusalMeaning = "uncertain" | "clean";

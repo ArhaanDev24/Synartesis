@@ -2,6 +2,38 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.8.0 — 2026-09-16
+
+### Added
+
+- **`expect: absent`, and `move_file` becomes undoable.** A pre-read normally
+  captures what a call is about to replace, so a read that finds nothing means
+  there is nothing to put back. For a few calls that is exactly backwards:
+  moving a file onto a free path is undone by moving it back, and it is finding
+  *something* there that puts the call beyond undo, because one inverse cannot
+  both move your file back and restore what it landed on.
+
+  Both halves were measured before anything was written. Declared plainly
+  `reversible`, the safe move came back `partial` with the file still moved —
+  the trivially reversible case was the one that could not be undone — and the
+  dangerous one came back `rolled_back` with the overwritten file gone, which
+  is the confident wrong undo this exists to prevent. `expect: absent` on the
+  snapshot swaps the two: finding nothing is reversible and the inverse runs;
+  finding something is held for a person and recorded with **no inverse**, so
+  undo says it cannot be undone rather than putting half of it back.
+
+  The shipped filesystem policy uses it, so moving a file to a fresh path is
+  now an ordinary undoable action instead of an approval prompt. A policy that
+  declares it on a non-`reversible` rule, on a `verify` read, or with an
+  inverse reading `$snapshot.` — which can never resolve, since nothing is
+  captured — is refused at load.
+
+  Worth recording: this server's own description of `move_file` says "If the
+  destination exists, the operation will fail." It does not; it renames over
+  the top, because that is what `rename(2)` does. Taking the documentation at
+  its word would have made the rule unconditionally reversible and the
+  overwrite both unrecoverable and unremarked.
+
 ## 0.7.0 — 2026-09-16
 
 A pass over everything, after an audit of the desktop app, the core and the

@@ -88,16 +88,46 @@ tools:
         path: "$.path"
         content: "$snapshot.content"
 
-  # Only reversible when the destination did not exist. Moving onto a file
-  # that did overwrites it, and moving back afterwards restores the source and
-  # leaves nothing where the destination's contents were: undo reports success
-  # while the file it destroyed stays destroyed. There is no pre-read that
-  # would tell the two cases apart -- a snapshot that finds nothing is how this
-  # policy says "cannot be undone", which is backwards here, since finding
-  # nothing is the safe case. So it asks.
+  # Reversible exactly when the destination did not exist, which is what
+  # `expect: absent` says.
+  #
+  # Moving onto a path where nothing is, is undone by moving the file back:
+  # the state this replaces is absence, and moving it off restores absence
+  # exactly. Moving onto a file that does exist overwrites it, and one inverse
+  # cannot both move the file back and restore what it landed on -- undo would
+  # report success over a file it had destroyed.
+  #
+  # Both cases were gated before, because the machinery read "the pre-read
+  # found nothing" as "there is nothing to put back" -- true of a write, and
+  # precisely backwards here, where finding nothing is the safe case. Measured
+  # both ways against the real server: as a plain reversible rule the safe move
+  # came back `partial` with the file still moved, and the dangerous one came
+  # back `rolled_back` with the overwritten file gone.
+  #
+  # And the pre-read is load-bearing, not belt and braces. This server's own
+  # description of move_file says "If the destination exists, the operation
+  # will fail" -- it does not. It renames over the top, silently, because
+  # that is what rename(2) does on POSIX. Taking the description at its word
+  # would have made this rule unconditionally reversible and the overwrite
+  # unrecoverable and unremarked. tests/expect-absent.test.ts pins the real
+  # behaviour so a version that starts matching its documentation is a
+  # failing test rather than a surprise.
   - match: "fs.move_file"
-    class: irreversible
-    gate: always
+    class: reversible
+    snapshot:
+      tool: "fs.read_text_file"
+      args:
+        path: "$.destination"
+      # Same reasoning as the two writes above: anything that is not absence
+      # is a failed read, not an empty destination, and a destination that
+      # exists but cannot be read must not be treated as a free space.
+      absent_when: ["ENOENT", "no such file"]
+      expect: absent
+    inverse:
+      tool: "fs.move_file"
+      args:
+        source: "$.destination"
+        destination: "$.source"
 
   # No rmdir exists on this server, so a directory once created stays.
   - match: "fs.create_directory"

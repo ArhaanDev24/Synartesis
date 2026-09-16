@@ -4,18 +4,30 @@ import { readFileSync } from "node:fs";
 import { parseManifest } from "../src/manifest/load.js";
 
 describe("the manifests that ship with this", () => {
-  it("does not call a move reversible, because it is only sometimes", () => {
+  it("never calls a move plainly reversible, because it is only sometimes", () => {
     // Moving onto a file that already exists overwrites it, and moving back
     // restores the source while leaving nothing where the destination's
-    // contents were. Declared reversible, undo reported rolled_back over a
-    // file it had destroyed.
+    // contents were. Declared plainly reversible, undo reported rolled_back
+    // over a file it had destroyed -- measured, not supposed.
+    //
+    // It is reversible now, but only under `expect: absent`, which is what
+    // makes the pre-read decide between the two cases. Take that one line out
+    // and the rule reverts to exactly the bug above, so it is the line this
+    // test is really about.
     const manifest = parseManifest(
       readFileSync("manifests/filesystem.yaml", "utf8"),
       "manifests/filesystem.yaml",
     );
     const move = manifest.tools.find((rule) => rule.match === "fs.move_file");
-    expect(move?.class).not.toBe("reversible");
-    expect(move?.gate).toBe("always");
+    if (move?.class === "reversible") {
+      expect(move.snapshot?.expect).toBe("absent");
+      // And the inverse must work from the arguments alone: under expect:
+      // absent there is no captured state, so a $snapshot. reference would
+      // resolve to nothing and the move would silently lose its inverse.
+      expect(JSON.stringify(move.inverse?.args)).not.toContain("$snapshot");
+    } else {
+      expect(move?.gate).toBe("always");
+    }
   });
 
   it("says what absence looks like wherever it takes a snapshot", () => {

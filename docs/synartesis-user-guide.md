@@ -3,7 +3,7 @@
 ## An undo layer for AI agents
 
 Every command, output and file path in this guide was run against Synartesis
-0.7.0 before it was written down.
+0.8.0 before it was written down.
 
 ---
 
@@ -60,7 +60,7 @@ synartesis --version
 ```
 
 ```
-0.7.0
+0.8.0
 ```
 
 If your shell answers `command not found`, npm's global bin directory is not on
@@ -660,6 +660,53 @@ to lose, do not rely on this to get it back yet.
 `github` says `documented`: it has never been run against a real account. If you
 use it, run `synartesis check` against your own token and expect to correct
 something.
+
+## When finding nothing is the good news
+
+A pre-read normally captures what a call is about to replace, so undo can put
+it back — and a read that finds nothing means there is nothing to restore. For
+a few calls that is exactly backwards.
+
+Moving a file onto a path where nothing is, is undone by moving it back: the
+state it replaced was absence, and moving it off restores absence exactly.
+Moving it onto a file that *does* exist overwrites that file, and one inverse
+cannot both move yours back and restore what it landed on.
+
+So for these, finding nothing is the safe case and finding something is the one
+you cannot undo. `expect: absent` says so:
+
+```yaml
+- match: "fs.move_file"
+  class: reversible
+  snapshot:
+    tool: "fs.read_text_file"
+    args: { path: "$.destination" }
+    absent_when: ["ENOENT", "no such file"]
+    expect: absent
+  inverse:
+    tool: "fs.move_file"
+    args:
+      source: "$.destination"
+      destination: "$.source"
+```
+
+The read runs before the call, as always. What changes is what its answer
+means:
+
+| The pre-read finds | Without `expect` | With `expect: absent` |
+| --- | --- | --- |
+| nothing | cannot be undone; held | **reversible**; the inverse runs |
+| something | reversible from the captured state | **cannot be undone**; held |
+
+Two things follow, and Synartesis refuses a policy that breaks either. The
+inverse may read only `$.`, because there is no captured state — the state it
+puts back is absence itself. And the rule has to be `reversible`; on any other
+class the flag means nothing.
+
+If a person allows the overwrite anyway, the action is recorded with **no
+inverse**: `undo` reports that it cannot be undone and leaves it. That is the
+point. An inverse there would move your file back, report `rolled_back`, and
+leave the overwritten file gone for good.
 
 ## A tool that does two things at once
 
