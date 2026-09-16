@@ -66,6 +66,20 @@ function externals(): string[] {
 }
 
 describe("what gets packaged", () => {
+  it("stamps the version the repository is actually at", () => {
+    // electron-builder reads the version from app/package.json, because
+    // pack.mjs runs it with --projectDir app. Nothing else in the repository
+    // reads that field, so it drifted silently for eleven releases: every
+    // installer attached to v0.6.13 through v0.6.23 was named 0.6.12, the
+    // dmg window said 0.6.12, and the installed application reported 0.6.12.
+    // Two users on two different releases could not tell their builds apart.
+    //
+    // This file already checks seven agreements between the three packaging
+    // files. The absence of the eighth is the whole reason that happened.
+    const root = fields("package.json", (raw): unknown => JSON.parse(raw));
+    expect(text(appPackage["version"])).toBe(text(root["version"]));
+  });
+
   it("ships every module the bundle expects to find at run time", () => {
     const shipped = names(appPackage["dependencies"]);
     for (const name of externals()) {
