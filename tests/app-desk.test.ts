@@ -126,7 +126,9 @@ interface Bench {
   readonly model: FakeModel;
 }
 
-async function bench(options: { gateTimeoutMs?: number } = {}): Promise<Bench> {
+async function bench(
+  options: { gateTimeoutMs?: number; alsoBroken?: boolean } = {},
+): Promise<Bench> {
   const root = mkdtempSync(join(tmpdir(), "synartesis-desk-"));
   dirs.push(root);
   const files = join(root, "files");
@@ -135,7 +137,10 @@ async function bench(options: { gateTimeoutMs?: number } = {}): Promise<Bench> {
     join(root, "synartesis.yaml"),
     readFileSync("manifests/filesystem.yaml", "utf8").replace(
       /servers:\n  fs:\n    command:.*\n    args:.*\n/,
-      `servers:\n  fs:\n    command: "node"\n    args: ["${FS_SERVER}", "${files}"]\n`,
+      `servers:\n  fs:\n    command: "node"\n    args: ["${FS_SERVER}", "${files}"]\n` +
+        (options.alsoBroken === true
+          ? `  broken:\n    command: "node"\n    args: ["${join(root, "not-here.js")}"]\n`
+          : ""),
     ),
   );
 
@@ -228,6 +233,36 @@ describe("what the model is told before anybody says anything", () => {
     // The server's own description is still there; the note is added, not
     // substituted.
     expect(of("write_file")).toContain("Only works within allowed directories");
+  });
+});
+
+describe("a server in the policy that will not start", () => {
+  it("is in the transcript the window opens, not only in a log", async () => {
+    const live = await bench({ alsoBroken: true });
+    const opened = await live.desk.start();
+
+    // The note has to be folded in before #view builds this, because #bring
+    // runs before the window knows the conversation exists -- an emit here is
+    // dropped, and the transcript is what the window actually reads.
+    const notes = opened.messages.filter((message) => message.role === "note");
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.text).toContain("broken did not start");
+    expect(notes[0]?.text).toContain("not-here.js");
+  });
+
+  it("does not stop the servers that did start from working", async () => {
+    const live = await bench({ alsoBroken: true });
+    const opened = await live.desk.start();
+    // One server failing is a fact about that server. The file below is
+    // written through the one that came up.
+    // An existing file: writing a new one has no prior state to restore, so it
+    // is held for approval, which would be a test of the gate rather than of
+    // the server that did come up.
+    const path = join(live.files, "note.md");
+    writeFileSync(path, "before\n");
+    live.script.calls = [{ name: WRITE, args: { path, content: "after\n" } }];
+    await live.desk.send(opened.id, "change it");
+    expect(readFileSync(path, "utf8")).toBe("after\n");
   });
 });
 

@@ -89,6 +89,14 @@ export type SessionEvent =
    */
   | { readonly kind: "waiting"; readonly ms: number }
   | { readonly kind: "error"; readonly message: string }
+  /**
+   * A server the policy names that would not start.
+   *
+   * Two facts rather than a sentence, so the wording lives in one place and a
+   * test can assert the server without matching prose. Not an `error`: that
+   * means a turn failed, and this happens before anybody has spoken.
+   */
+  | { readonly kind: "server-down"; readonly server: string; readonly why: string }
   | { readonly kind: "approval"; readonly request: ApprovalCard }
   | { readonly kind: "approval-resolved"; readonly actionId: string };
 
@@ -171,8 +179,24 @@ export interface OpenConversation {
   readonly summary: ChangeSummary;
 }
 
+/**
+ * What the window is told before it asks anything else.
+ *
+ * Main decides which of the two situations this is; the window waits to be
+ * told. It was a push -- a message sent once the page had loaded -- which
+ * arrives strictly after the window has mounted and already asked two
+ * questions, so with no policy a person saw two errors before the screen
+ * explaining the real situation replaced them.
+ */
+export type Startup =
+  | { readonly kind: "ready" }
+  | { readonly kind: "no-policy"; readonly manifestPath: string };
+
 /** What the preload puts on the window. Implemented in main, called in the UI. */
 export interface Bridge {
+  /** Which situation the window is in. Asked first, before anything else. */
+  startup(): Promise<Startup>;
+
   settings(): Promise<Settings>;
   chooseModel(id: string): Promise<Settings>;
   setReasoning(reasoning: Reasoning): Promise<Settings>;
@@ -206,7 +230,7 @@ export interface Bridge {
   start(): Promise<OpenConversation>;
 
   send(id: string, text: string): Promise<void>;
-  stop(id: string): void;
+  stop(id: string): Promise<void>;
 
   approve(actionId: string): Promise<void>;
   deny(actionId: string, why: string): Promise<void>;
@@ -220,3 +244,88 @@ export interface Bridge {
 
   onEvent(listener: (id: string, event: SessionEvent) => void): () => void;
 }
+
+/**
+ * Every channel a bridge call goes down, and what comes back on it.
+ *
+ * Two things this buys. The preload's `call` becomes generic over the channel,
+ * so the object it exposes can be annotated `: Bridge` and checked at compile
+ * time -- a missing method, an extra one, or a wrong signature is an error
+ * rather than something the window discovers at run time. And main's answer
+ * map is checked against the same table, so a channel that exists on one side
+ * and not the other cannot be written.
+ *
+ * Which is the point: `Bridge` was declared twice, in this file and in the
+ * renderer, neither was connected to the preload -- the only one that was
+ * actually true -- and they had already drifted apart on two counts.
+ */
+export interface Answers {
+  "app:start": Startup;
+  "settings:get": Settings;
+  "settings:choose": Settings;
+  "settings:reasoning": Settings;
+  "settings:theme": Settings;
+  "settings:set-model": Settings;
+  "settings:save-key": Settings;
+  "settings:forget-key": Settings;
+  // `undefined`, not `void`: these are property types, and a channel that
+  // answers with nothing answers with undefined.
+  "open:key-page": undefined;
+  "account:sign-in": Settings;
+  "account:sign-out": Settings;
+  "chat:list": readonly ConversationSummary[];
+  "chat:pin": readonly ConversationSummary[];
+  "chat:forget": readonly ConversationSummary[];
+  "chat:start": OpenConversation;
+  "chat:open": OpenConversation;
+  "chat:send": undefined;
+  "chat:stop": undefined;
+  "gate:approve": undefined;
+  "gate:deny": undefined;
+  "folder:choose": string | undefined;
+  "folder:report": FolderReport;
+  "undo:verify": string;
+  "undo:preview": string;
+  "undo:do": string;
+}
+
+/** The one channel main pushes on. Everything else is a question with an answer. */
+export const EVENT_CHANNEL = "session:event";
+
+/**
+ * Every call on the bridge, as a value.
+ *
+ * `keyof Bridge` is gone by run time, so a test cannot ask the interface what
+ * it declares -- and the failure this guards against is precisely forgetting
+ * one side. Typed against both tables, so a call added to `Bridge` and not
+ * here, or named for a channel that does not exist, is a compile error in this
+ * file rather than a method the window calls and the preload never exposed.
+ * In the same file as both on purpose: two files is how they drifted.
+ */
+export const BRIDGE_CALLS: Readonly<Record<Exclude<keyof Bridge, "onEvent">, keyof Answers>> = {
+  startup: "app:start",
+  settings: "settings:get",
+  chooseModel: "settings:choose",
+  setReasoning: "settings:reasoning",
+  setTheme: "settings:theme",
+  setModel: "settings:set-model",
+  saveKey: "settings:save-key",
+  forgetKey: "settings:forget-key",
+  openKeyPage: "open:key-page",
+  signIn: "account:sign-in",
+  signOut: "account:sign-out",
+  conversations: "chat:list",
+  setPinned: "chat:pin",
+  forget: "chat:forget",
+  chooseFolder: "folder:choose",
+  folder: "folder:report",
+  start: "chat:start",
+  open: "chat:open",
+  send: "chat:send",
+  stop: "chat:stop",
+  approve: "gate:approve",
+  deny: "gate:deny",
+  verify: "undo:verify",
+  previewUndo: "undo:preview",
+  undo: "undo:do",
+};

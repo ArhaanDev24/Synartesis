@@ -30,6 +30,7 @@ function systemFor(engine: Engine): string {
     manifest: engine.manifest,
     session: engine.runId,
     toolset: (bare) => engine.ownTool(bare),
+    down: engine.down.map((one) => one.server),
     now: new Date(),
   });
 }
@@ -112,6 +113,19 @@ export class Conversation {
    */
   addSession(id: string): void {
     this.options.sessions.push(id);
+  }
+
+  /**
+   * Something that happened to this conversation that nobody said.
+   *
+   * Folded into the transcript and emitted, in that order. The order matters:
+   * everything here happens while the conversation is being brought up, before
+   * the window knows it exists, so the emit is dropped -- the transcript is
+   * what the window will read when it opens it a moment later.
+   */
+  note(event: SessionEvent): void {
+    this.#messages = fold(this.#messages, event);
+    this.options.emit(event);
   }
 
   get messages(): readonly ChatMessage[] {

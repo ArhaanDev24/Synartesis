@@ -4,10 +4,11 @@ import { fileURLToPath } from "node:url";
 
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from "electron";
 
+import { boot, type Host } from "./boot.js";
 import { Desk } from "./desk.js";
 import type { SecretStore } from "./settings.js";
 import { home, JOURNAL_NAME, MANIFEST_NAME } from "../../src/locate.js";
-import type { Reasoning, SessionEvent, Theme } from "../shared/ipc.js";
+import type { SessionEvent, Theme } from "../shared/ipc.js";
 
 /**
  * The window, and nothing else.
@@ -93,106 +94,6 @@ function makeWindow(theme: Theme = "light"): BrowserWindow {
   return window;
 }
 
-function wire(desk: Desk): void {
-  /** Every call from the window, in one place, so none of them is implicit. */
-  const answers: Record<string, (...args: unknown[]) => unknown> = {
-    "settings:get": () => desk.settings(),
-    "settings:choose": (id) => desk.chooseModel(asString(id)),
-    "settings:reasoning": (reasoning) => desk.setReasoning(asReasoning(reasoning)),
-    "settings:theme": (theme) => desk.setTheme(asTheme(theme)),
-    "settings:set-model": (id, model) => desk.setModel(asString(id), asString(model)),
-    "settings:save-key": (id, key) => desk.saveKey(asString(id), asString(key)),
-    "settings:forget-key": (id) => desk.forgetKey(asString(id)),
-    /**
-     * Open a provider's key page in the person's browser.
-     *
-     * Checked against the addresses the models themselves name, not taken on
-     * trust. A bridge that opened whatever the page asked for would be a way
-     * to make this window launch anything, and this is a window that renders
-     * text somebody else wrote.
-     */
-    "open:key-page": (url) => {
-      const asked = asString(url);
-      const allowed = desk
-        .settings()
-        .models.map((model) => model.keyUrl)
-        .filter((known): known is string => known !== undefined);
-      if (!allowed.includes(asked)) {
-        throw new Error("That is not one of the providers' key pages.");
-      }
-      void shell.openExternal(asked);
-    },
-    "account:sign-in": () => desk.signIn(),
-    "account:sign-out": () => desk.signOut(),
-
-    "chat:list": () => desk.conversations(),
-    "chat:pin": (id, pinned) => desk.setPinned(asString(id), pinned === true),
-    "chat:forget": (id) => desk.forget(asString(id)),
-    "chat:start": () => desk.start(),
-    "chat:open": (id) => desk.open(asString(id)),
-    "chat:send": (id, text) => desk.send(asString(id), asString(text)),
-    "chat:stop": (id) => {
-      desk.stop(asString(id));
-    },
-
-    "gate:approve": (actionId) => {
-      desk.approve(asString(actionId));
-    },
-    "gate:deny": (actionId, why) => {
-      desk.deny(asString(actionId), asString(why));
-    },
-
-    // The operating system's own picker, opened from the main process. The
-    // renderer has no filesystem and must never be given one.
-    "folder:choose": async () => {
-      const window = BrowserWindow.getAllWindows()[0];
-      const picked = await (window === undefined
-        ? dialog.showOpenDialog({ properties: ["openDirectory"] })
-        : dialog.showOpenDialog(window, { properties: ["openDirectory"] }));
-      return picked.canceled ? undefined : picked.filePaths[0];
-    },
-    "folder:report": (path) => desk.folder(asString(path)),
-
-    "undo:verify": (id) => desk.verify(asString(id)),
-    "undo:preview": (id) => desk.previewUndo(asString(id)),
-    "undo:do": (id) => desk.undo(asString(id)),
-  };
-
-  for (const [channel, answer] of Object.entries(answers)) {
-    ipcMain.handle(channel, async (_event, ...args: unknown[]) => {
-      try {
-        return { ok: true, value: await answer(...args) };
-      } catch (error: unknown) {
-        // Sent back rather than thrown across the bridge, so the window can
-        // put the sentence in front of the person instead of showing them a
-        // stack trace with "Error invoking remote method" in front of it.
-        return { ok: false, why: error instanceof Error ? error.message : String(error) };
-      }
-    });
-  }
-}
-
-function asString(value: unknown): string {
-  if (typeof value !== "string") {
-    throw new Error("expected text");
-  }
-  return value;
-}
-
-function asTheme(value: unknown): Theme {
-  if (value === "light" || value === "dark") {
-    return value;
-  }
-  throw new Error("expected light or dark");
-}
-
-function asReasoning(value: unknown): Reasoning {
-  if (value === "brief" || value === "balanced" || value === "thorough") {
-    return value;
-  }
-  throw new Error("expected brief, balanced or thorough");
-}
-
 /**
  * The same policy and the same journal the command line uses.
  *
@@ -214,6 +115,50 @@ function places(): { manifestPath: string; journalPath: string } {
  */
 const clientId = process.env["SYNARTESIS_GOOGLE_CLIENT_ID"];
 
+/** Electron, as boot.ts needs it and no more. */
+const host: Host = {
+  platform: process.platform,
+  // One branch per event: Electron types `app.on` with a separate overload
+  // per event name, so a union of names matches none of them.
+  on: (event, listener) => {
+    if (event === "activate") {
+      app.on("activate", () => {
+        listener({ preventDefault: () => undefined });
+      });
+      return;
+    }
+    if (event === "window-all-closed") {
+      app.on("window-all-closed", () => {
+        listener({ preventDefault: () => undefined });
+      });
+      return;
+    }
+    app.on("before-quit", (quitting) => {
+      listener(quitting);
+    });
+  },
+  quit: () => {
+    app.quit();
+  },
+  windowCount: () => BrowserWindow.getAllWindows().length,
+  openWindow: (theme) => {
+    makeWindow(theme);
+  },
+  handle: (channel, answer) => {
+    ipcMain.handle(channel, async (_event, ...args: unknown[]) => await answer(...args));
+  },
+  openExternal: (url) => {
+    void shell.openExternal(url);
+  },
+  pickFolder: async () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    const picked = await (window === undefined
+      ? dialog.showOpenDialog({ properties: ["openDirectory"] })
+      : dialog.showOpenDialog(window, { properties: ["openDirectory"] }));
+    return picked.canceled ? undefined : picked.filePaths[0];
+  },
+};
+
 async function main(): Promise<void> {
   // Before anything asks for a path: userData is derived from the name, and a
   // window that quietly stored a person's conversations under "Electron" would
@@ -222,76 +167,36 @@ async function main(): Promise<void> {
   await app.whenReady();
   const { manifestPath, journalPath } = places();
 
-  if (!existsSync(manifestPath)) {
-    // Nothing here can guess which servers a person wants guarded, and a
-    // manifest invented on their behalf would be a policy they never wrote
-    // governing tools they never listed.
-    const window = makeWindow();
-    window.webContents.once("did-finish-load", () => {
-      window.webContents.send("app:no-manifest", manifestPath);
-    });
-    return;
-  }
+  // Nothing here can guess which servers a person wants guarded, and a
+  // manifest invented on their behalf would be a policy they never wrote
+  // governing tools they never listed. So with no policy there is no desk --
+  // and boot still runs, because the window still has to be able to close.
+  const desk = existsSync(manifestPath)
+    ? Desk.open({
+        manifestPath,
+        journalPath,
+        settingsPath: join(app.getPath("userData"), "models.json"),
+        conversationsPath: join(app.getPath("userData"), "conversations.json"),
+        accountPath: join(app.getPath("userData"), "account.sealed"),
+        secrets: keychain,
+        emit: tell,
+        ...(clientId === undefined
+          ? {}
+          : {
+              google: {
+                clientId,
+                // The person's own browser, never a window this application
+                // draws. An application that renders a password field can read
+                // what is typed into it.
+                open: (url: string) => {
+                  void shell.openExternal(url);
+                },
+              },
+            }),
+      })
+    : undefined;
 
-  const desk = Desk.open({
-    manifestPath,
-    journalPath,
-    settingsPath: join(app.getPath("userData"), "models.json"),
-    conversationsPath: join(app.getPath("userData"), "conversations.json"),
-    accountPath: join(app.getPath("userData"), "account.sealed"),
-    secrets: keychain,
-    emit: tell,
-    ...(clientId === undefined
-      ? {}
-      : {
-          google: {
-            clientId,
-            // The person's own browser, never a window this application
-            // draws. An application that renders a password field can read
-            // what is typed into it.
-            open: (url: string) => {
-              void shell.openExternal(url);
-            },
-          },
-        }),
-  });
-  wire(desk);
-  makeWindow(desk.theme());
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      makeWindow(desk.theme());
-    }
-  });
-
-  app.on("window-all-closed", () => {
-    void desk.close().finally(() => {
-      if (process.platform !== "darwin") {
-        app.quit();
-      }
-    });
-  });
-
-  /*
-   * Quit, but not before the engine has put itself away.
-   *
-   * Electron does not wait for a promise handed to `before-quit`, and what is
-   * left undone is not nothing: a run is finalised, an empty one is taken back
-   * out of the journal, and the servers underneath are asked to stop. Quitting
-   * over the top of that left a row behind every time. So the first quit is
-   * held, the close is awaited, and the second one -- ours -- goes through.
-   */
-  let leaving = false;
-  app.on("before-quit", (event) => {
-    if (leaving) {
-      return;
-    }
-    leaving = true;
-    event.preventDefault();
-    void desk.close().finally(() => {
-      app.quit();
-    });
-  });
+  boot(host, desk, manifestPath);
 }
 
 void main();

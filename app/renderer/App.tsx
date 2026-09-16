@@ -19,6 +19,7 @@ import type {
   ModelChoice,
   SessionEvent,
   Settings,
+  Startup,
 } from "../shared/ipc.js";
 
 /**
@@ -217,7 +218,16 @@ export function App(): React.JSX.Element {
   /** The model whose name is being retyped, and what it has been retyped to. */
   const [naming, setNaming] = useState<{ id: string; model: string } | undefined>(undefined);
   const sheetTrigger = useRef<HTMLElement | null>(null);
-  const [missing, setMissing] = useState<string | undefined>(undefined);
+  /**
+   * Which situation the window is in, asked rather than waited for.
+   *
+   * `undefined` is the third state and the one that was missing: not answered
+   * yet. The window used to assume it could query the engine the moment it
+   * mounted, so with no policy both of its first two questions were rejected
+   * and drawn as errors before the screen explaining the real situation
+   * replaced them.
+   */
+  const [startup, setStartup] = useState<Startup | undefined>(undefined);
   const [key, setKey] = useState("");
   /** Which model's key field is open, if any. */
   const [keying, setKeying] = useState<string | undefined>(undefined);
@@ -294,12 +304,12 @@ export function App(): React.JSX.Element {
         apply(event);
       }
     });
-    const stopWatchingManifest = engine.onNoManifest(setMissing);
-    return () => {
-      stopListening();
-      stopWatchingManifest();
-    };
+    return stopListening;
   }, [apply]);
+
+  useEffect(() => {
+    engine.startup().then(setStartup, complain);
+  }, [complain]);
 
   const show = useCallback(
     (opened: {
@@ -344,7 +354,9 @@ export function App(): React.JSX.Element {
   }, [complain, refreshList, show]);
 
   useEffect(() => {
-    if (missing !== undefined) {
+    // Nothing is asked until main has said which situation this is -- not even
+    // to be told the answer is no.
+    if (startup?.kind !== "ready") {
       return;
     }
     engine.settings().then(setSettings, complain);
@@ -357,7 +369,7 @@ export function App(): React.JSX.Element {
         engine.open(first.id).then(show, complain);
       }
     }, complain);
-  }, [begin, complain, missing, show]);
+  }, [begin, complain, show, startup]);
 
   useEffect(() => {
     // Instant while text is streaming. A smooth scroll restarted on every
@@ -482,7 +494,13 @@ export function App(): React.JSX.Element {
     return () => { document.removeEventListener("keydown", keydown); };
   }, [activity, begin, busy, pane, sheet, shortcuts]);
 
-  if (missing !== undefined) {
+  // Not answered yet. A frame the viewer never sees: the window stays hidden
+  // until ready-to-show, and the frame behind it is already painted.
+  if (startup === undefined) {
+    return <div className="app" style={{ gridTemplateColumns: "1fr" }} />;
+  }
+
+  if (startup.kind === "no-policy") {
     return (
       <div className="app" style={{ gridTemplateColumns: "1fr" }}>
         <div className="scroll">
@@ -496,7 +514,9 @@ export function App(): React.JSX.Element {
             <p>
               <code>synartesis init</code>
             </p>
-            <p className="note">It will look for {missing}. Reopen this window afterwards.</p>
+            <p className="note">
+              It will look for {startup.manifestPath}. Reopen this window afterwards.
+            </p>
           </div>
         </div>
       </div>
@@ -745,7 +765,7 @@ export function App(): React.JSX.Element {
           setAway(!following.current);
         }}>
           <div className="thread">
-            {messages.length === 0 ? (
+            {messages.every((message) => message.role === "note") ? (
               <div className="empty">
                 <Logo size={144} white />
                 <span className="eyebrow">A little room to change your mind</span>

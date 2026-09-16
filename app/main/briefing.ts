@@ -83,6 +83,14 @@ export interface Situation {
   readonly session: string;
   /** The name a Synartesis tool reaches the model under, which varies. */
   readonly toolset: (bare: string) => string;
+  /**
+   * Servers the policy names that are not running.
+   *
+   * Told apart from the connected ones, because the list below came straight
+   * off the manifest: a server that failed to start was announced to the model
+   * as connected, and the model then planned around tools that were not there.
+   */
+  readonly down?: readonly string[];
   readonly now: Date;
 }
 
@@ -96,7 +104,10 @@ function heldIn(manifest: Manifest): string[] {
 }
 
 export function briefing(situation: Situation): string {
-  const servers = Object.keys(situation.manifest.servers).sort();
+  const down = situation.down ?? [];
+  const servers = Object.keys(situation.manifest.servers)
+    .filter((name) => !down.includes(name))
+    .sort();
   const held = heldIn(situation.manifest);
   const day = situation.now.toLocaleDateString("en-GB", {
     weekday: "long",
@@ -114,6 +125,13 @@ export function briefing(situation: Situation): string {
       : `- Connected: ${servers.join(", ")}. Tool names are qualified, as ${servers[0] ?? ""}__something.`,
     `- This conversation is recorded as session ${situation.session.slice(0, 8)}.`,
   ];
+
+  if (down.length > 0) {
+    lines.push(
+      `- Not running: ${[...down].sort().join(", ")}. Do not plan to use their tools; ` +
+        `say so if the person asks for them.`,
+    );
+  }
 
   if (held.length > 0) {
     const shown = held.slice(0, NAMED).join(", ");

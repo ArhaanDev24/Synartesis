@@ -295,6 +295,32 @@ describe("shutting the engine down", () => {
    * is final long before the servers are gone, and the tidy-up now happens
    * there.
    */
+  it("says which server would not start, instead of losing it", async () => {
+    // Swallowed by a bare catch, this was invisible three times over: no
+    // event, no log, and a briefing that went on announcing the dead server as
+    // connected. With every server down you got a window that could do nothing
+    // and would not say why.
+    const root = mkdtempSync(join(tmpdir(), "synartesis-down-"));
+    dirs.push(root);
+    const manifestPath = join(root, "synartesis.yaml");
+    writeFileSync(
+      manifestPath,
+      `version: 1\nservers:\n  broken:\n    command: node\n` +
+        `    args: ["${join(root, "not-here.js")}"]\ntools: []\n`,
+    );
+    const engine = await startEngine({
+      manifestPath,
+      journalPath: join(root, "journal.db"),
+      label: "desktop-test",
+    });
+    closers.push(() => engine.close());
+
+    expect(engine.down).toHaveLength(1);
+    expect(engine.down[0]?.server).toBe("broken");
+    // The server's own words, cut down to the line that names the fault.
+    expect(engine.down[0]?.why).toContain("not-here.js");
+  });
+
   it("takes an empty session back before it waits for servers to go", async () => {
     const root = mkdtempSync(join(tmpdir(), "synartesis-slow-"));
     dirs.push(root);

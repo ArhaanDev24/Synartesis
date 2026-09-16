@@ -21,6 +21,23 @@ function play(events: readonly SessionEvent[]): ChatMessage[] {
   return events.reduce<ChatMessage[]>((so_far, event) => fold(so_far, event), []);
 }
 
+describe("a server that would not start", () => {
+  it("appears as a note, with the server's own words under the sentence", () => {
+    const messages = fold([], {
+      kind: "server-down",
+      server: "fs",
+      why: "Cannot find module '/nowhere/not-here.js'",
+    });
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe("note");
+    // The written half, so the person knows what it means for them.
+    expect(messages[0]?.text).toContain("fs did not start");
+    expect(messages[0]?.text).toContain("none of its tools are available");
+    // And the raw half, so they can act on it.
+    expect(messages[0]?.text).toContain("not-here.js");
+  });
+});
+
 describe("a reply that spoke, acted, and spoke again", () => {
   it("keeps the three in the order they happened", () => {
     const messages = play([

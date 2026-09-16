@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { briefing, CHARTER, noteFor } from "../app/main/briefing.js";
+import { parseManifest } from "../src/manifest/load.js";
 import { startEngine, type Engine } from "../app/main/engine.js";
 import type { Manifest } from "../src/manifest/types.js";
 
@@ -35,6 +36,29 @@ const MANIFEST: Manifest = {
     { match: "fs.move_file", class: "irreversible", gate: "always", refusal: "uncertain" },
   ],
 };
+
+describe("a server the policy names but nothing is running", () => {
+  it("is not announced to the model as connected", () => {
+    const said = briefing({
+      manifest: parseManifest(
+        `version: 1\nservers:\n  fs:\n    command: node\n    args: ["x.js"]\n` +
+          `  crm:\n    command: node\n    args: ["y.js"]\ntools: []\n`,
+        "m.yaml",
+      ),
+      session: "0123456789abcdef",
+      toolset: (bare) => `synartesis__${bare}`,
+      down: ["fs"],
+      now: new Date("2026-01-01T00:00:00.000Z"),
+    });
+    // The list came straight off the manifest, so a server that failed to
+    // start was announced as connected and the model planned around tools
+    // that were not there.
+    expect(said).toContain("Connected: crm");
+    expect(said).not.toContain("Connected: crm, fs");
+    expect(said).toContain("Not running: fs");
+    expect(said).toContain("Do not plan to use their tools");
+  });
+});
 
 describe("the briefing", () => {
   it("names the servers, the session and the calls that will stop", () => {

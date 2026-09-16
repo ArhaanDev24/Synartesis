@@ -330,6 +330,12 @@ export class Desk {
     const engine = await this.#startEngine(id);
     held.engine = engine;
     conversation.addSession(engine.runId);
+    // Before #view builds what the window will show, and before #remember.
+    // A server that would not start used to vanish here entirely: no event, no
+    // note, and a briefing that went on telling the model it was connected.
+    for (const trouble of engine.down) {
+      conversation.note({ kind: "server-down", server: trouble.server, why: trouble.why });
+    }
     this.#live = { conversation, engine };
     this.#remember(conversation);
     return conversation;

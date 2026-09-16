@@ -69,6 +69,20 @@ export function fold(messages: readonly ChatMessage[], event: SessionEvent): Cha
     return next;
   }
 
+  if (event.kind === "server-down") {
+    // A written sentence plus the server's own words, which is the shape a
+    // provider failure already takes. One fold, both sides.
+    next.push({
+      id: newId(next.length, "note"),
+      role: "note",
+      text:
+        `${event.server} did not start, so none of its tools are available in ` +
+        `this conversation.\n\n${event.why}`,
+      calls: [],
+    });
+    return next;
+  }
+
   if (event.kind === "error" || event.kind === "stopped") {
     // In its own line rather than folded into the model's words, where it
     // would read as something the model said.

@@ -46,11 +46,19 @@ export interface EngineOptions {
   readonly ownTools?: boolean;
 }
 
+/** A server the manifest names that would not start, and what it said. */
+export interface ServerTrouble {
+  readonly server: string;
+  readonly why: string;
+}
+
 export interface Engine {
   readonly client: Client;
   readonly journal: Journal;
   readonly router: Router;
   readonly manifest: Manifest;
+  /** Servers that failed to start. Empty is the ordinary case. */
+  readonly down: readonly ServerTrouble[];
   /** The session every call in this conversation is recorded under. */
   readonly runId: string;
   /** Every tool the model may call, already in provider-neutral shape. */
@@ -152,6 +160,7 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
   const journal = openJournal(options.journalPath);
 
   const upstreams: Upstream[] = [];
+  const down: ServerTrouble[] = [];
   for (const [name, spec] of Object.entries(manifest.servers)) {
     try {
       upstreams.push(
@@ -163,10 +172,21 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
           ...(spec.env === undefined ? {} : { env: spec.env }),
         }),
       );
-    } catch {
+    } catch (error: unknown) {
       // One server that will not start is a fact about that server, not a
-      // reason the app cannot open. The tools it would have offered are
-      // simply absent, which the model is told by their absence.
+      // reason the app cannot open. But it was swallowed whole -- no event, no
+      // log, nothing in the window -- so the tools it would have offered were
+      // simply absent, and the briefing went on telling the model the server
+      // was connected. If every server failed you got a window that could do
+      // nothing and would not say why.
+      //
+      // lastWords has already cut the server's own stderr down to the line
+      // that names the fault, which is the line worth showing.
+      const why = error instanceof Error ? error.message : String(error);
+      down.push({ server: name, why });
+      // Main's stderr is where `pnpm app` and the packaged launcher both put
+      // it, so this is the one place a developer can see it immediately.
+      console.error(`synartesis: ${name} did not start -- ${why}`);
     }
   }
 
@@ -233,6 +253,7 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
     journal,
     router: live.router,
     manifest: covering,
+    down,
     runId,
     async tools() {
       const listed = await client.listTools();
