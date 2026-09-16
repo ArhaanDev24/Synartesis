@@ -20,7 +20,14 @@ You need a policy first — the app will not guess which of your tools are safe
 to let an agent use unsupervised:
 
 ```bash
-synartesis init
+synartesis install          # covers the servers your MCP client already lists
+```
+
+Or write one for a single server by hand — `init` needs a name and the command
+that starts it:
+
+```bash
+synartesis init files -- npx -y @modelcontextprotocol/server-filesystem ~/work
 ```
 
 With nothing else set up it uses Ollama on `localhost:11434`, which costs

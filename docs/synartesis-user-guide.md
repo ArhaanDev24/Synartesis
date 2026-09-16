@@ -3,7 +3,7 @@
 ## An undo layer for AI agents
 
 Every command, output and file path in this guide was run against Synartesis
-0.3.2 before it was written down.
+0.6.23 before it was written down.
 
 ---
 
@@ -60,7 +60,7 @@ synartesis --version
 ```
 
 ```
-0.3.2
+0.6.23
 ```
 
 If your shell answers `command not found`, npm's global bin directory is not on
@@ -205,11 +205,32 @@ have not checked.
 
 # Step 4. Point your AI client at Synartesis
 
-This is the step people get wrong, so it is spelled out per client.
-
-**The idea:** wherever your client currently lists an MCP server, you replace
-that entry with Synartesis. Your agent sees the same tools under the same names
+**The idea:** wherever your client currently lists an MCP server, that entry is
+replaced with Synartesis. Your agent sees the same tools under the same names
 returning the same results. Nothing about how you work changes.
+
+## The short way
+
+```
+synartesis install
+```
+
+It finds what Claude Code, Claude Desktop, Cursor and Codex already list,
+writes one policy covering all of them, and rewrites each client's config to
+point at the proxy — keeping a record of what it changed, so `synartesis
+uninstall` can put every file back exactly as it was.
+
+```
+synartesis install --dry-run    # say what it would change, change nothing
+synartesis install --print      # print the config block instead of writing it
+synartesis install --client cursor
+```
+
+Afterwards, `synartesis status` shows every client it found, which servers are
+covered, and when each was last used.
+
+The rest of this step is the same thing by hand, per client — worth reading if
+`install` did not find your client, or if you would rather see the file.
 
 ## Claude Desktop
 
@@ -782,8 +803,12 @@ approve it each time.
 | Command | Does |
 | --- | --- |
 | `synartesis` | The screen, driven with arrow keys |
+| `synartesis install` | Cover the servers your MCP client already lists |
+| `synartesis uninstall` | Put every client config back as it was |
+| `synartesis status` | Which clients were found, and what is covered |
 | `synartesis init <name> -- <command>` | Ask a server what it can do, draft a policy |
-| `synartesis check` | Confirm the policy names tools that exist |
+| `synartesis check` | Confirm the policy names tools that exist, and name any it does not cover |
+| `synartesis desktop` | Open the desktop window, or say where to get it |
 | `synartesis pin` | Print the `pins:` block for the servers you have now |
 | `synartesis list` | Every run, most recent first |
 | `synartesis show [run]` | One run, step by step, with each undo |
@@ -816,10 +841,14 @@ to it. Synartesis intercepts a protocol, not an intention.
 **It stops rather than guessing.** Undo halts at the first step it cannot
 reverse honestly, leaving a clean partial state and telling you where it stopped.
 
-**It cannot snapshot something very large.** A resource over roughly three
-megabytes cannot be read back through a stdio connection. Synartesis says so and
-refuses the write rather than applying a change it could not capture. Nothing is
-lost; the call does not go through.
+**It cannot snapshot something very large.** A resource big enough to close the
+stdio connection cannot be read back through it. There is no fixed size — the
+limit belongs to the transport, not to Synartesis, which finds it by meeting
+it. What matters is what happens next: the write is not quietly applied without
+a way back. Where your policy says what absence looks like on that server, the
+write is refused; where it does not, the call is held for a person, who is told
+the read failed and shown the server's own words. Either way nothing is
+recorded as undoable that is not.
 
 **It can only undo what the system underneath allows.** GitHub has no delete for
 issues, so creating one is guarded, not reversible. That is the shape of the

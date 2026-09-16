@@ -88,9 +88,6 @@ tools:
         path: "$.path"
         content: "$snapshot.content"
 
-  # Reversible from its arguments alone: no pre-read could say anything the
-  # arguments do not already. Drift cannot be checked for the same reason, so
-  # undo reports it as unverified.
   # Only reversible when the destination did not exist. Moving onto a file
   # that did overwrites it, and moving back afterwards restores the source and
   # leaves nothing where the destination's contents were: undo reports success

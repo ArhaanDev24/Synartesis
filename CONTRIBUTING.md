@@ -21,17 +21,17 @@ Every tool that is not a self-declared read starts as `irreversible` with a
 
 ```yaml
 tools:
-  crm.update_customer:
+  - match: "crm.update_customer"
     class: reversible
     snapshot:
-      tool: get_customer
-      args: { id: "${args.id}" }
+      tool: "crm.get_customer"
+      args: { id: "$.id" }
     inverse:
-      tool: update_customer
+      tool: "crm.update_customer"
       args:
-        id: "${args.id}"
-        plan: "${snapshot.plan}"
-        notes: "${snapshot.notes}"
+        id: "$.id"
+        plan: "$snapshot.plan"
+        notes: "$snapshot.notes"
 ```
 
 **`class`** is one of `readonly`, `reversible`, `compensable`, `irreversible`.
@@ -68,15 +68,24 @@ real undo. A policy nobody has run is a guess.
 ```bash
 corepack enable pnpm
 pnpm install
-pnpm test        # 300 tests
-pnpm lint
-pnpm typecheck
-pnpm build
+pnpm check       # build, typecheck, lint and the whole suite, in that order
 ```
 
-Node 22 or newer. `better-sqlite3` compiles native bindings, so you need a C
-toolchain: `xcode-select --install` on macOS, `apt install build-essential` on
-Debian or Ubuntu.
+Or the pieces, when you want one of them on its own:
+
+```bash
+pnpm build
+pnpm typecheck
+pnpm lint
+pnpm test
+```
+
+Node 22 or newer, which is the floor `better-sqlite3` sets — on Node 20 it does
+not fail politely, it segfaults the moment a database opens.
+
+**No C toolchain is needed.** `better-sqlite3` ships a prebuilt binary for
+every platform this runs on, and `pnpm.neverBuiltDependencies` in
+`package.json` stops node-gyp from building one that would never be loaded.
 
 Two demos double as integration tests and both should keep working:
 

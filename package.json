@@ -57,6 +57,7 @@
     "app:dist": "pnpm app:build && node app/build/pack.mjs",
     "demo": "tsup --silent && ./demo/filesystem-demo.sh",
     "demo:memory": "tsup --silent && ./demo/memory-demo.sh",
+    "check": "pnpm build && pnpm typecheck && pnpm lint && pnpm test",
     "prepublishOnly": "tsup"
   },
   "dependencies": {

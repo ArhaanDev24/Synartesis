@@ -269,6 +269,14 @@ pre code {
   color:var(--muted);
   font-size:18px;
 }
+/* Prose that follows a command block and explains it. */
+.helper {
+  color:var(--muted);
+  font-size:16px;
+  line-height:1.65;
+  max-width:62ch;
+  margin-top:14px;
+}
 .section-head h2 {
   max-width:14ch;
 }
@@ -923,10 +931,22 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
     <div class="section-head">
       <h2 class="display">Where the config goes</h2>
       <p class="lede">
-        Choose your client. Add the proxy entry, restart the client, then check that
-        its calls reach the journal. Each configuration below points at the same proxy.
+        One command does all of this for you. The configurations below are the same
+        thing by hand, for a client it did not find or if you would rather see the file.
       </p>
     </div>
+
+    <div class="terminal">
+      <div class="terminal-bar"><span>the short way</span></div>
+      <pre><code>synartesis install</code></pre>
+    </div>
+    <p class="helper">
+      It finds what Claude Code, Claude Desktop, Cursor and Codex already list, writes
+      one policy covering all of them, and points each client at the proxy — keeping a
+      record of what it changed, so <code>synartesis uninstall</code> puts every file
+      back exactly as it was. Add <code>--dry-run</code> to see what it would do first,
+      then <code>synartesis status</code> to check what is covered.
+    </p>
 
     <div class="client-options">
       <details><summary>Claude Code</summary><div class="client-body">
