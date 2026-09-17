@@ -757,6 +757,12 @@ pre code {
 .limits {
   border-top:1px solid var(--line);
 }
+.limits-head {
+  margin-bottom:28px;
+}
+.guide-link {
+  margin-top:20px;
+}
 details {
   border-bottom:1px solid var(--line);
   padding:18px 0;
@@ -1521,6 +1527,7 @@ html.js.settled .diff div { opacity:1!important; transform:none!important; clip-
 <p>After installing the desktop app, open it with <code>synartesis desktop</code> on any platform.</p>
 <p class="unsigned" style="margin-top:18px"><strong>The builds are unsigned.</strong> macOS Gatekeeper and Windows SmartScreen will block or warn on first launch. <a href="install.html#desktop-install">Read before installing ↗</a>
 </p>
+<p class="unsigned"><strong>What is checked before one is built.</strong> Every installer is produced by a workflow that first runs the whole gate — build, typecheck, lint and the entire test suite — on the tagged commit, so a binary cannot be attached to a release from code that fails its own suite. The tests run on Linux and macOS across Node 22 and 24. The Windows installer is built and <em>not</em> tested; nothing in CI exercises it, which is worth knowing before you install it.</p>
 </div>
 </div>
 </div>
@@ -1614,11 +1621,11 @@ html.js.settled .diff div { opacity:1!important; transform:none!important; clip-
 <p>Walk the run backwards, stopping where it cannot safely continue.</p>
 </div>
 </div>
-<p style="margin-top:20px"><a href="install.html">The complete setup guide ↗</a>
+<p class="guide-link"><a href="install.html">The complete setup guide ↗</a>
 </p>
 </div>
 <div><span class="eyebrow">Honest limits</span>
-<h2 style="margin-bottom:28px">Where protection<br>ends.</h2>
+<h2 class="limits-head">Where protection<br>ends.</h2>
 <div class="limits">
 <details open>
 <summary>Only calls through the proxy</summary>
@@ -1635,6 +1642,14 @@ html.js.settled .diff div { opacity:1!important; transform:none!important; clip-
 <details>
 <summary>Undo is not all-or-nothing</summary>
 <p>It walks newest first. If it stops at a conflict, changes already restored stay restored. A call still marked pending has an unknown outcome; the journal does not pretend otherwise.</p>
+</details>
+<details>
+<summary>Two of the four bundled policies have proven undo. Two have not.</summary>
+<p><b>filesystem</b> and <b>memory</b> are round-tripped against the real server in the test suite: the change is made, undone, and the result compared — byte-for-byte restoration for files, and for the knowledge graph, what the agent added gone and what was already there untouched. <b>git</b> and <b>github</b> are not. Their tools are checked to exist; nothing has run an undo through them. A policy can name every tool correctly and still resolve an inverse that restores nothing, so treat those two as untested and do not rely on them for anything you cannot afford to lose.</p>
+</details>
+<details>
+<summary>A policy saying <code>live</code> is not a promise that undo works</summary>
+<p>It says the policy has met its server and the tools take the arguments it passes them. Whether it puts anything back is a separate question that only a test against the real server answers. <code>synartesis check</code> says so under the server list rather than letting one word stand for both.</p>
 </details>
 <details>
 <summary>The journal needs looking after</summary>
