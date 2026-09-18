@@ -20,8 +20,8 @@ patches to older ones.
 
 | Version | Supported |
 |---|---|
-| 0.6.x | yes |
-| < 0.6 | no |
+| 0.8.x | yes |
+| < 0.8 | no |
 
 ## What the journal holds, and why it matters
 

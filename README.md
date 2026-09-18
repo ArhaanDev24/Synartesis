@@ -21,6 +21,17 @@ It is not a sandbox: the container your agent runs in is disposable, but the
 CRM row it updated over the network is not. It is not a tracing tool: a trace
 tells you `update_customer` ran forty times, not what the values were before.
 
+**If this is a problem you have, a star helps other people find it.** It is a
+young project, and that is most of how anybody learns it exists.
+
+**Contents** — [What it looks like](#what-it-looks-like) ·
+[Install](#install) · [The desktop window](#the-desktop-window) ·
+[What it can and cannot do](#what-it-can-and-cannot-do) ·
+[Drift](#has-anybody-touched-it-since) ·
+[What each policy is tested against](#what-each-policy-has-actually-been-tested-against) ·
+[Commands](#commands) · [What it does not do](#what-it-does-not-do) ·
+[Trust](#trust) · [Contributing](#contributing)
+
 ## What it looks like
 
 Both shots are real output from [`./demo/filesystem-demo.sh`](demo/filesystem-demo.sh),
@@ -404,6 +415,40 @@ and no CI job compiles or exercises it — the test matrix is Linux and macOS. I
 is expected to work, the code has no platform-specific paths outside
 `src/locate.ts` and `src/install/clients.ts`, and nobody has proved it. If you
 run Windows and something is wrong there, that is worth an issue.
+
+## Contributing
+
+The most useful thing you can send is a policy. Four servers ship with one;
+there are hundreds that do not. If you run one — a database, a ticketing
+system, your own — `synartesis init <name> -- <command>` drafts a
+manifest by introspecting it, and a pull request adding that draft under
+[`manifests/`](manifests) makes the tool cover a server it could not cover
+before. Say in the description whether you ran it against the real thing; that
+is what `provenance:` records, and an honest `documented` is worth more than an
+optimistic `live`.
+
+Also wanted, in rough order of how much they help:
+
+- **Windows.** The installer is built and never tested — see
+  [Development](#development). A report either way is worth an issue.
+- **A case where undo got it wrong.** The failure this project cares about most
+  is a confident wrong answer. If undo told you it reverted something and it had
+  not, that is the bug report to open.
+- **A server whose tools do not fit the four classes.** The model has held so
+  far, and the first case it cannot express is worth knowing about.
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) has the setup, and one command runs the
+same gate a pull request has to pass:
+
+```bash
+pnpm check
+```
+
+Bugs and questions go in [issues](https://github.com/ArhaanDev24/Synartesis/issues).
+Security reports do not — [`SECURITY.md`](SECURITY.md) says where those go
+instead. And if it saved you an afternoon, **[star the
+repo](https://github.com/ArhaanDev24/Synartesis)**; it costs you a click and is
+most of how a project this size gets found.
 
 ## Licence
 
