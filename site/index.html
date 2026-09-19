@@ -607,6 +607,67 @@ pre code {
   border-left:2px solid #ae796b;
   padding-left:20px;
 }
+.paths {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:1px;
+  background:var(--line);
+  border:1px solid var(--line);
+  margin-top:38px;
+}
+/* Hairlines are the gap showing through, so the grid works at any column
+   count -- which matters, because this drops to one column on a phone and a
+   per-cell border scheme would have to know that. */
+.path {
+  display:flex;
+  flex-direction:column;
+  min-width:0;
+  padding:30px 28px;
+  background:var(--white);
+  color:inherit;
+  text-decoration:none;
+}
+.path .label {
+  color:var(--wine);
+}
+.path h3 {
+  font:clamp(30px,2.6vw,38px)/1.08 var(--serif);
+  letter-spacing:-.035em;
+  margin:18px 0 12px;
+}
+.path .path-lede {
+  font:13px/1.6 var(--mono);
+  color:var(--wine);
+  margin-bottom:12px;
+}
+.path p {
+  color:var(--muted);
+  font-size:16px;
+}
+/* auto pushes it to the floor of the card, so the four commands line up
+   however many lines the copy above them runs to. */
+.path code {
+  margin-top:auto;
+  padding-top:26px;
+  color:var(--wine);
+  font-size:14px;
+}
+.path:hover h3,.path:focus-visible h3 {
+  text-decoration:underline;
+  text-underline-offset:6px;
+}
+.path:focus-visible {
+  outline:3px solid var(--wine);
+  outline-offset:-3px;
+}
+.star-ask {
+  margin-top:22px;
+  color:var(--pale);
+  font-size:17px;
+}
+.star-ask a {
+  color:var(--accent);
+}
 .mechanism {
   background:var(--white);
 }
@@ -1364,6 +1425,7 @@ html.js.settled .reveal,html.js.settled .reveal-head,
 html.js.settled .architecture .arrow,html.js.settled .gallery-image img,
 html.js.settled .diff div { opacity:1!important; transform:none!important; clip-path:none!important; transition:none!important; animation:none!important; }
 @media(max-width:800px) {
+  .paths { grid-template-columns:1fr; }
   .stage-scene { padding:26px; grid-template-columns:minmax(0,1fr) 45px minmax(0,1fr); }
   .stage-card { padding:20px; }
   .stage-row { font-size:16px; }
@@ -1494,6 +1556,15 @@ html.js.settled .diff div { opacity:1!important; transform:none!important; clip-
 </div>
 </div>
 
+<section class="section wrap" id="paths">
+<div class="section-head"><div><span class="eyebrow">Four ways in</span><h2>Choose your<br>path.</h2></div><p class="lede">The same journal and the same undo underneath all four. Start wherever you already work.</p></div>
+<div class="paths">
+<a class="path" href="install.html"><span class="label">01 / Cover what you have</span><h3>The clients on this machine</h3><p class="path-lede">One command, every client.</p><p>Finds what Claude Code, Claude Desktop, Cursor and Codex already list and points every entry at the proxy. Your config is copied aside first.</p><code>synartesis install</code></a>
+<a class="path" href="#terminal"><span class="label">02 / The screen</span><h3>Everything on the arrow keys</h3><p class="path-lede">One screen, no flags to remember.</p><p>What your agents have done, what is held for approval, every AI on the machine, and the undo for any of it.</p><code>synartesis</code></a>
+<a class="path" href="#desktop"><span class="label">03 / The desktop window</span><h3>The same engine, with a conversation</h3><p class="path-lede">Any model, including one on your own machine.</p><p>Every tool the model calls goes out through the proxy on its way, so the undo is not a feature the window implements.</p><code>synartesis desktop</code></a>
+<a class="path" href="install.html#write-a-policy"><span class="label">04 / Your own server</span><h3>A policy for anything else</h3><p class="path-lede">Four ship with a policy. Hundreds do not.</p><p>Introspect a server, draft a manifest from what it says it can do, then correct it where you know better. Undeclared tools stay held.</p><code>synartesis init crm -- ./crm-mcp</code></a>
+</div>
+</section>
 <section class="section wrap" id="proof">
 <div class="section-head"><div><span class="eyebrow">01 / The order matters</span><h2>Before the write.<br>A way back.</h2></div><p class="lede">First, keep the value that is there. Then let the agent change it. When you undo, that captured value is what comes back.</p></div>
 <figure class="undo-demo" data-motion="undo">
@@ -1683,11 +1754,12 @@ html.js.settled .diff div { opacity:1!important; transform:none!important; clip-
 <div><span class="eyebrow">ΣΥΝΑΡΤΗΣΙΣ · A fastening together</span>
 <h2>Keep hold of<br>the other end.</h2>
 <p>An agent acts. Synartesis keeps the record.</p>
+<p class="star-ask">It is a young project, and a star is most of how anybody finds out it exists. <a href="https://github.com/ArhaanDev24/Synartesis">Star it on GitHub &#8599;</a></p>
 </div>
 <div>
 <div class="install-command"><code id="footer-command">npm install -g synartesis</code><button type="button" data-copy="footer-command" aria-label="Copy npm install command">Copy</button>
 </div>
-<div class="closing-links"><a href="install.html">Set up the proxy ↗</a><a href="https://github.com/ArhaanDev24/Synartesis/releases/latest">Get the desktop app ↗</a>
+<div class="closing-links"><a href="install.html">Set up the proxy ↗</a><a href="https://github.com/ArhaanDev24/Synartesis/releases/latest">Get the desktop app ↗</a><a href="https://github.com/ArhaanDev24/Synartesis">Read the source ↗</a>
 </div>
 </div>
 </div>

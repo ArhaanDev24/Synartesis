@@ -1120,6 +1120,61 @@ args = [<span class="dim">"-y"</span>, <span class="hit">"synartesis"</span>, <s
       </li>
     </ol>
   </section>
+
+  <section id="write-a-policy">
+    <div class="section-head">
+      <h2 class="display">A server nobody has written a policy for</h2>
+      <p class="lede">
+        Four ship with one. For anything else &mdash; a database, a ticketing system, the MCP
+        server you wrote last week &mdash; start by asking the server what it has.
+      </p>
+    </div>
+
+    <ol class="setup">
+      <li>
+        <h3>Draft it from the server</h3>
+        <p>
+          <code class="inline">init</code> connects, lists every tool, and writes a manifest
+          from what the server says about itself. If it recognises the server as one that
+          already ships with a policy it adopts that instead &mdash; but only when every tool
+          that policy calls is really there, because a policy whose inverses cannot be called
+          is worse than a file of TODOs: it looks finished.
+        </p>
+        <div class="terminal">
+          <div class="terminal-bar"><span>your own server</span><span>drafted, not decided</span>
+</div>
+<pre tabindex="0" aria-label="Setup command or configuration"><span class="prompt">$</span> <span class="hit">synartesis init</span> crm -- ./crm-mcp
+
+  <span class="plate"> WROTE </span> <span class="dim">~/.synartesis/synartesis.yaml</span>
+
+  <span class="dim">Every tool is guarded until you say how to undo it.</span>
+  <span class="dim">Work through the TODOs, then point your MCP client at:</span></pre>
+        </div>
+      </li>
+
+      <li>
+        <h3>Open it, and open it up one tool at a time</h3>
+        <p>
+          A tool the server marks read-only is written <code class="inline">readonly</code>
+          with a comment telling you to check it, because that hint is a statement of intent
+          and not a guarantee. <b>Everything else lands irreversible and guarded.</b> That is
+          the safe end of the trade and the intended starting point: the draft is fail-closed,
+          and you open it up as you work out how each tool is put back.
+        </p>
+      </li>
+
+      <li>
+        <h3>Check it against the running server</h3>
+        <p>
+          <code class="inline">check</code> loads the manifest, starts every server it names,
+          and says which tools your policy covers, which it does not, and where the two
+          disagree. A policy naming a tool the server no longer has is an error, not a
+          warning &mdash; a rule that cannot fire is the kind of mistake that reads as
+          protection.
+        </p>
+      </li>
+    </ol>
+  </section>
 </main>
 <footer class="wrap colophon"><span>© 2026 Synartesis · MIT licence · Open source</span>
 <nav aria-label="Footer"><a href="https://github.com/ArhaanDev24/Synartesis">GitHub</a><a href="https://www.npmjs.com/package/synartesis">npm</a><a href="https://www.linkedin.com/in/arhaankhan143" rel="me">Arhaan Khan</a><a href="https://www.instagram.com/synartesis_in/" rel="me">Instagram</a>

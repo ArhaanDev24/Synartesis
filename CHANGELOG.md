@@ -2,6 +2,37 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.8.1 — 2026-09-19
+
+Documentation only. No code changed, and the published package behaves exactly
+as 0.8.0 did.
+
+### Changed
+
+- **The README is laid out as a page rather than a document.** Somebody
+  arriving from a link wants to know within one screen what this is, that it
+  works, and which of the four ways in is theirs. None of that was visible
+  without scrolling past four screens of prose. The top is now a centred hero,
+  a badge row and a contents bar, then **Choose your path** — four cards, one
+  per way in, each carrying the command that starts it — and a short list of
+  first results that take the least time.
+
+- **Two things came out of hiding, in the README and on the site.** The
+  interactive screen was a footnote inside Install despite being the interface
+  most people will use, and there was nothing anywhere about writing a policy
+  for a server that does not ship with one — which is the case for every server
+  but four, and the contribution most worth asking for. Both are now sections
+  of their own: `synartesis.online/install.html#write-a-policy` covers `init`
+  drafting fail-closed and `check` refusing a policy that names a tool the
+  server no longer has.
+
+- **A contributing section, and the star asked for out loud.** The README
+  explained the tool thoroughly and then stopped, with no issue link and
+  nothing a reader who agreed with it could do next.
+
+- `SECURITY.md` said the 0.6.x line was the supported one, two minors after it
+  stopped being.
+
 ## 0.8.0 — 2026-09-16
 
 ### Added
