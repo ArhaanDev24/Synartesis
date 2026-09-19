@@ -1,38 +1,79 @@
 <!-- Absolute URLs, not relative paths: this README is also the npm package
      page, and npm does not resolve relative image paths against the repo. -->
+<div align="center">
+
 [![Synartesis — an undo layer for AI agents](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-banner.png)](https://synartesis.online)
+
+**Give AI agents a way back.**
+Synartesis sits between your MCP client and the servers it talks to, records
+every tool call with the state that call replaced, and can put that state back.
+What cannot be put back, it refuses to let an agent do unsupervised.
+
+### [Install it, then read the five minutes ahead of you →](docs/synartesis-user-guide.md#the-five-minutes-ahead-of-you)
 
 [![check](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml/badge.svg)](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml)
 [![npm](https://img.shields.io/npm/v/synartesis?color=5e1420&label=npm)](https://www.npmjs.com/package/synartesis)
 [![downloads](https://img.shields.io/npm/dm/synartesis?color=5e1420&label=downloads)](https://www.npmjs.com/package/synartesis)
 [![node](https://img.shields.io/node/v/synartesis?color=5e1420)](https://nodejs.org)
 [![MIT](https://img.shields.io/badge/licence-MIT-5e1420.svg)](LICENSE)
+[![site](https://img.shields.io/badge/synartesis.online-5e1420)](https://synartesis.online)
+[![star this repo](https://img.shields.io/badge/★_star_this_repo-2c080f)](https://github.com/ArhaanDev24/Synartesis)
+
+[Choose your path](#choose-your-path) · [See it in action](#see-it-in-action) ·
+[Install](#install) · [The screen](#the-screen) ·
+[The desktop window](#the-desktop-window) ·
+[The four classes](#what-it-can-and-cannot-do) ·
+[Your own server](#writing-a-policy-for-your-own-server) ·
+[Commands](#commands) · [What it does not do](#what-it-does-not-do) ·
+[Trust](#trust) · [Contributing](#contributing)
+
+</div>
 
 An agent with write access to a real system runs twenty steps, misreads step
 seven, and applies the rest to the wrong records. Today your options are to
 reverse it by hand from the transcript, restore a backup and lose every
 legitimate change made in the same window, or accept the damage.
 
-Synartesis sits between your MCP client and the servers it talks to. It records
-every tool call with the state that call replaced, and it can put that state
-back. What cannot be put back, it refuses to let an agent do unsupervised.
-
 It is not a sandbox: the container your agent runs in is disposable, but the
 CRM row it updated over the network is not. It is not a tracing tool: a trace
 tells you `update_customer` ran forty times, not what the values were before.
 
-**If this is a problem you have, a star helps other people find it.** It is a
-young project, and that is most of how anybody learns it exists.
+**If this is a problem you have, [a star](https://github.com/ArhaanDev24/Synartesis) helps other people find it.**
+It is a young project, and that is most of how anybody learns it exists.
 
-**Contents** — [What it looks like](#what-it-looks-like) ·
-[Install](#install) · [The desktop window](#the-desktop-window) ·
-[What it can and cannot do](#what-it-can-and-cannot-do) ·
-[Drift](#has-anybody-touched-it-since) ·
-[What each policy is tested against](#what-each-policy-has-actually-been-tested-against) ·
-[Commands](#commands) · [What it does not do](#what-it-does-not-do) ·
-[Trust](#trust) · [Contributing](#contributing)
+---
 
-## What it looks like
+## Choose your path
+
+<table>
+<tr>
+<td width="50%"><a href="#install"><img src="https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-card-install.png" alt="Cover what you already have — one command, every client. Finds what Claude Code, Claude Desktop, Cursor and Codex already list and points every entry at the proxy. $ synartesis install"></a></td>
+<td width="50%"><a href="#the-screen"><img src="https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-card-screen.png" alt="The screen — everything, on the arrow keys. What your agents have done, what is held for approval, and the undo for any of it. $ synartesis"></a></td>
+</tr>
+<tr>
+<td width="50%"><a href="#the-desktop-window"><img src="https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-card-desktop.png" alt="The desktop window — the same engine, with a conversation. Talk to any model. Every tool it calls goes out through the proxy on its way. $ synartesis desktop"></a></td>
+<td width="50%"><a href="#writing-a-policy-for-your-own-server"><img src="https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-card-policy.png" alt="Your own server — four ship with a policy, hundreds do not. Introspect a server, draft a manifest from it, then correct it where you know better. $ synartesis init crm -- ./crm-mcp"></a></td>
+</tr>
+</table>
+
+**Your first result**, in the order they take the least time:
+
+- **Undo a real write:** [run the filesystem demo](demo/filesystem-demo.sh) — it
+  makes a file, has an agent overwrite it, and puts it back, in about a minute
+  and without touching anything of yours.
+- **Cover the agents on this machine:** [`synartesis install`](#install), then
+  `synartesis status` to see what is now covered and what is not.
+- **Watch one happen:** [`synartesis watch`](#commands) prints each call as it
+  goes out, and lets you answer an approval where you are standing.
+- **Ask what an agent already did:** [`synartesis show <id> --live`](#has-anybody-touched-it-since)
+  reads every resource a session touched, as it is now, and says which still match.
+
+Nothing above sends anything anywhere. The journal is a SQLite file on your
+machine, and the proxy talks only to the servers your policy names.
+
+---
+
+## See it in action
 
 Both shots are real output from [`./demo/filesystem-demo.sh`](demo/filesystem-demo.sh),
 pasted rather than typeset. An agent overwrote a file and tried to move another.
@@ -52,6 +93,9 @@ It stops at the record that moved and exits non-zero. Anything already put back
 stays put back, and it prints the three ways on: leave it, restore the resource
 and `--replan`, or `--force` to overwrite deliberately.
 
+[The desktop window](#the-desktop-window) · [What it can and cannot do](#what-it-can-and-cannot-do) · [What it does not do](#what-it-does-not-do) · [User guide](docs/synartesis-user-guide.md)
+
+---
 ## Install
 
 ```bash
@@ -78,6 +122,12 @@ installed.**
 Needs Node 22 or newer. npm ships a prebuilt SQLite binding, so no toolchain is
 required unless you build from a clone.
 
+[User guide](docs/synartesis-user-guide.md#install-it) · [Claude Desktop](docs/synartesis-user-guide.md#claude-desktop) · [Claude Code](docs/synartesis-user-guide.md#claude-code) · [Any other client](docs/synartesis-user-guide.md#any-other-mcp-client)
+
+---
+
+## The screen
+
 Then just:
 
 ```bash
@@ -85,7 +135,17 @@ synartesis
 ```
 
 One screen: what agents have done, what is held for approval, every AI on the
-machine, and undo — all on the arrow keys.
+machine, and undo — all on the arrow keys. `enter` opens a session, `u` undoes
+it, `p` previews that undo without running it, `l` reads the world as it is now,
+`f` expands every argument, `c` lists every AI on the machine, `g` shows what is
+held. Nothing in it is a second implementation: it is the same journal and the
+same planner the [commands](#commands) below use, so a session undone in the
+screen and one undone in a script end the same way.
+
+There is no mode in it that acts without telling you what it is about to do. An
+undo shows you the plan first, and a held call shows you why it is held.
+
+---
 
 ## The desktop window
 
@@ -154,6 +214,8 @@ want. The `release` workflow builds all three platforms on their own machines
 and attaches the installers to the release for a tag. Both the window and the terminal share
 one journal, so either can undo what the other did.
 
+---
+
 ## What it can and cannot do
 
 Every tool gets one of four classifications, written down in a manifest:
@@ -177,6 +239,45 @@ two: finding nothing is the reversible case, finding something is held for a
 person and recorded with no inverse, so undo says it cannot be undone rather
 than putting half of it back and calling that success.
 
+---
+
+## Writing a policy for your own server
+
+Four servers ship with a policy. For anything else — a database, a ticketing
+system, the MCP server you wrote last week — start by asking the server what it
+has:
+
+```bash
+synartesis init crm -- ./crm-mcp
+```
+
+That connects, lists every tool, and writes a manifest drafted from what the
+server says about itself. If it recognises the server as one that already ships
+with a policy, it adopts that one instead — but only when every tool the policy
+calls is actually there, because a policy whose inverses cannot be called is
+worse than a file of TODOs: it looks finished.
+
+Drafted, not decided. A tool the server marks read-only is written `readonly`
+with a comment telling you to check, since that hint is a statement of intent
+and not a guarantee; everything else lands `irreversible` and gated. The draft
+is fail-closed on purpose, and you open it up one tool at a time as you work
+out how each of them is undone.
+
+Then check it against the running server:
+
+```bash
+synartesis check
+```
+
+It loads the manifest, connects to every server it names, and says which tools
+your policy covers, which it does not, and where the two disagree. A policy
+that names a tool the server no longer has is an error, not a warning.
+
+[Writing a manifest](docs/synartesis-user-guide.md#open-the-file) · [The four classes](docs/synartesis-user-guide.md#the-four-classes) · [Checking it](docs/synartesis-user-guide.md#check-that-it-worked) · [Pinning a tool's shape](#when-the-server-changes-underneath-you)
+
+
+---
+
 ## Has anybody touched it since?
 
 Synartesis records what an agent does, not what happens to a file. Nothing you
@@ -197,6 +298,8 @@ answers. `l` in the screen does the same.
 
 If you decide the recorded value is the one worth keeping, `undo --force` prints
 every line it would write over and stops; `--force --yes` goes ahead.
+
+---
 
 ## What each policy has actually been tested against
 
@@ -222,6 +325,8 @@ Absent means no claim either way, which is the right default for a policy you
 wrote yourself: the tool has no business grading your work. Nothing is inferred
 from silence, and all three states are printed, because if silence meant "fine"
 then an ungraded policy and a known-untested one would look identical.
+
+---
 
 ## Undoing something that was never read first
 
@@ -255,6 +360,8 @@ everywhere else, and shows you the diff.
 It is consulted only where there is no read already, so it can never displace a
 working pre-read with a differently shaped one — which would make the post-state
 and the snapshot incomparable and every later comparison meaningless.
+
+---
 
 ## When the server changes underneath you
 
@@ -295,6 +402,8 @@ reads as protected and is not. Tools that no policy matches need no pin: they ar
 already fail-closed as irreversible and gated, so there is no classification for a
 schema change to corrupt.
 
+---
+
 ## Commands
 
 `synartesis desktop` opens [the window](#the-desktop-window), and says where to
@@ -320,8 +429,8 @@ get it if it is not installed.
 | `prune` | Delete sessions older than 30 days and reclaim the space |
 | `close [id]` | End a session a killed proxy left open |
 
-In the screen: `enter` opens, `u` undoes, `p` previews, `l` checks the world
-now, `f` expands, `c` shows every AI on the machine, `g` shows what is held.
+Every one of those can also be done from [the screen](#the-screen), on the
+arrow keys.
 
 `--manifest` and `--journal` are found rather than typed, from the current
 directory upwards the way a version control tool finds its root, then from
@@ -330,6 +439,8 @@ and `gates`. Exit codes: `0` succeeded, `1` halted or refused, `2` bad usage.
 
 **Full walkthrough, writing a manifest, and serving over HTTP for clients that
 cannot start a process:** see the [user guide](docs/synartesis-user-guide.md).
+
+---
 
 ## What it does not do
 
@@ -372,6 +483,8 @@ means an agent stopping mid-task on a call nobody expected. `synartesis check`
 names every such tool, and the proxy warns about them at startup, so you can
 write a policy before meeting one rather than after.
 
+---
+
 ## Trust
 
 A manifest names commands and Synartesis runs them. Treat one you did not write
@@ -397,6 +510,8 @@ or of the CLI mid-undo loses nothing; only the machine losing power can cost the
 tail of the write-ahead log. `SYNARTESIS_SYNC=full` asks for an fsync per commit
 instead — worth it where fsync is cheap, and measurably not where it is not.
 
+---
+
 ## Development
 
 ```bash
@@ -415,6 +530,8 @@ and no CI job compiles or exercises it — the test matrix is Linux and macOS. I
 is expected to work, the code has no platform-specific paths outside
 `src/locate.ts` and `src/install/clients.ts`, and nobody has proved it. If you
 run Windows and something is wrong there, that is worth an issue.
+
+---
 
 ## Contributing
 
@@ -449,6 +566,8 @@ Security reports do not — [`SECURITY.md`](SECURITY.md) says where those go
 instead. And if it saved you an afternoon, **[star the
 repo](https://github.com/ArhaanDev24/Synartesis)**; it costs you a click and is
 most of how a project this size gets found.
+
+---
 
 ## Licence
 

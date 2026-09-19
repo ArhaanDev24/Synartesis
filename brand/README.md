@@ -12,12 +12,16 @@ and GitHub serves them straight out of this directory:
 | `synartesis-desktop-dark.png` | README.md, the same window in the other theme |
 | `synartesis-desktop-approval.png` | README.md, a call held for approval |
 | `synartesis-desktop-undo.png` | README.md, the two-step undo |
+| `synartesis-card-install.png` | README.md, "Choose your path" |
+| `synartesis-card-screen.png` | README.md, "Choose your path" |
+| `synartesis-card-desktop.png` | README.md, "Choose your path" |
+| `synartesis-card-policy.png` | README.md, "Choose your path" |
 | `synartesis-social-github.png` | the repo's social preview card |
 | `synartesis-mark-1080.png` | the mark, used by the cards above |
 | `synartesis-logo.svg` | the mark itself, generated; the source of all of the above |
 | `synartesis-mark.svg` | the same glyph filled, for small sizes and the site |
 
-Delete this directory and the README shows seven broken images.
+Delete this directory and the README shows eleven broken images.
 
 **The four desktop shots exist twice**, here and as `site/assets/*-v1.png`, and
 the copies are byte-identical. That is not an accident to be tidied away: the
@@ -34,7 +38,19 @@ directory that shows the mark shows that file. Drawing it a second time is
 exactly how one logo becomes three that nearly match, which is what had
 happened: the window, the icon and these cards each had their own.
 
-Each `.html` file is the source of the PNG beside it. They are HTML because
+**The four cards share one stylesheet.** `readme-card.css` holds the whole
+design and each `readme-card-*.html` holds only its words, because the cards
+are a set: four copies of the same CSS is how a set ends up a hairline apart in
+padding. They are shot at 640x420, scale 2 — GitHub lays them out two to a row
+at roughly 430px each, and 2x is what keeps the small type from mushing.
+
+```bash
+for n in install screen desktop policy; do
+  node brand/shoot.mjs brand/readme-card-$n.html brand/synartesis-card-$n.png 640 420 2
+done
+```
+
+Each other `.html` file is the source of the PNG beside it. They are HTML because
 the type is: Cormorant Garamond and IBM Plex Mono from Google Fonts, and the
 meander as a CSS mask, exactly as the site draws them. To rebuild one:
 

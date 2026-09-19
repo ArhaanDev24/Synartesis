@@ -1,0 +1,63 @@
+/* Shared by the four "Choose your path" cards in README.md.
+
+   One stylesheet rather than four copies: the cards are a set, and a set that
+   drifts a hairline apart in padding is worse than one that is plainly the
+   same. Each card's .html holds only its words.
+
+   Shot at 640x420, scale 2. GitHub lays the four out two to a row at roughly
+   430px each, so 2x is what keeps the small type from mushing. */
+:root {
+  --ground: #5e1420;
+  --panel: #2c080f;
+  --ink: #f6e9e5;
+  --ink-soft: color-mix(in srgb, var(--ink) 74%, var(--panel));
+  --ink-faint: color-mix(in srgb, var(--ink) 50%, var(--panel));
+  --accent: #e8927f;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --display: "Cormorant Garamond", "Times New Roman", serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--ground); }
+
+.card {
+  width: 640px; height: 420px;
+  background: var(--ground); padding: 30px;
+  position: relative; overflow: hidden;
+}
+.panel {
+  height: 100%; background: var(--panel); padding: 36px 40px 32px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+h1 {
+  font-family: var(--display); font-weight: 300; font-size: 46px;
+  line-height: 1.02; color: var(--ink); margin: 0;
+}
+.lede {
+  font-family: var(--mono); font-size: 17px; line-height: 1.5;
+  letter-spacing: 0.02em; color: var(--accent); margin: 0;
+}
+.body {
+  font-family: var(--display); font-weight: 300; font-size: 24px;
+  line-height: 1.32; color: var(--ink-soft); margin: 0;
+}
+/* Pushes the command to the floor of the panel whatever the copy above runs to,
+   so the four cards agree on where the command sits. */
+.command {
+  margin: auto 0 0; font-family: var(--mono); font-size: 18px;
+  letter-spacing: 0.03em; color: var(--ink-faint); white-space: nowrap;
+}
+.command b { color: var(--ink); font-weight: 500; }
+.command .prompt { margin-right: 0.7em; }
+
+/* The banner's meander, along the foot of every card, so the set reads as one
+   family with the header rather than four unrelated tiles. */
+.fret {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 28px;
+  background-color: var(--ink); opacity: 0.3;
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+  -webkit-mask-repeat: repeat-x; mask-repeat: repeat-x;
+  -webkit-mask-position: left bottom; mask-position: left bottom;
+  -webkit-mask-size: 28px 28px; mask-size: 28px 28px;
+}
