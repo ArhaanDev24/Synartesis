@@ -2,6 +2,48 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.8.3 — 2026-09-20
+
+Documentation, brand and repository furniture. No code changed, and the
+published package behaves exactly as 0.8.2 did.
+
+0.8.2 was tagged and never published to npm; this goes out in its place rather
+than publishing a tarball whose README differs from what its own tag points
+at.
+
+### Added
+
+- **Two drawings that move.** The README could say the value is kept before
+  the write and could show the result afterwards, and had no way to show the
+  sequence in between — which is the whole design. `synartesis-path-loop.svg`
+  draws where the proxy sits, which the README had described in prose and
+  never drawn at all; `synartesis-undo-loop.svg` is the three phases of an
+  undo. Hand-written SVG rather than GIF: two hundred times less weight and no
+  fuzziness on a retina screen, at the cost of the brand faces, since a
+  browser gives an SVG inside an `<img>` no network and blocks the webfont
+  import. Both carry their own ground so they read in either of GitHub's
+  themes, and both answer `prefers-reduced-motion` by settling on the end
+  state rather than disappearing.
+
+- **A wiki, and a sponsor button.** Four pages that deliberately do not repeat
+  the documentation — a policy cookbook whose every example was run through
+  the real manifest loader first, troubleshooting organised by the symptom in
+  front of you, an FAQ, and a home page saying what lives where. Discussions
+  opened with a thread saying what is actually proven. Ko-fi produces the
+  button today; `github:` is in `FUNDING.yml` and starts working the moment
+  that account is enrolled.
+
+### Changed
+
+- **The README's navigation is buttons rather than blue text.** The top was a
+  hand-written contents bar of eleven in-page anchors, most of which
+  duplicated GitHub's own table-of-contents button. One row of six now points
+  at the places somebody actually leaves for, with the status badges at half
+  the size underneath. Two details that had made the row look accidental: the
+  Actions badge is a different height from a flat-square row, and shields
+  picks text colour by background brightness, which had put white on the one
+  button meant to stand out.
+
 ## 0.8.2 — 2026-09-20
 
 ### Added
