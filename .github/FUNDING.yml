@@ -1,7 +1,12 @@
 # The Sponsor button on the repository page.
 #
-# This does nothing until the account below is enrolled at
-# https://github.com/sponsors -- GitHub ignores an entry naming an account
-# that cannot be sponsored, so the button simply does not appear. Enrol and it
-# turns on with no further change here.
+# GitHub ignores an entry it cannot resolve, so an account that is not yet
+# enrolled at https://github.com/sponsors simply does not produce a button.
+# Enrol and this turns on with no further change here.
 github: [ArhaanDev24]
+
+# Ko-fi and Buy Me a Coffee need no identity or bank onboarding, so they work
+# the moment a handle is filled in. Left commented rather than guessed: a
+# wrong handle here does not fail, it quietly routes money to somebody else.
+# ko_fi: your-handle
+# buy_me_a_coffee: your-handle
