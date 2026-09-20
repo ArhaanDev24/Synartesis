@@ -1,0 +1,7 @@
+# The Sponsor button on the repository page.
+#
+# This does nothing until the account below is enrolled at
+# https://github.com/sponsors -- GitHub ignores an entry naming an account
+# that cannot be sponsored, so the button simply does not appear. Enrol and it
+# turns on with no further change here.
+github: [ArhaanDev24]

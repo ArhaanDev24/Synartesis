@@ -27,6 +27,8 @@ What cannot be put back, it refuses to let an agent do unsupervised.
 [Commands](#commands) · [What it does not do](#what-it-does-not-do) ·
 [Trust](#trust) · [Contributing](#contributing)
 
+[Discussions](https://github.com/ArhaanDev24/Synartesis/discussions) · [Wiki](https://github.com/ArhaanDev24/Synartesis/wiki) · [User guide](docs/synartesis-user-guide.md) · [Changelog](CHANGELOG.md)
+
 </div>
 
 An agent with write access to a real system runs twenty steps, misreads step
@@ -573,11 +575,17 @@ same gate a pull request has to pass:
 pnpm check
 ```
 
-Bugs and questions go in [issues](https://github.com/ArhaanDev24/Synartesis/issues).
-Security reports do not — [`SECURITY.md`](SECURITY.md) says where those go
-instead. And if it saved you an afternoon, **[star the
-repo](https://github.com/ArhaanDev24/Synartesis)**; it costs you a click and is
-most of how a project this size gets found.
+**Where each thing goes.** A bug is an [issue](https://github.com/ArhaanDev24/Synartesis/issues). A question, an
+idea, or something you built with it is a
+[discussion](https://github.com/ArhaanDev24/Synartesis/discussions). A policy you wrote for a server that does not
+ship with one, a symptom you worked out, or an answer worth keeping goes in the
+[wiki](https://github.com/ArhaanDev24/Synartesis/wiki), which anybody can edit — it holds the things that are
+better off community-maintained, and deliberately does not repeat the
+documentation. A vulnerability goes in none of those:
+[`SECURITY.md`](SECURITY.md) says where.
+
+And if it saved you an afternoon, **[star the repo](https://github.com/ArhaanDev24/Synartesis)**; it costs you a
+click and is most of how a project this size gets found.
 
 ---
 
