@@ -46,6 +46,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The gate below is `pnpm check`, which includes the git adapter proof,
+      # which needs uvx because mcp-server-git is a Python package. check.yml
+      # grew this and this file did not, so every tag since the proof landed
+      # has failed here -- correctly, and for a reason that was about the
+      # runner rather than the commit. Only where the gate actually runs.
+      - if: matrix.os == 'ubuntu-latest'
+        uses: astral-sh/setup-uv@v5
+
       # Before anything is built, let alone attached to a release. Tagging
       # runs this workflow directly, so without a gate here it was possible to
       # produce and publish signed installers from a commit that fails CI --
