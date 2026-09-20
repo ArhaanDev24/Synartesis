@@ -593,7 +593,9 @@ documentation. A vulnerability goes in none of those:
 [`SECURITY.md`](SECURITY.md) says where.
 
 And if it saved you an afternoon, **[star the repo](https://github.com/ArhaanDev24/Synartesis)**; it costs you a
-click and is most of how a project this size gets found.
+click and is most of how a project this size gets found. If it saved you more
+than that, there is [a tip jar](https://ko-fi.com/synartesis) — entirely
+optional, and nothing here is behind it.
 
 ---
 
