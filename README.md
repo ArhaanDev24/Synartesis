@@ -463,12 +463,24 @@ cannot start a process:** see the [user guide](docs/synartesis-user-guide.md).
   resolved when the call happens, so a mistake in a manifest is baked into every
   run made under it. `undo --replan` rebuilds them from a corrected one.
 
-Two bundled policies are tested against the real server, by making the change
+Three bundled policies are tested against the real server, by making the change
 and undoing it. **filesystem**: exact byte-for-byte restoration, drift refusal,
 and absence told apart from a read that failed. **memory**: the graph is put
 back as it was, entities the agent only tried to create are left alone, and a
-delete of an entity is held rather than approximated. **git and github** are
-checked only for tool existence — their recovery guarantees are not yet proven.
+delete of an entity is held rather than approximated.
+
+**git** is the narrowest of the three, because the policy is: this server
+exposes nothing that can restore content, so there is no restoration to prove.
+What is proven is what it does claim — staging is taken back off the index and
+the working tree is left alone; a commit is held rather than approximated; a
+branch switch goes through and is reported as something undo cannot take back.
+And the overreach is pinned too: this server's reset unstages *everything*, so
+undoing the agent's `git_add` also unstages work a person staged by hand. That
+is why it is recorded as a compensation and not an undo, and there is now a
+test that fails if it ever gets described as one.
+
+**github** is checked only for tool existence — its recovery guarantees are not
+proven.
 
 All three of filesystem, memory and git declare `provenance: live`, and that
 word is narrower than it looks: it says the policy has met its server and the

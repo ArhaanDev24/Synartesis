@@ -2,6 +2,44 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.8.2 — 2026-09-20
+
+### Added
+
+- **The git policy's undo is proven, not just plausible.** `check` starts the
+  server and confirms every tool the policy names exists, which proves the
+  policy loads and proves nothing about recovery: a compensation can resolve to
+  a real tool, take the arguments that tool really wants, put nothing back, and
+  report `rolled_back`. So `tests/adapter-git.test.ts` stages real changes in a
+  real repository, undoes them, and reads the index back with git itself rather
+  than through the server being tested.
+
+  It is a narrower claim than the filesystem and memory files make, and that is
+  the policy's shape rather than the test's. This server exposes nothing that
+  restores content — nearly every read it offers answers in prose written for a
+  person, so almost nothing can be inverted from a captured state — which
+  leaves exactly one compensation to prove. Proven: staging comes back off the
+  index and the working tree is untouched; a commit is held rather than
+  approximated; a branch switch goes through and undo reports it as permanent
+  instead of claiming to have reversed it.
+
+  **The overreach is pinned too.** This server's `git_reset` unstages
+  everything, not only what the call staged, so undoing the agent's `git_add`
+  also unstages work a person staged by hand. Nothing is lost — both edits are
+  still in the working tree — but it is a compensation and not an undo, and the
+  test now fails if the policy is ever changed to imply otherwise. Every guard
+  in the file was broken in turn to confirm it bites.
+
+  CI installs `uv`, because mcp-server-git is a Python package. Without it that
+  file fails rather than skipping, deliberately: a proof that quietly does not
+  run leaves the suite green and the claim unsupported.
+
+### Changed
+
+- The README, the user guide and the site said git was "checked only for tool
+  existence". That was true when written and is not now, so all three say what
+  is actually proven and what still is not. **github** remains untested.
+
 ## 0.8.1 — 2026-09-19
 
 Documentation only. No code changed, and the published package behaves exactly

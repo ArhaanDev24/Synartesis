@@ -1732,8 +1732,8 @@ html.js.settled .diff div { opacity:1!important; transform:none!important; clip-
 <p>It walks newest first. If it stops at a conflict, changes already restored stay restored. A call still marked pending has an unknown outcome; the journal does not pretend otherwise.</p>
 </details>
 <details>
-<summary>Two of the four bundled policies have proven undo. Two have not.</summary>
-<p><b>filesystem</b> and <b>memory</b> are round-tripped against the real server in the test suite: the change is made, undone, and the result compared — byte-for-byte restoration for files, and for the knowledge graph, what the agent added gone and what was already there untouched. <b>git</b> and <b>github</b> are not. Their tools are checked to exist; nothing has run an undo through them. A policy can name every tool correctly and still resolve an inverse that restores nothing, so treat those two as untested and do not rely on them for anything you cannot afford to lose.</p>
+<summary>Three of the four bundled policies are round-tripped. One is not.</summary>
+<p><b>filesystem</b> and <b>memory</b> are round-tripped against the real server in the test suite: the change is made, undone, and the result compared — byte-for-byte restoration for files, and for the knowledge graph, what the agent added gone and what was already there untouched. <b>git</b> is round-tripped for the one thing it can do: that server exposes no tool that restores content, so the policy holds a single compensation, and the test proves staging comes back off the index with the working tree untouched, a commit is held, and a branch switch goes through and is reported as something undo cannot take back. It also pins the overreach — this server's reset unstages everything, so undoing the agent's staging unstages a person's too, which is why it is recorded as a compensation and not an undo. <b>github</b> is not tested at all: its tools are checked to exist and nothing has run an undo through them, so treat it as untested and do not rely on it for anything you cannot afford to lose.</p>
 </details>
 <details>
 <summary>A policy saying <code>live</code> is not a promise that undo works</summary>

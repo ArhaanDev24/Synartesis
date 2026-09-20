@@ -29,6 +29,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # mcp-server-git is a Python package, so the git adapter proof needs uvx
+      # the way the other two need node_modules. Without it that file fails
+      # rather than skipping, deliberately: a proof that quietly does not run
+      # leaves the suite green and the claim unsupported.
+      - uses: astral-sh/setup-uv@v5
+
       # Build first and prove the built proxy actually starts. When a spawned
       # child dies its stderr is easy to lose inside a test runner, and the
       # failure then looks like an unhelpful "connection closed".

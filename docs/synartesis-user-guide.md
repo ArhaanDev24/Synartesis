@@ -646,16 +646,28 @@ name and every argument and still record an inverse that restores nothing, and
 that failure only shows up at the moment somebody needs it.
 
 Of the four policies that ship, `filesystem`, `git` and `memory` say `live`.
-Two of those have been round-tripped end to end — the change made against the
+All three have now been round-tripped end to end — the change made against the
 real server and then undone, with the result compared. **filesystem**:
 byte-for-byte restoration, drift refusal, and absence told apart from a read
 that failed. **memory**: the graph put back as it was, an entity the agent only
 tried to create left alone, and a delete of an entity held rather than
 approximated.
 
-`git` is checked for tool existence and nothing further, so treat undo on it as
-untested. If your agent does something to a repository that you cannot afford
-to lose, do not rely on this to get it back yet.
+**git** is round-tripped for the one thing it can do and no more. That server
+exposes no tool that restores content — nearly every read it offers answers in
+prose written for a person, so almost nothing can be inverted from a captured
+state — which means the policy has exactly one compensation in it, and the test
+covers that one plus the two gates around it. Staging is taken back off the
+index with the working tree untouched; a commit is held; a branch switch goes
+through and undo reports it as permanent rather than claiming to have reversed
+it. The overreach is pinned as well: this server's reset unstages everything,
+so undoing the agent's `git_add` unstages a person's hand-staged work with it.
+Nothing is lost when that happens — every edit is still in the working tree —
+but it is a compensation and not an undo, and the test fails if the policy is
+ever changed to imply otherwise.
+
+If your agent commits or checks out something you cannot afford to lose, the
+answer is still git's own reflog, not this.
 
 `github` says `documented`: it has never been run against a real account. If you
 use it, run `synartesis check` against your own token and expect to correct

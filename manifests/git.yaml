@@ -1,6 +1,9 @@
 # Policy for mcp-server-git, the official git server, run through uvx.
 #
-# Verified against the real server on a real repository.
+# Verified against the real server on a real repository, and round-tripped by
+# tests/adapter-git.test.ts: the one compensation below is run and its effect
+# read back with git itself, and both gates are checked from both ends. Change
+# a class or a gate here and that file fails.
 #
 # The finding worth carrying away from writing this one: nearly every read this
 # server offers answers in prose meant for a person -- git_status says "On
