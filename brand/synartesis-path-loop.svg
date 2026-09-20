@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 260" width="1200" height="260" role="img"
+     aria-label="A tool call travels from your agent to Synartesis, which writes the prior state to a local journal before forwarding the call to your tools and systems. Nothing leaves the machine except the call itself.">
+<title>Between intent and consequence</title>
+
+<!--
+  Where Synartesis sits, which the README described in prose and never drew.
+
+  Same constraints as the undo loop beside it: served through an <img>, so no
+  webfonts, no script, generic families only, and its own ground so it reads
+  in either of GitHub's themes. One 6s timeline shared by every rule.
+-->
+
+<defs>
+  <pattern id="fret2" width="28" height="28" patternUnits="userSpaceOnUse">
+    <g fill="none" stroke="#f6e9e5" stroke-opacity=".3" stroke-width="2">
+      <path d="M0 27 H28"/>
+      <path d="M4 27 V5 H23 V20 H12 V12 H17"/>
+    </g>
+  </pattern>
+</defs>
+
+<style>
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+  .disp { font-family: Georgia, "Times New Roman", serif; }
+  .ink { fill: #f6e9e5; }
+  .faint { fill: #a8807c; }
+  .accent { fill: #e8927f; }
+
+  .anim { animation-duration: 6s; animation-iteration-count: infinite; animation-timing-function: linear; }
+
+  /* The call, crossing the proxy on its way out. */
+  #call { animation-name: call; opacity: 0; }
+  @keyframes call {
+    0%,4% { opacity: 0; transform: translateX(0) }
+    8% { opacity: 1; transform: translateX(0) }
+    40% { opacity: 1; transform: translateX(316px) }
+    58% { opacity: 1; transform: translateX(316px) }
+    90% { opacity: 1; transform: translateX(632px) }
+    94%,100% { opacity: 0; transform: translateX(632px) }
+  }
+
+  /*
+   * The capture, which is the point of the whole diagram: it fires while the
+   * call is stopped at the proxy, never before it arrives and never after it
+   * has gone on. Read the timings against #call above -- the call sits still
+   * between 40% and 58%, and this lives inside that window.
+   */
+  #drop { animation-name: drop; opacity: 0; }
+  @keyframes drop {
+    0%,42% { opacity: 0; transform: translateY(0) }
+    46% { opacity: 1; transform: translateY(0) }
+    56% { opacity: 1; transform: translateY(50px) }
+    60%,100% { opacity: 0; transform: translateY(50px) }
+  }
+  #kept { animation-name: kept; opacity: .25; }
+  @keyframes kept { 0%,57% { opacity: .25 } 61%,96% { opacity: 1 } 100% { opacity: .25 } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .anim { animation: none }
+    #call, #drop { opacity: 0 }
+    #kept { opacity: 1 }
+  }
+</style>
+
+<rect width="1200" height="260" fill="#5e1420"/>
+
+<text class="mono accent" x="60" y="42" font-size="15" letter-spacing="2.4">BETWEEN INTENT AND CONSEQUENCE</text>
+
+<!-- The track everything travels on. -->
+<path d="M240 104 H960" stroke="#a8807c" stroke-width="1.5" opacity=".45" fill="none"/>
+
+<!-- Your agent -->
+<g>
+  <rect x="60" y="76" width="180" height="56" fill="#2c080f"/>
+  <text class="mono ink" x="150" y="110" font-size="16" text-anchor="middle">your agent</text>
+</g>
+
+<!--
+  The proxy. Taller than the boxes either side, with the name above the wire
+  and the caption below it, because the call has to be able to stop inside
+  this box without sitting on top of the word.
+-->
+<g>
+  <rect x="510" y="52" width="180" height="104" fill="#f6e9e5"/>
+  <text class="disp" x="600" y="80" font-size="25" text-anchor="middle" fill="#5e1420">Synartesis</text>
+  <text class="mono" x="600" y="142" font-size="11" letter-spacing="1.6" text-anchor="middle" fill="#8a5a56">CAPTURE, THEN FORWARD</text>
+</g>
+
+<!-- Your tools -->
+<g>
+  <rect x="960" y="76" width="180" height="56" fill="#2c080f"/>
+  <text class="mono ink" x="1050" y="110" font-size="16" text-anchor="middle">your tools</text>
+</g>
+
+<!-- The journal, under the proxy and nowhere near the wire. -->
+<g id="kept" class="anim">
+  <rect x="510" y="176" width="180" height="46" fill="#2c080f"/>
+  <text class="mono faint" x="600" y="196" font-size="11" letter-spacing="1.6" text-anchor="middle">LOCAL JOURNAL</text>
+  <text class="mono ink" x="600" y="213" font-size="13" text-anchor="middle">the state it replaced</text>
+</g>
+<path d="M600 156 V176" stroke="#a8807c" stroke-width="1.5" opacity=".35" fill="none" stroke-dasharray="3 5"/>
+
+<!-- The call itself. Nested, because a CSS transform replaces the attribute. -->
+<g transform="translate(246 104)">
+  <g id="call" class="anim">
+    <rect x="0" y="-13" width="112" height="26" fill="#e8927f"/>
+    <text class="mono" x="56" y="5" font-size="14" text-anchor="middle" fill="#2c080f">write_file</text>
+  </g>
+</g>
+
+<!-- What it leaves behind on the way past. -->
+<g transform="translate(594 122)">
+  <g id="drop" class="anim">
+    <rect x="0" y="0" width="12" height="12" fill="#e8927f"/>
+  </g>
+</g>
+
+<text class="mono faint" x="60" y="246" font-size="13" letter-spacing="1.2">NOTHING LEAVES THE MACHINE EXCEPT THE CALL ITSELF</text>
+<rect x="1000" y="232" width="200" height="28" fill="url(#fret2)"/>
+</svg>

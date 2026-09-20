@@ -40,6 +40,8 @@ It is not a sandbox: the container your agent runs in is disposable, but the
 CRM row it updated over the network is not. It is not a tracing tool: a trace
 tells you `update_customer` ran forty times, not what the values were before.
 
+![Where Synartesis sits: a tool call goes from your agent through the proxy, which writes the state it is about to replace into a local journal, and on to your tools](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-path-loop.svg)
+
 **If this is a problem you have, [a star](https://github.com/ArhaanDev24/Synartesis) helps other people find it.**
 It is a young project, and that is most of how anybody learns it exists.
 
@@ -77,7 +79,13 @@ machine, and the proxy talks only to the servers your policy names.
 
 ## See it in action
 
-Both shots are real output from [`./demo/filesystem-demo.sh`](demo/filesystem-demo.sh),
+**The order is the whole design.** The value is kept *before* the write, which
+is what makes putting it back possible at all — and it is the one thing a
+screenshot cannot show:
+
+![Capture, change, put back: the value 412,800 is copied into the journal before the agent writes North to 0, and the captured copy is what comes back](https://raw.githubusercontent.com/ArhaanDev24/Synartesis/main/brand/synartesis-undo-loop.svg)
+
+Both shots below are real output from [`./demo/filesystem-demo.sh`](demo/filesystem-demo.sh),
 pasted rather than typeset. An agent overwrote a file and tried to move another.
 One command puts the first back and reports that the second never happened:
 

@@ -12,6 +12,8 @@ and GitHub serves them straight out of this directory:
 | `synartesis-desktop-dark.png` | README.md, the same window in the other theme |
 | `synartesis-desktop-approval.png` | README.md, a call held for approval |
 | `synartesis-desktop-undo.png` | README.md, the two-step undo |
+| `synartesis-path-loop.svg` | README.md, where the proxy sits (animated) |
+| `synartesis-undo-loop.svg` | README.md, "See it in action" (animated) |
 | `synartesis-card-install.png` | README.md, "Choose your path" |
 | `synartesis-card-screen.png` | README.md, "Choose your path" |
 | `synartesis-card-desktop.png` | README.md, "Choose your path" |
@@ -21,7 +23,7 @@ and GitHub serves them straight out of this directory:
 | `synartesis-logo.svg` | the mark itself, generated; the source of all of the above |
 | `synartesis-mark.svg` | the same glyph filled, for small sizes and the site |
 
-Delete this directory and the README shows eleven broken images.
+Delete this directory and the README shows thirteen broken images.
 
 **The four desktop shots exist twice**, here and as `site/assets/*-v1.png`, and
 the copies are byte-identical. That is not an accident to be tidied away: the
@@ -49,6 +51,34 @@ for n in install screen desktop policy; do
   node brand/shoot.mjs brand/readme-card-$n.html brand/synartesis-card-$n.png 640 420 2
 done
 ```
+
+**The two animated SVGs are written by hand, not shot.** They go into the
+README as `<img>`, and inside an `<img>` a browser gives an SVG no network and
+no script: an `@import` for a webfont is blocked, so the type silently falls
+back. They therefore name generic families only, which is why they look like
+system type rather than like everything else here — the alternative is a GIF
+that weighs two hundred times as much and goes fuzzy on a retina screen.
+
+Both carry their own ground rather than letting the page's show through, so
+they read the same in GitHub's light and dark themes. Each runs one shared
+timeline (10s for the undo loop, 6s for the path) with every phase written as
+a percentage of it, because three animations with their own durations is how a
+sequence ends up half a beat out. Both answer `prefers-reduced-motion` by
+settling on the end state rather than by vanishing.
+
+Two things that will bite you editing them:
+
+- **`--` is illegal inside an XML comment.** An em-dash written the way the
+  rest of this repository writes one makes the file unparseable, and the
+  README shows a broken image rather than an error.
+- **A CSS `transform` replaces an element's `transform` attribute** instead of
+  composing with it, so an animated node has to sit inside a separate group
+  that does the positioning. Animating the positioned group directly sends it
+  to the top-left corner.
+
+To look at one phase rather than guessing, add
+`animation-delay: -4.5s; animation-play-state: paused;` to the shared rule and
+render it; that is how every frame in these two was checked.
 
 Each other `.html` file is the source of the PNG beside it. They are HTML because
 the type is: Cormorant Garamond and IBM Plex Mono from Google Fonts, and the

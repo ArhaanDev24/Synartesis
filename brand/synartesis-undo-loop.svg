@@ -1,0 +1,165 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 404" width="1200" height="404" role="img"
+     aria-label="Three phases of an undo. One: the value 412,800 is copied from report.txt into the local journal before anything changes. Two: the agent writes North to 0. Three: the captured value is put back and the file reads 412,800 again.">
+<title>Capture, change, put back</title>
+
+<!--
+  The README's one moving picture, and the only thing in the repository that
+  explains the order in under ten seconds: the value is kept BEFORE the write,
+  which is the whole design and the thing a still screenshot cannot show.
+
+  Rendered by GitHub through an <img>, so: no webfonts (an @import is blocked
+  in that context and the type silently falls back anyway), no script, and no
+  external anything. Generic families only, CSS keyframes rather than SMIL,
+  and one 10s timeline every element shares so the phases cannot drift apart.
+
+  It carries its own ground rather than inheriting the page's, so it reads the
+  same in GitHub's light and dark themes — an SVG that relies on the reader's
+  background is the classic unreadable-in-one-theme bug.
+-->
+
+<defs>
+  <!-- The banner's meander, as a tile rather than a mask. -->
+  <pattern id="fret" width="28" height="28" patternUnits="userSpaceOnUse">
+    <g fill="none" stroke="#f6e9e5" stroke-opacity=".3" stroke-width="2">
+      <path d="M0 27 H28"/>
+      <path d="M4 27 V5 H23 V20 H12 V12 H17"/>
+    </g>
+  </pattern>
+</defs>
+
+<style>
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace; }
+  .disp { font-family: Georgia, "Times New Roman", serif; }
+  .ink { fill: #f6e9e5; }
+  .soft { fill: #d8bdb7; }
+  .faint { fill: #a8807c; }
+  .accent { fill: #e8927f; }
+  .good { fill: #8fc4a3; }
+
+  /*
+   * One duration on every rule. The phases are expressed as percentages of
+   * it, so a change to the pace is a change in one place — three animations
+   * each with their own seconds is how a sequence ends up half a beat out.
+   */
+  .step, .packet, .swap, .tick { animation-duration: 10s; animation-iteration-count: infinite; animation-timing-function: linear; }
+
+  /* Phase labels: exactly one legible at a time. */
+  .step { opacity: 0; }
+  #s1 { animation-name: s1; }
+  #s2 { animation-name: s2; }
+  #s3 { animation-name: s3; }
+  @keyframes s1 { 0%,2% { opacity: 0 } 4%,26% { opacity: 1 } 29%,100% { opacity: 0 } }
+  @keyframes s2 { 0%,28% { opacity: 0 } 31%,50% { opacity: 1 } 53%,100% { opacity: 0 } }
+  @keyframes s3 { 0%,52% { opacity: 0 } 55%,88% { opacity: 1 } 91%,100% { opacity: 0 } }
+
+  /* The copy going into the journal, and the one coming back out. */
+  #out { animation-name: out; opacity: 0; }
+  #back { animation-name: back; opacity: 0; }
+  @keyframes out {
+    0%,6% { opacity: 0; transform: translateX(0) }
+    9% { opacity: 1; transform: translateX(0) }
+    20% { opacity: 1; transform: translateX(700px) }
+    23%,100% { opacity: 0; transform: translateX(700px) }
+  }
+  @keyframes back {
+    0%,57% { opacity: 0; transform: translateX(0) }
+    60% { opacity: 1; transform: translateX(0) }
+    72% { opacity: 1; transform: translateX(-700px) }
+    75%,100% { opacity: 0; transform: translateX(-700px) }
+  }
+
+  /* The file's own value. Original, then zeroed, then original again. */
+  #was { animation-name: was; }
+  #now { animation-name: now; opacity: 0; }
+  @keyframes was { 0%,33% { opacity: 1 } 36%,73% { opacity: 0 } 76%,100% { opacity: 1 } }
+  @keyframes now { 0%,33% { opacity: 0 } 36%,73% { opacity: 1 } 76%,100% { opacity: 0 } }
+
+  /* What the journal is holding, which is nothing until it has been handed it. */
+  #held { animation-name: held; opacity: 0; }
+  @keyframes held { 0%,19% { opacity: 0 } 22%,94% { opacity: 1 } 97%,100% { opacity: 0 } }
+
+  #restored { animation-name: tick; opacity: 0; }
+  @keyframes tick { 0%,74% { opacity: 0 } 77%,94% { opacity: 1 } 97%,100% { opacity: 0 } }
+
+    /*
+   * Motion here is explanatory rather than decorative, so with it suppressed
+   * the picture has to still say something. It settles on the end state: the
+   * value back in the file and the journal still holding its copy.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    .step, .packet, .swap, .tick { animation: none }
+    #s1, #s2, #out, #back, #now { opacity: 0 }
+    #s3, #was, #held, #restored { opacity: 1 }
+  }
+</style>
+
+<rect width="1200" height="404" fill="#5e1420"/>
+
+<!-- Phase caption -->
+<g class="mono" font-size="15" letter-spacing="2.4">
+  <text id="s1" class="step accent" x="60" y="52">01 / CAPTURE — KEEP WHAT IS THERE, BEFORE THE WRITE</text>
+  <text id="s2" class="step accent" x="60" y="52">02 / CHANGE — THE AGENT WRITES NORTH TO 0</text>
+  <text id="s3" class="step accent" x="60" y="52">03 / PUT BACK — THE CAPTURED VALUE RETURNS</text>
+</g>
+
+<!-- The file -->
+<g transform="translate(60 82)">
+  <rect width="440" height="212" fill="#2c080f"/>
+  <text class="mono faint" x="26" y="36" font-size="13" letter-spacing="2">YOUR FILE</text>
+  <text class="disp ink" x="26" y="76" font-size="30">report.txt</text>
+  <g class="mono" font-size="19">
+    <text class="soft" x="26" y="122">North</text>
+    <text id="was" class="swap ink" x="414" y="122" text-anchor="end">412,800</text>
+    <text id="now" class="swap accent" x="414" y="122" text-anchor="end">0</text>
+    <text class="faint" x="26" y="158">South</text>
+    <text class="faint" x="414" y="158" text-anchor="end">288,400</text>
+  </g>
+  <text id="restored" class="mono tick good" x="26" y="192" font-size="13" letter-spacing="1.4">RESTORED FROM THE CAPTURED STATE</text>
+</g>
+
+<!-- The journal -->
+<g transform="translate(700 82)">
+  <rect width="440" height="212" fill="#2c080f"/>
+  <text class="mono faint" x="26" y="36" font-size="13" letter-spacing="2">LOCAL JOURNAL</text>
+  <text class="disp ink" x="26" y="76" font-size="30">before the write</text>
+  <g id="held" class="swap">
+    <g class="mono" font-size="19">
+      <text class="soft" x="26" y="122">North</text>
+      <text class="ink" x="414" y="122" text-anchor="end">412,800</text>
+    </g>
+    <text class="mono faint" x="26" y="158" font-size="13" letter-spacing="1.4">KEPT FOR THE UNDO</text>
+  </g>
+</g>
+
+<!--
+  The value's own lane, clear of both cards.
+
+  Run at the cards' height these crossed the card they were arriving at and
+  covered a row of it, which is the one thing the picture is there to show.
+
+  The animated node is nested inside the one that positions it: a CSS
+  transform replaces an element's own transform attribute rather than
+  composing with it, so animating the positioned group directly sends it to
+  the top-left corner.
+-->
+<g stroke="#a8807c" stroke-width="1.5" fill="none" opacity=".45">
+  <path d="M60 318 H1140"/>
+  <path d="M280 294 V306 M980 294 V306"/>
+</g>
+<g class="mono" font-size="16">
+  <g transform="translate(224 318)">
+    <g id="out" class="packet">
+      <rect x="0" y="-15" width="112" height="30" fill="#e8927f"/>
+      <text x="56" y="6" text-anchor="middle" fill="#2c080f">412,800</text>
+    </g>
+  </g>
+  <g transform="translate(924 318)">
+    <g id="back" class="packet">
+      <rect x="0" y="-15" width="112" height="30" fill="#8fc4a3"/>
+      <text x="56" y="6" text-anchor="middle" fill="#14210f">412,800</text>
+    </g>
+  </g>
+</g>
+
+<rect y="376" width="1200" height="28" fill="url(#fret)"/>
+</svg>
