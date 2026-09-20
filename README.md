@@ -9,25 +9,9 @@ Synartesis sits between your MCP client and the servers it talks to, records
 every tool call with the state that call replaced, and can put that state back.
 What cannot be put back, it refuses to let an agent do unsupervised.
 
-### [Install it, then read the five minutes ahead of you →](docs/synartesis-user-guide.md#the-five-minutes-ahead-of-you)
+[![Get started](https://img.shields.io/badge/Get%20started-5e1420?style=for-the-badge&labelColor=5e1420&color=5e1420&logoColor=f6e9e5)](#install) [![Desktop app](https://img.shields.io/badge/Desktop%20app-5e1420?style=for-the-badge&labelColor=5e1420&color=5e1420&logoColor=f6e9e5)](#the-desktop-window) [![User guide](https://img.shields.io/badge/User%20guide-5e1420?style=for-the-badge&labelColor=5e1420&color=5e1420&logoColor=f6e9e5)](docs/synartesis-user-guide.md) [![Wiki](https://img.shields.io/badge/Wiki-5e1420?style=for-the-badge&labelColor=5e1420&color=5e1420&logoColor=f6e9e5)](https://github.com/ArhaanDev24/Synartesis/wiki) [![Discussions](https://img.shields.io/badge/Discussions-5e1420?style=for-the-badge&labelColor=5e1420&color=5e1420&logoColor=f6e9e5)](https://github.com/ArhaanDev24/Synartesis/discussions) [![★ Star](https://img.shields.io/badge/%E2%98%85%20Star-f1b696?style=for-the-badge&labelColor=f1b696&color=f1b696)](https://github.com/ArhaanDev24/Synartesis)
 
-[![check](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml/badge.svg)](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml)
-[![npm](https://img.shields.io/npm/v/synartesis?color=5e1420&label=npm)](https://www.npmjs.com/package/synartesis)
-[![downloads](https://img.shields.io/npm/dm/synartesis?color=5e1420&label=downloads)](https://www.npmjs.com/package/synartesis)
-[![node](https://img.shields.io/node/v/synartesis?color=5e1420)](https://nodejs.org)
-[![MIT](https://img.shields.io/badge/licence-MIT-5e1420.svg)](LICENSE)
-[![site](https://img.shields.io/badge/synartesis.online-5e1420)](https://synartesis.online)
-[![star this repo](https://img.shields.io/badge/★_star_this_repo-2c080f)](https://github.com/ArhaanDev24/Synartesis)
-
-[Choose your path](#choose-your-path) · [See it in action](#see-it-in-action) ·
-[Install](#install) · [The screen](#the-screen) ·
-[The desktop window](#the-desktop-window) ·
-[The four classes](#what-it-can-and-cannot-do) ·
-[Your own server](#writing-a-policy-for-your-own-server) ·
-[Commands](#commands) · [What it does not do](#what-it-does-not-do) ·
-[Trust](#trust) · [Contributing](#contributing)
-
-[Discussions](https://github.com/ArhaanDev24/Synartesis/discussions) · [Wiki](https://github.com/ArhaanDev24/Synartesis/wiki) · [User guide](docs/synartesis-user-guide.md) · [Changelog](CHANGELOG.md)
+[![check](https://img.shields.io/github/actions/workflow/status/ArhaanDev24/Synartesis/check.yml?branch=main&label=check&style=flat-square)](https://github.com/ArhaanDev24/Synartesis/actions/workflows/check.yml) [![npm](https://img.shields.io/npm/v/synartesis?color=5e1420&label=npm&style=flat-square)](https://www.npmjs.com/package/synartesis) [![downloads](https://img.shields.io/npm/dm/synartesis?color=5e1420&label=downloads&style=flat-square)](https://www.npmjs.com/package/synartesis) [![node](https://img.shields.io/node/v/synartesis?color=5e1420&style=flat-square)](https://nodejs.org) [![licence MIT](https://img.shields.io/badge/licence-MIT-5e1420?style=flat-square)](LICENSE) [![synartesis.online](https://img.shields.io/badge/synartesis.online-5e1420?style=flat-square)](https://synartesis.online)
 
 </div>
 
@@ -103,7 +87,7 @@ It stops at the record that moved and exits non-zero. Anything already put back
 stays put back, and it prints the three ways on: leave it, restore the resource
 and `--replan`, or `--force` to overwrite deliberately.
 
-[The desktop window](#the-desktop-window) · [What it can and cannot do](#what-it-can-and-cannot-do) · [What it does not do](#what-it-does-not-do) · [User guide](docs/synartesis-user-guide.md)
+**Next:** [the desktop window](#the-desktop-window) · [what it can and cannot do](#what-it-can-and-cannot-do) · [what it does not do](#what-it-does-not-do) · [the full guide](docs/synartesis-user-guide.md)
 
 ---
 ## Install
@@ -132,7 +116,7 @@ installed.**
 Needs Node 22 or newer. npm ships a prebuilt SQLite binding, so no toolchain is
 required unless you build from a clone.
 
-[User guide](docs/synartesis-user-guide.md#install-it) · [Claude Desktop](docs/synartesis-user-guide.md#claude-desktop) · [Claude Code](docs/synartesis-user-guide.md#claude-code) · [Any other client](docs/synartesis-user-guide.md#any-other-mcp-client)
+**Setting it up by hand:** [the walkthrough](docs/synartesis-user-guide.md#install-it) · [Claude Desktop](docs/synartesis-user-guide.md#claude-desktop) · [Claude Code](docs/synartesis-user-guide.md#claude-code) · [any other client](docs/synartesis-user-guide.md#any-other-mcp-client)
 
 ---
 
@@ -283,7 +267,7 @@ It loads the manifest, connects to every server it names, and says which tools
 your policy covers, which it does not, and where the two disagree. A policy
 that names a tool the server no longer has is an error, not a warning.
 
-[Writing a manifest](docs/synartesis-user-guide.md#open-the-file) · [The four classes](docs/synartesis-user-guide.md#the-four-classes) · [Checking it](docs/synartesis-user-guide.md#check-that-it-worked) · [Pinning a tool's shape](#when-the-server-changes-underneath-you)
+**Going further:** [writing a manifest](docs/synartesis-user-guide.md#open-the-file) · [the four classes](docs/synartesis-user-guide.md#the-four-classes) · [checking it](docs/synartesis-user-guide.md#check-that-it-worked) · [pinning a tool's shape](#when-the-server-changes-underneath-you) · [the cookbook](https://github.com/ArhaanDev24/Synartesis/wiki/Policy-cookbook)
 
 
 ---
