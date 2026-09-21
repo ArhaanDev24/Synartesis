@@ -223,6 +223,27 @@ describe("a run stopped by drift is not a run that is finished", () => {
     const halted = await run(["undo", "--manifest", manifest, "--journal", journal]);
     expect(halted.stdout).toContain("halted");
 
+    // The three ways on are a menu, and a menu whose columns do not line up
+    // is read as three unrelated lines. They were spaced by hand and the
+    // middle one sat a character left of the other two.
+    const ways = halted.stdout
+      .split("\n")
+      .filter((line) => / {3}(nothing to do|synartesis undo )/.test(line));
+    expect(ways).toHaveLength(3);
+    // Where the value starts: the first character with a gap of three or
+    // more spaces in front of it. The two-space indent and the labels' own
+    // single spaces cannot match it.
+    const columns = new Set(ways.map((line) => line.search(/(?<= {3})\S/)));
+    expect(columns.size).toBe(1);
+
+    // And the middle one must not read as though the flag does the restoring.
+    // --replan rebuilds each inverse from the manifest; the drift check then
+    // runs again on a resource nobody has touched, so somebody who typed what
+    // this line told them to got the identical halt offering the identical
+    // three options, for as long as they cared to keep typing it.
+    expect(halted.stdout).not.toContain("put it back as the run left it");
+    expect(halted.stdout).toContain("put the resource back, then:");
+
     // The halt prints `undo <id> --force` as one of the three ways on. Running
     // it counted only `applied` actions, found none, and said the run had
     // already been undone -- about a change still sitting in the record, and
@@ -350,5 +371,22 @@ describe("refusing a flag before acting on the session", () => {
     // It used to announce "no session named, so the most recent: <id>" first,
     // which reads as though that session had been acted on.
     expect(said.stdout).not.toContain("most recent");
+  });
+
+  it("answers a --to past the end of the run without listing the commands", async () => {
+    const dir = workspace();
+    const journal = join(dir, "j.db");
+    await run(
+      ["proxy", "--manifest", POLICY, "--journal", journal],
+      `${HELLO}\n${call(2, "update_customer", { id: "c_001", notes: "changed" })}\n`,
+    );
+
+    const said = await run(["undo", "--to", "99", "--manifest", POLICY, "--journal", journal]);
+    expect(said.code).toBe(2);
+    expect(said.stderr).toContain("past the end of this run, which goes up to 1");
+    // The bound in that sentence was read off the run, so it is a fact about
+    // the journal, and `install`, `watch` and the rest answer none of it.
+    expect(said.stderr).not.toContain("synartesis install");
+    expect(said.stderr.split("\n").filter((line) => line.trim() !== "")).toHaveLength(1);
   });
 });

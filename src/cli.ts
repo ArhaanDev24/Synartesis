@@ -46,7 +46,7 @@ import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
 import { PROXY_FLAGS } from "./proxy/flags.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { inspect, verdict, type Resource } from "./rollback/inspect.js";
-import { banner, NOTHING_RECORDED_YET, rule, style } from "./style.js";
+import { banner, counted, NOTHING_RECORDED_YET, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
 import {
   afterStatus,
@@ -1332,7 +1332,7 @@ function summarise(actions: readonly ActionRow[]): string {
   }
   const parts = [...counts].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${String(v)} ${k}`);
   const undoable = actions.filter((a) => a.inverse !== undefined).length;
-  return `${String(actions.length)} actions: ${parts.join(", ")} | ${String(undoable)} with a recorded undo`;
+  return `${counted(actions.length, "action")}: ${parts.join(", ")} | ${String(undoable)} with a recorded undo`;
 }
 
 /**
@@ -1436,14 +1436,14 @@ function runPrune(argv: readonly string[], journal: Journal, journalPath: string
     out(
       `  ${style.strong((run.label ?? "an agent").padEnd(24))} ` +
         `${style.quiet(run.at.slice(0, 19).replace("T", " "))}  ` +
-        `${style.quiet(run.status.padEnd(11))} ${style.quiet(`${String(run.actions)} actions`)}`,
+        `${style.quiet(run.status.padEnd(11))} ${style.quiet(counted(run.actions, "action"))}`,
     );
   }
   out("");
 
   if (planned) {
     out(
-      `  ${style.accent(`${String(stale.length)} runs`)} ${style.quiet(`and ${String(actions)} actions would go. Nothing was changed.`)}`,
+      `  ${style.accent(counted(stale.length, "run"))} ${style.quiet(`and ${counted(actions, "action")} would go. Nothing was changed.`)}`,
     );
     out("");
     return 0;
@@ -1455,7 +1455,7 @@ function runPrune(argv: readonly string[], journal: Journal, journalPath: string
   journal.vacuum();
 
   out(
-    `  ${style.accent(`${String(removed.runs)} runs`)} ${style.quiet(`and ${String(removed.actions)} actions removed.`)}`,
+    `  ${style.accent(counted(removed.runs, "run"))} ${style.quiet(`and ${counted(removed.actions, "action")} removed.`)}`,
   );
   out(`  ${style.quiet(`Journal ${sizeBefore} \u2192 ${sizeOf(journalPath)}.`)}`);
   out("");
@@ -1702,13 +1702,26 @@ function report(result: RollbackReport, alreadyForcing = false, as = ""): number
       const self = cliCommand();
       const id = result.runId.slice(0, 8);
       out("");
-      out(`  ${style.quiet("keep the change, drop the undo:")}   ${style.quiet("nothing to do")}`);
-      out(
-        `  ${style.quiet("put it back as the run left it:")}  ${style.strong(`${self} undo ${id} --replan`)}`,
-      );
-      out(
-        `  ${style.quiet("undo anyway, losing the change:")}   ${style.strong(`${self} undo ${id} --force`)}`,
-      );
+      // "put it back as the run left it: synartesis undo --replan" read as
+      // though the flag did the putting back. It does not: it rebuilds each
+      // inverse from the current manifest, and the drift check then runs
+      // again on a resource nobody has touched, so somebody who followed that
+      // line got the same halt printing the same three options, including
+      // the one they had just chosen. The restoring is the reader's half, as
+      // --help has always said, and the label now says which half is theirs.
+      //
+      // Padded rather than spaced by hand: the gaps were counted out in the
+      // source and the middle one came to two spaces where the others had
+      // three, which is enough to stop a menu reading as a menu.
+      const ways: readonly (readonly [string, string])[] = [
+        ["keep the change, drop the undo:", style.quiet("nothing to do")],
+        ["put the resource back, then:", style.strong(`${self} undo ${id} --replan`)],
+        ["undo anyway, losing the change:", style.strong(`${self} undo ${id} --force`)],
+      ];
+      const column = Math.max(...ways.map(([label]) => label.length));
+      for (const [label, command] of ways) {
+        out(`  ${style.quiet(label.padEnd(column))}   ${command}`);
+      }
     }
   }
   const permanent = result.steps.filter((step) => step.kind === "permanent");
@@ -1930,8 +1943,14 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   if (toSeq !== undefined) {
     const highest = journal.getActions(runId).reduce((top, action) => Math.max(top, action.seq), 0);
     if (toSeq > highest) {
+      // Without the command list: the bound in this sentence was read off the
+      // run, so this is a fact about the journal in the same way "there is
+      // nothing here to act on" is. Nothing about `install` or `watch`
+      // answers it, and five lines of them under a one-line answer that
+      // already says the sequence to type is five lines of nothing.
       throw new UsageError(
         `--to ${String(toSeq)} is past the end of this run, which goes up to ${String(highest)}`,
+        false,
       );
     }
   }

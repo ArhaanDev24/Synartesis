@@ -6,7 +6,13 @@
   /* GitHub social preview: 1280x640, rendered at twice that and reduced.
      This is the card that appears when the repo is pasted into Slack, X or a
      message. GitHub's default is the repo name on white, which is legible and
-     says nothing. */
+     says nothing.
+
+     Every length below is the 1x size, as in readme-banner.html and
+     readme-card.css: the doubling is the shoot's scale factor, not the
+     stylesheet's. Writing the card at 2x and shooting it at 1x is what
+     produced a card that was three quarters empty maroon with the tagline
+     cropped off the bottom edge. */
   :root {
     --ground: #5e1420;
     --ink: #f6e9e5;
@@ -20,26 +26,26 @@
   html, body { margin: 0; padding: 0; }
 
   .card {
-    width: 2560px;
-    height: 1280px;
+    width: 1280px;
+    height: 640px;
     background: var(--ground);
     position: relative;
     overflow: hidden;
-    padding: 130px 170px;
+    padding: 65px 85px;
     display: flex;
     align-items: center;
-    gap: 120px;
+    gap: 60px;
   }
 
   /* The text carries the left; the mark is the counterweight on the right.
      Stacked in one column it left two thirds of a 2:1 card empty. */
-  .stack { flex: 1; display: flex; flex-direction: column; gap: 40px; }
-  .mark { width: 440px; height: 440px; display: block; flex-shrink: 0; }
+  .stack { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+  .mark { width: 220px; height: 220px; display: block; flex-shrink: 0; }
 
   .wordmark {
     font-family: var(--mono);
     font-weight: 500;
-    font-size: 92px;
+    font-size: 46px;
     letter-spacing: 0.34em;
     text-transform: uppercase;
     color: var(--ink);
@@ -52,7 +58,7 @@
   .tagline {
     font-family: var(--display);
     font-weight: 300;
-    font-size: 96px;
+    font-size: 48px;
     line-height: 1.04;
     color: var(--ink-soft);
     margin: 0;
@@ -60,7 +66,7 @@
 
   .command {
     font-family: var(--mono);
-    font-size: 44px;
+    font-size: 22px;
     letter-spacing: 0.05em;
     color: var(--ink-soft);
     margin: 0;
@@ -72,11 +78,11 @@
   .fret {
     position: absolute;
     left: 0; right: 0; bottom: 0;
-    height: 56px;
+    height: 28px;
     background-color: var(--ink);
     opacity: 0.3;
-    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
-    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='56' height='56' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'><g fill='none' stroke='black' stroke-width='2'><path d='M0 27 H28'/><path d='M4 27 V5 H23 V20 H12 V12 H17'/></g></svg>");
     -webkit-mask-repeat: repeat-x;
     mask-repeat: repeat-x;
     -webkit-mask-position: left bottom;

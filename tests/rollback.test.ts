@@ -313,6 +313,71 @@ describe("drift detection", () => {
   });
 });
 
+describe("when the drift check itself cannot run", () => {
+  /** A server that has gone away between the run and the undo. */
+  async function unreachable(active: Session): Promise<void> {
+    for (const upstream of active.router.upstreams) {
+      await upstream.close();
+    }
+  }
+
+  it("leaves an applied action applied, so the next attempt needs no flag", async () => {
+    const active = await session();
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    await unreachable(active);
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+
+    expect(report.status).toBe("partial");
+    expect(report.halted?.reason).toMatch(/could not read current state/);
+    // The read never happened, so nothing was learned about the resource.
+    // Recording `unrecoverable` here made the next plain undo refuse with
+    // "halted here on an earlier attempt" and demand --replan or --force --
+    // a server that was briefly down turning a working undo into one that
+    // needs the flag that writes over other people's changes.
+    expect(active.journal.getActions(active.runId)[0]?.status).toBe("applied");
+  });
+
+  it("keeps the drift it recorded earlier instead of overwriting it", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    active.store.updateCustomer("c_001", { notes: "a human wrote this" });
+
+    const first = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+    expect(first.halted?.reason).toMatch(/drift/i);
+    const recorded = active.journal.getActions(active.runId)[0]?.error ?? "";
+    expect(recorded).toContain("a human wrote this");
+
+    // Tried again the way the halt itself recommends -- put the resource
+    // back, then --replan -- while the server happens to be unreachable.
+    // Without the replan this stops at "halted here on an earlier attempt"
+    // and never reaches the read, which is why the first version of this
+    // test passed against the bug it was written for. The stored conflict is
+    // the evidence the person deciding is shown; a transport error must not
+    // take its place.
+    await unreachable(active);
+    await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      replanWith: MANIFEST,
+    });
+
+    expect(active.journal.getActions(active.runId)[0]?.error).toBe(recorded);
+  });
+});
+
 describe("actions that cannot be undone", () => {
   it("steps over a permanent action and reverts everything else", async () => {
     const active = await session();

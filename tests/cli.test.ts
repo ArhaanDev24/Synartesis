@@ -844,7 +844,11 @@ describe("prune, from the command line", () => {
 
     const done = await run("node", [CLI, "prune", "--journal", space.journal]);
     expect(done.code).toBe(0);
-    expect(done.stdout).toMatch(/1 runs/);
+    // One run, singular. This read "1 runs and 1 actions removed", and the
+    // assertion was written to match what it said rather than what it should
+    // have said.
+    expect(done.stdout).toMatch(/\b1 run\b/);
+    expect(done.stdout).not.toMatch(/\b1 runs\b/);
 
     const after = openJournal(space.journal, { mustExist: true });
     expect(after.listRuns()).toHaveLength(0);

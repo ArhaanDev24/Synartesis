@@ -346,12 +346,20 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
             ? foreseen
             : await observeState(router, toResolvedRead(verifyRead.data), signal);
       } catch (error: unknown) {
+        // Not written back, for the reason the `pending` halt is not: the read
+        // never happened, so nothing was learned about the resource. Recording
+        // it cost twice. A row that had halted on real drift kept the diff of
+        // what somebody had changed in `error`, and this overwrote it with
+        // "server fs is not connected" -- so the next attempt offered the
+        // three-way choice with a transport error where the evidence had been.
+        // And an ordinary `applied` row came back `unrecoverable`, which makes
+        // the next plain undo refuse with "halted here on an earlier attempt"
+        // and demand --replan or --force: a server that was briefly down
+        // escalated an undo that would have worked into one needing a flag
+        // that overwrites other people's changes.
         const reason = `could not read current state to check for drift: ${describe(error)}`;
         halted = { seq: action.seq, reason, detail: "" };
         steps.push({ ...describeStep(action), kind: "halt", reason, verified: false });
-        if (!dryRun) {
-          journal.markUnrecoverable(action.id, reason);
-        }
         break;
       }
 

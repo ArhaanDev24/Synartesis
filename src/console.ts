@@ -8,7 +8,7 @@ import { plainly, subject, summariseArgs } from "./describe.js";
 import { needsConnecting, stateOf, type ClientGroup, type Connection } from "./install/connections.js";
 import { cliCommand } from "./invocation.js";
 import { keysIn } from "./keys.js";
-import { NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
+import { counted, NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
 
 /**
  * One screen you drive, rather than eight commands you have to remember.
@@ -210,7 +210,7 @@ function runsView(journal: Journal, screen: Screen, options: ConsoleOptions): st
     return (
       `  ${here ? style.accent(CURSOR) : " "} ${here ? style.accent(name) : style.strong(name)} ` +
       `${style.quiet(shortTime(run.startedAt).trimEnd().padEnd(13))}  ` +
-      `${style.quiet(run.status.padEnd(11))} ${style.quiet(`${String(actions.length)} actions`)}${note}`
+      `${style.quiet(run.status.padEnd(11))} ${style.quiet(counted(actions.length, "action"))}${note}`
     );
   });
 }

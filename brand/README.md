@@ -80,6 +80,20 @@ To look at one phase rather than guessing, add
 `animation-delay: -4.5s; animation-play-state: paused;` to the shared rule and
 render it; that is how every frame in these two was checked.
 
+**The social card is shot like the rest, and was not.** It is the only asset
+here nothing said how to rebuild, and it drifted: its stylesheet was written
+at 2560x1280 and shot at 1280x640, so the card GitHub served was the top-left
+quarter of itself, three quarters empty with the tagline cropped off the
+bottom edge. Every source in this directory states its 1x size and gets its
+sharpness from the scale factor. This one now does too.
+
+```bash
+node brand/shoot.mjs brand/social-github.html brand/synartesis-social-github.png 1280 640 2
+```
+
+GitHub takes the card at Settings → General → Social preview; it is not read
+out of this directory the way the README's images are.
+
 Each other `.html` file is the source of the PNG beside it. They are HTML because
 the type is: Cormorant Garamond and IBM Plex Mono from Google Fonts, and the
 meander as a CSS mask, exactly as the site draws them. To rebuild one:

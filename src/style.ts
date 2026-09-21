@@ -45,6 +45,19 @@ export function spaced(text: string): string {
   return Array.from(text).join(" ");
 }
 
+/**
+ * A count and its noun, agreeing with each other.
+ *
+ * Small, and here rather than inlined at each site, because the places that
+ * report a count are spread across the CLI and the watch screen and each of
+ * them got it right separately until one did not: `1 runs and 1 actions
+ * removed`, `1 actions: 1 gated`. A tool whose whole claim is care about
+ * what it did to your files cannot afford to read as though nobody looked.
+ */
+export function counted(n: number, noun: string): string {
+  return `${String(n)} ${noun}${n === 1 ? "" : "s"}`;
+}
+
 export interface Palette {
   /** A section label: small, capital, spaced out. */
   label: (text: string) => string;

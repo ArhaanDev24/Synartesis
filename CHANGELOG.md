@@ -2,6 +2,71 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.8.4 — 2026-09-21
+
+Bugs, all of them found by using the thing rather than by a test going red:
+the suite was green before this and is green after it.
+
+### Fixed
+
+- **A server that was briefly unreachable no longer turns an ordinary undo
+  into one that needs `--force`.** The drift check reads the resource as it is
+  now, and when that read failed the action was written back as
+  `unrecoverable`. Nothing had been learned about the resource -- the read
+  never happened -- but the row now said otherwise, and the next plain
+  `undo` refused with "halted here on an earlier attempt" and offered
+  `--replan` or `--force`. So a server that was down for ten seconds escalated
+  an undo that would have worked into one that writes over whatever anybody
+  else had changed since.
+
+  The same write cost a second thing. A row that had already halted on real
+  drift carried the diff of what somebody had changed, which is the evidence
+  the person deciding is shown; retrying while the server was unreachable
+  replaced it with `server fs is not connected`. The halt then offered its
+  three-way choice with a transport error where the conflict used to be. The
+  read failure is now reported and not recorded, for the reason an unknown
+  outcome has never been recorded either: a rollback may not write down as
+  fact a thing it did not observe.
+
+- **The way past a drift halt no longer sends you round in a circle.** It
+  printed `put it back as the run left it: synartesis undo <id> --replan`,
+  which reads as though the flag does the putting back. It does not: it
+  rebuilds each inverse from the current manifest, and the drift check then
+  runs again on a resource nobody has touched. Somebody who typed what that
+  line told them to got the identical halt, offering the identical three
+  options, including the one they had just chosen, for as long as they cared
+  to keep typing it. The restoring is the reader's half, as `--help` has
+  always said, and the line now says so: `put the resource back, then:`.
+
+  While there: the three options were spaced by hand and the middle one sat a
+  character left of the other two, which is enough to stop a menu reading as
+  a menu. They are padded to a column now, and a test fails if they drift
+  apart again.
+
+- **`--to` past the end of a run answers in one line.** The message was
+  already exact -- `--to 99 is past the end of this run, which goes up to 1`
+  -- and was followed by five lines of unrelated commands. The bound in that
+  sentence was read off the journal, which is precisely the case the
+  command list was already meant to stay out of.
+
+- **Counts agree with their nouns.** `1 runs and 1 actions removed`,
+  `1 actions: 1 gated`. Three places counted the same way and each had its own
+  copy of the arithmetic; there is one now, in `style.ts`, beside the other
+  decisions about how text is set.
+
+- **The repository's social preview card is the whole card.** Every other
+  source in `brand/` states its size at 1x and gets its sharpness from the
+  shoot's scale factor; this one was written at 2560x1280 and shot at
+  1280x640, so what GitHub served when the repository was pasted into Slack
+  or a message was the top-left quarter of itself: three quarters empty
+  maroon with the tagline cropped off the bottom edge. It was also the only
+  asset here that nothing said how to rebuild, which is how it drifted.
+  `brand/README.md` now carries its command with the rest.
+
+- **`og:image` states its dimensions.** LinkedIn and Slack lay a link card out
+  before the image arrives and held a grey box of the wrong shape until it
+  did.
+
 ## 0.8.3 — 2026-09-20
 
 Documentation, brand and repository furniture. No code changed, and the

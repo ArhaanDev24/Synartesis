@@ -102,6 +102,30 @@ describe("what the timeline says about an approval that moved", () => {
   });
 });
 
+describe("a count and its noun agree", () => {
+  it("says one action, not one actions", async () => {
+    const dir = workspace();
+    const journal = join(dir, "j.db");
+    await run(
+      ["proxy", "--manifest", POLICY, "--journal", journal],
+      `${HELLO}\n${call(2, "update_customer", { id: "c_001", notes: "one" })}\n`,
+    );
+
+    const runs = withIds.parse(
+      JSON.parse((await run(["list", "--json", "--journal", journal])).stdout),
+    );
+    const shown = await run(["show", runs[0]?.id.slice(0, 8) ?? "", "--journal", journal]);
+    expect(shown.stdout).toContain("1 action:");
+    expect(shown.stdout).not.toContain("1 actions");
+
+    // prune's summary counted the same way and got it wrong in two places
+    // on one line: "1 runs and 1 actions removed".
+    const pruned = await run(["prune", "--older-than", "0", "--dry-run", "--journal", journal]);
+    expect(pruned.stdout).toContain("1 run and 1 action would go");
+    expect(pruned.stdout).not.toMatch(/\b1 (runs|actions)\b/);
+  });
+});
+
 describe("arguments on one line", () => {
   it("never breaks the layout on a multi-line value", async () => {
     const dir = workspace();
