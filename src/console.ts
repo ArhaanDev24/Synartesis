@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 
-import { openJournal, wasRefused, type ActionRow, type Journal, type RunRow } from "./journal/journal.js";
+import { openJournal, wasRefused, type Journal, type RunRow } from "./journal/journal.js";
 import type { RollbackReport } from "./rollback/rollback.js";
 import { verdict, type Inspection } from "./rollback/inspect.js";
 import { shortTime } from "./clock.js";
@@ -201,16 +201,24 @@ function runsView(journal: Journal, screen: Screen, options: ConsoleOptions): st
   }
 
   const at = Math.min(screen.cursor, runs.length - 1);
+  // Once for the frame, not once per row, and from the index rather than from
+  // the actions. This loop called getActions for every session on screen --
+  // every snapshot, result and inverse in each of them, through a zod parse --
+  // to arrive at a count and a number of held calls. `tallyRuns` was written
+  // for exactly this and `list` was moved onto it; this was missed. Measured
+  // on a hundred-megabyte journal: 62ms a frame, eight frames a second.
+  const tally = journal.tallyRuns();
   return runs.map((run, index) => {
-    const actions = journal.getActions(run.id);
-    const held = actions.filter((action) => action.status === "gated").length;
+    const counts = tally.get(run.id);
+    const total = counts?.actions ?? 0;
+    const held = counts?.waiting ?? 0;
     const here = index === at && canPress(options);
     const name = (run.label ?? "an agent").padEnd(24);
     const note = held === 0 ? "" : `  ${style.accent(`${String(held)} awaiting approval`)}`;
     return (
       `  ${here ? style.accent(CURSOR) : " "} ${here ? style.accent(name) : style.strong(name)} ` +
       `${style.quiet(shortTime(run.startedAt).trimEnd().padEnd(13))}  ` +
-      `${style.quiet(run.status.padEnd(11))} ${style.quiet(counted(actions.length, "action"))}${note}`
+      `${style.quiet(run.status.padEnd(11))} ${style.quiet(counted(total, "action"))}${note}`
     );
   });
 }
@@ -230,29 +238,29 @@ interface Standing {
   readonly conflicted: number;
 }
 
-function standing(actions: readonly ActionRow[]): Standing {
-  let undoable = 0;
-  let conflicted = 0;
-  for (const action of actions) {
-    if (action.inverse === undefined) {
-      continue;
-    }
-    if (action.status === "applied") {
-      undoable += 1;
-    } else if (action.status === "unrecoverable") {
-      conflicted += 1;
-    }
-  }
-  return { undoable, conflicted };
+const NOTHING: Standing = { undoable: 0, conflicted: 0 };
+
+/**
+ * What is left in one session, read off the journal's index-only tally.
+ *
+ * This counted the actions themselves until it was measured: every action in
+ * the run, snapshots and results and inverses included, each through a zod
+ * parse, to arrive at two integers -- and `runsView` did it for every session
+ * on screen, eight times a second. `standingPerRun` answers the same question
+ * from two partial indexes without reading a row.
+ */
+function standing(journal: Journal, runId: string): Standing {
+  return journal.standingPerRun().get(runId) ?? NOTHING;
 }
 
 /** The newest other session that still has something a person could act on. */
 function elsewhere(journal: Journal, exceptId: string): RunRow | undefined {
+  const perRun = journal.standingPerRun();
   for (const run of [...journal.listRuns()].reverse()) {
     if (run.id === exceptId) {
       continue;
     }
-    const found = standing(journal.getActions(run.id));
+    const found = perRun.get(run.id) ?? NOTHING;
     if (found.undoable > 0 || found.conflicted > 0) {
       return run;
     }
@@ -589,7 +597,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     if (run === undefined) {
       return [];
     }
-    const here = standing(ready.getActions(run.id));
+    const here = standing(ready, run.id);
     const id = run.id.slice(0, 8);
     if (here.undoable > 0) {
       return [
@@ -861,7 +869,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         if (ready === undefined || run === undefined) {
           return;
         }
-        const here = standing(ready.getActions(run.id));
+        const here = standing(ready, run.id);
         if (here.undoable === 0 && here.conflicted === 0) {
           say(nothingToUndo(ready, run));
           return;
@@ -883,7 +891,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         if (ready === undefined || run === undefined) {
           return;
         }
-        const here = standing(ready.getActions(run.id));
+        const here = standing(ready, run.id);
         // Asking to confirm an undo that would revert nothing is how a
         // keypress comes to look broken: you answer yes, the file does not
         // change, and nothing on screen says the session was empty.

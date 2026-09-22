@@ -3,7 +3,7 @@ import { z } from "zod";
 import { canonical } from "../canonical.js";
 import { IDEMPOTENCY_META_KEY } from "../idempotency.js";
 import { DriftConflict, RollbackHalted, changedLines, describe } from "../errors.js";
-import { labelFor, type ActionRow, type ActionStatus, type Journal } from "../journal/journal.js";
+import { labelFor, type ActionRow, type ActionStatus, type Journal, type Lease } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
 import {
   observeState,
@@ -98,6 +98,18 @@ export interface RollbackOptions {
    */
   readonly force?: boolean;
   readonly signal?: AbortSignal;
+  /**
+   * Asks the rollback to stop, between actions.
+   *
+   * Deliberately not `signal`, and deliberately not forwarded to any upstream
+   * call. `signal` aborts a request in flight, and a Ctrl-C wired to that is
+   * the single best way to produce the one state this tool cannot recover
+   * from: an inverse aborted after it was sent, leaving a row claimed and
+   * nobody able to say whether the call landed. So an interrupt is honoured
+   * where it is free to honour -- before the next action is claimed -- and
+   * whatever is already in the air is allowed to finish and be recorded.
+   */
+  readonly interrupt?: AbortSignal;
 }
 
 const inversePlan = z.object({
@@ -115,6 +127,23 @@ const toolResult = z.looseObject({ isError: z.boolean().default(false) });
 
 function sameState(a: unknown, b: unknown): boolean {
   return canonical(a) === canonical(b);
+}
+
+/** Who holds a claim, for a person deciding what to do about it. */
+function held(lease: Lease | undefined): string {
+  if (lease === undefined) {
+    return (
+      "No lease is recorded against it, so it was claimed by a build from before leases existed " +
+      "and there is no way from here to tell a live owner from a dead one. "
+    );
+  }
+  if (lease.alive === undefined) {
+    return (
+      `It was claimed by process ${String(lease.pid)} on ${lease.host} at ${lease.claimedAt}, ` +
+      `and this is not that machine, so whether it is still running cannot be asked from here. `
+    );
+  }
+  return `It is held by process ${String(lease.pid)} on ${lease.host}, claimed at ${lease.claimedAt}, and that process is still running. `;
 }
 
 interface Decision {
@@ -252,6 +281,19 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
   const projected = new Map<string, StateObservation | typeof UNFORESEEABLE>();
 
   for (const action of inScope) {
+    // Between actions, where stopping costs nothing: everything below this
+    // line is already reverted and recorded as such, and everything above it
+    // is untouched. Reported as a halt rather than a quiet end, because a
+    // run that stopped half way is a partial run whoever reads it next needs
+    // to know about.
+    if (options.interrupt?.aborted === true) {
+      halted = {
+        seq: action.seq,
+        reason: "interrupted, so this and everything before it were left as they are",
+        detail: "Nothing was half applied: the stop was taken between actions. Run undo again to carry on.",
+      };
+      break;
+    }
     // Reset per action: forcing past one conflict says nothing about the next.
     let forcedOver: string | undefined;
     // Before its status is consulted at all. A readonly action changed
@@ -501,34 +543,49 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     // a status the code simply forgot to permit. Replanning authorises the
     // attempt; it does not authorise overwriting drift, which is checked
     // above and halts on its own.
-    // `rolling_back` only under force. It means an inverse was sent and not
-    // finished -- and nothing here can tell a process still working on it
-    // from one that died holding it. Proceeding used to be automatic, so a
-    // second undo starting while the first was mid-inverse sent the same
-    // inverse again: harmless for a restore, a second real change to the
-    // world for anything compensable. There is no lease to consult and
-    // inventing a schema for one is a separate piece of work, so the honest
-    // protocol is the one used everywhere else here: stop, and ask the only
-    // party who can know.
-    // Not `rolling_back`, under force or otherwise. Forcing past drift and
-    // resuming an interrupted inverse are different intents that happen to
-    // share a flag, and letting force claim a row already in `rolling_back`
-    // would let two forced undos each claim it and each send -- the very
-    // double-send the claim exists to stop.
-    const claimable: readonly ActionStatus[] =
-      force || policies !== undefined ? ["applied", "unrecoverable"] : ["applied"];
+    // `rolling_back` is reclaimable now, and only on evidence. Two separate
+    // questions had to be answered before it could be, and the build that
+    // wrote this comment could answer neither, so it refused -- permanently,
+    // which meant one Ctrl-C during an undo put an action beyond every flag
+    // this command has.
+    //
+    // Did the inverse already land? Answered above, by the world: a
+    // `rolling_back` row that reaches this line has a verified drift check,
+    // because the branch that halts on an unverified one runs first. Verified
+    // means the resource still matches what the run left, so the inverse
+    // demonstrably never applied and sending it cannot double-apply.
+    //
+    // Is somebody still sending it? Answered by the lease, which is what the
+    // table added for this release is for. A dead owner is one whose process
+    // is gone from the machine that took the claim -- asked of the operating
+    // system, so there is no timeout to tune and no window in which a slow
+    // undo is mistaken for a dead one. Anything less certain than "that
+    // process is gone" reads as live and still halts: an unknown pid on
+    // another host, a lease from a build that predates the table, or no
+    // lease at all.
+    //
+    // Note this is not `--force`. Forcing past drift and resuming after a
+    // crash are different intents that happened to share a flag, and a
+    // forced claim of a live row is the double-send the claim exists to stop.
+    const lease = action.status === "rolling_back" ? journal.leaseFor(action.id) : undefined;
+    const abandoned = verified && lease?.alive === false;
+    const claimable: readonly ActionStatus[] = [
+      "applied",
+      ...(force || policies !== undefined ? (["unrecoverable"] as const) : []),
+      ...(abandoned ? (["rolling_back"] as const) : []),
+    ];
     const claimed = journal.markRollingBack(action.id, claimable);
     if (!claimed) {
       const reason =
         action.status === "rolling_back"
-          ? "an inverse for this action was already sent and never finished; whether another undo still holds it cannot be told from here"
+          ? "an inverse for this action was already sent and never finished, and the undo that sent it is still running"
           : "another undo is already working on this action";
       halted = {
         seq: action.seq,
         reason,
         detail:
           action.status === "rolling_back"
-            ? "Nothing here can tell a live owner from a dead one, and this build has no lease to consult. " +
+            ? held(lease) +
               "Read the action with `show --live`: if the resource still shows the agent's write, the inverse never landed."
             : "",
       };
@@ -582,6 +639,11 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     halted === undefined && !leftInPlace && options.toSeq === undefined;
   const status = completedWholeRun ? "rolled_back" : "partial";
   if (!dryRun) {
+    // Unrestricted, deliberately: a rollback's verdict on a run is the whole
+    // point of running one, and the README has always said the session is
+    // marked. The overwriting this had to be protected from is the other
+    // direction -- a client disconnecting afterwards and stamping `complete`
+    // over it -- and that is guarded where it happens, in proxy.ts.
     journal.endRun(runId, status);
   }
 

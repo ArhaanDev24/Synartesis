@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { hostname } from "node:os";
 import { dirname } from "node:path";
 
 import Database from "better-sqlite3";
@@ -53,6 +54,31 @@ export interface RunTally {
   readonly waiting: number;
   /** Still applied, so there is something left to undo. */
   readonly applied: number;
+}
+
+/** What is left for a person in one run. Both counts require an inverse. */
+export interface RunStanding {
+  /** Applied, with an inverse: an undo would reverse it. */
+  readonly undoable: number;
+  /** Stopped by drift or a failed inverse: a decision, not a dead end. */
+  readonly conflicted: number;
+}
+
+/** Who is sending an inverse for an action, and from where. */
+export interface Lease {
+  readonly host: string;
+  readonly pid: number;
+  readonly claimedAt: string;
+  /**
+   * Whether the process that took it is still running.
+   *
+   * Only answerable on the machine that issued the pid, so a lease from
+   * another host is `undefined` -- unknown, which halts, rather than a guess
+   * either way. Asked of the operating system rather than inferred from a
+   * clock: there is no timeout to tune, and no window in which an undo that
+   * is merely slow is mistaken for one that died.
+   */
+  readonly alive: boolean | undefined;
 }
 
 export interface ActionRow {
@@ -117,6 +143,37 @@ const runSchema = z.object({
 
 const seenSchema = z.object({ server: z.string(), ts: z.string() });
 
+const countedSchema = z.object({ run_id: z.string(), n: z.number() });
+
+const leaseSchema = z.object({
+  action_id: z.string(),
+  host: z.string(),
+  pid: z.number(),
+  claimed_at: z.string(),
+});
+
+/**
+ * Whether a process is still there.
+ *
+ * Signal 0 performs the permission and existence checks and sends nothing.
+ * ESRCH means no such process; EPERM means it exists and belongs to somebody
+ * else, which is still a live process. Anything else is unknown, and unknown
+ * answers "still running" -- the direction that halts rather than the one
+ * that sends a second inverse. A recycled pid reads as alive for the same
+ * reason: mistaking a dead owner for a live one costs a halt somebody can
+ * act on, and the other way costs a double-applied compensation.
+ */
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error: unknown) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+    return code !== "ESRCH";
+  }
+}
+
 /** SUM() over an empty group is null, and COUNT() is always a number. */
 const tallySchema = z.object({
   run_id: z.string(),
@@ -165,6 +222,31 @@ function orUndefined(value: string | null): string | undefined {
   return value === null ? undefined : value;
 }
 
+/**
+ * The row among these, if any, making the same call.
+ *
+ * Matched on meaning rather than on spelling: an agent that re-emits the same
+ * arguments in a different key order is making the same call, and sending a
+ * person back to approve what they just approved would teach them to stop
+ * reading what they are approving.
+ *
+ * The early return is the point, and it is not a micro-optimisation. All
+ * three callers below run on the way in to a call, two of them on every
+ * write, and all three are backed by indexes narrow enough that they almost
+ * always come back empty -- which is the whole reason those indexes are
+ * partial. Canonicalising the arguments before looking at whether there is
+ * anything to compare them against meant serialising the entire payload to
+ * compare it with nothing: measured at 3.4ms for a one-megabyte write and
+ * 23.5ms for ten, paid on every call that was in no way unusual.
+ */
+function sameCall(rows: readonly ActionRow[], args: unknown): ActionRow | undefined {
+  if (rows.length === 0) {
+    return undefined;
+  }
+  const wanted = canonical(args ?? {});
+  return rows.find((row) => canonical(row.args) === wanted);
+}
+
 function toRun(raw: unknown): RunRow {
   const row = runSchema.parse(raw);
   return {
@@ -202,7 +284,18 @@ function toAction(raw: unknown): ActionRow {
 
 export interface Journal {
   beginRun(label: string | undefined): string;
-  endRun(runId: string, status: RunStatus): void;
+  /**
+   * Ends a run. `from` restricts which statuses may be ended, the way
+   * `markRollingBack` restricts which may be claimed, and for the same
+   * reason: two things end a run and they must not overwrite each other.
+   *
+   * A rollback ends the run it reversed. A client disconnecting ends the run
+   * it was using. Unrestricted, the second silently undid the first -- undo
+   * stamped a session `rolled_back`, the agent's client went away a minute
+   * later, and the disconnect stamped it `complete`, erasing the only record
+   * that anything had been put back.
+   */
+  endRun(runId: string, status: RunStatus, from?: readonly RunStatus[]): void;
   /**
    * Closes a run whose proxy went away without saying so. Only a person can
    * ask for this: several proxies may share one journal, so a run left active
@@ -220,11 +313,40 @@ export interface Journal {
   markFailed(actionId: string, error: string): void;
   markUnknown(actionId: string, error: string): void;
   /**
+   * A person settling an outcome the machine could not establish.
+   *
+   * `pending` means a call went out and nobody can say whether it landed, and
+   * undo is right to stop at one: stepping over it produces a state that is
+   * neither the before nor the after. But it stopped for ever. Nothing in the
+   * CLI could settle such a row, so one interrupted call -- a proxy killed
+   * mid-write, or a server that took longer than the sixty seconds the MCP
+   * client allows -- blocked the undo of everything older than it in that
+   * run, permanently, and the only way past was `--to` above it, which
+   * abandons everything below.
+   *
+   * So the answer to an unknown outcome is the one party who can actually
+   * know: somebody who looks. This records what they said and who they were,
+   * and claims nothing else -- in particular an action settled as `applied`
+   * has no inverse, because none was ever resolved, so undo reports it as
+   * something it cannot put back and carries on to the rest. Unblocking the
+   * run and inventing an undo for it are different things, and this is only
+   * the first.
+   *
+   * Returns false when the row was no longer `pending` -- a proxy that came
+   * back and settled it first, which is a better answer than a person's.
+   */
+  settleByHand(actionId: string, outcome: "applied" | "failed", note: string): boolean;
+  /**
    * Claims an action for this rollback. Returns false when it was not this
    * call that moved it out of `applied`, which is how two undos running at
    * once are told apart from one resuming after a crash.
    */
   markRollingBack(actionId: string, from?: readonly ActionStatus[]): boolean;
+  /**
+   * Who claimed this action, if anybody still holds it. Absent means no
+   * claim, or a claim taken by a build from before leases existed.
+   */
+  leaseFor(actionId: string): Lease | undefined;
   markRolledBack(actionId: string): void;
   markUnrecoverable(actionId: string, error: string): void;
   markInverseRejected(actionId: string, error: string): void;
@@ -253,6 +375,12 @@ export interface Journal {
    */
   adoptApproval(actionId: string, granted: ActionRow): boolean;
   listGated(): readonly ActionRow[];
+  /**
+   * Calls that went out and whose outcome was never established. What
+   * `resolve` picks from, and what a person has to settle before an undo can
+   * pass them.
+   */
+  listPending(): readonly ActionRow[];
   /**
    * An approval that was granted but never carried out, for this exact call.
    * A retry after an out-of-band approval reuses that row rather than opening
@@ -306,6 +434,16 @@ export interface Journal {
    * hundred megabytes read and parsed to print one screen of text.
    */
   tallyRuns(): ReadonlyMap<string, RunTally>;
+  /**
+   * Per-run counts of what a person could still act on, without reading a
+   * single action row.
+   *
+   * The same argument as `tallyRuns`, for the screen rather than for `list`.
+   * The console needed two numbers per session -- what an undo would reverse,
+   * and what is waiting on a decision -- and was getting them by materialising
+   * every action in every run, eight times a second.
+   */
+  standingPerRun(): ReadonlyMap<string, RunStanding>;
   /** The newest run an undo would actually reverse something in. */
   newestUndoable(): RunRow | undefined;
   /**
@@ -508,11 +646,18 @@ class SqliteJournal implements Journal {
     return id;
   }
 
-  endRun(runId: string, status: RunStatus): void {
+  endRun(runId: string, status: RunStatus, from?: readonly RunStatus[]): void {
     this.#run("endRun", () => {
+      if (from === undefined) {
+        this.#db
+          .prepare("UPDATE runs SET ended_at = ?, status = ? WHERE id = ?")
+          .run(new Date().toISOString(), status, runId);
+        return;
+      }
+      const allowed = from.map(() => "?").join(", ");
       this.#db
-        .prepare("UPDATE runs SET ended_at = ?, status = ? WHERE id = ?")
-        .run(new Date().toISOString(), status, runId);
+        .prepare(`UPDATE runs SET ended_at = ?, status = ? WHERE id = ? AND status IN (${allowed})`)
+        .run(new Date().toISOString(), status, runId, ...from);
     });
   }
 
@@ -676,6 +821,14 @@ class SqliteJournal implements Journal {
     this.#settle("markFailed", actionId, "failed", ["pending", "gated", "approved"], error);
   }
 
+  settleByHand(actionId: string, outcome: "applied" | "failed", note: string): boolean {
+    // #claim, not #settle: this races a proxy that may be settling the same
+    // row from what it actually saw, and that answer beats a person's guess.
+    // Only from `pending`, because that is the only status whose meaning is
+    // "nobody knows"; every other one already has an answer that was observed.
+    return this.#claim("settleByHand", actionId, outcome, ["pending"], note);
+  }
+
   /**
    * The call was interrupted, so whether the upstream applied it is genuinely
    * unknown. The row deliberately stays `pending`: recording it as failed
@@ -708,11 +861,45 @@ class SqliteJournal implements Journal {
           `UPDATE actions SET status = 'rolling_back' WHERE id = ? AND status IN (${slots})`,
         )
         .run(actionId, ...from);
-      return result.changes === 1;
+      if (result.changes !== 1) {
+        return false;
+      }
+      // Taken in the same transaction as the claim, so a row can never be
+      // `rolling_back` with nobody recorded as holding it.
+      this.#db
+        .prepare(
+          `INSERT INTO leases (action_id, host, pid, claimed_at) VALUES (?, ?, ?, ?)
+             ON CONFLICT(action_id) DO UPDATE SET host = excluded.host,
+               pid = excluded.pid, claimed_at = excluded.claimed_at`,
+        )
+        .run(actionId, hostname(), process.pid, new Date().toISOString());
+      return true;
     });
   }
 
+  leaseFor(actionId: string): Lease | undefined {
+    return this.#run("leaseFor", () => {
+      const raw = this.#db.prepare("SELECT * FROM leases WHERE action_id = ?").get(actionId);
+      if (raw === undefined) {
+        return undefined;
+      }
+      const row = leaseSchema.parse(raw);
+      return {
+        host: row.host,
+        pid: row.pid,
+        claimedAt: row.claimed_at,
+        alive: row.host === hostname() ? running(row.pid) : undefined,
+      };
+    });
+  }
+
+  /** Releases a claim. Safe to call when there is none. */
+  #release(actionId: string): void {
+    this.#db.prepare("DELETE FROM leases WHERE action_id = ?").run(actionId);
+  }
+
   markRolledBack(actionId: string): void {
+    this.#release(actionId);
     // Only the holder of the claim gets here. Where the resource turned out to
     // be already in the state the inverse would produce, the row is still
     // applied and nothing was sent -- both are the caller's to settle.
@@ -730,6 +917,11 @@ class SqliteJournal implements Journal {
    * was briefly unwell, and rollback is expected to be retried (D7).
    */
   markInverseRejected(actionId: string, error: string): void {
+    // The claim is over: the upstream answered, nothing was applied, and the
+    // action is back to needing an undo like any other. Leaving the lease
+    // would make the next attempt ask whether a process that has moved on is
+    // still working on it.
+    this.#release(actionId);
     this.#settle("markInverseRejected", actionId, "applied", ["rolling_back"], error);
   }
 
@@ -739,6 +931,14 @@ class SqliteJournal implements Journal {
    * current state rather than assuming either way.
    */
   markUnknownInverse(actionId: string, error: string): void {
+    // The lease is deliberately left in place, and then deliberately allowed
+    // to go stale when this process exits. Reclaiming a dead lease is only
+    // ever safe because the drift check has first proved the inverse never
+    // landed; if it did land, the resource no longer matches the recorded
+    // post-state and the attempt halts long before any claim is asked for.
+    // So a stale lease is not an authorisation to re-send -- it is only the
+    // removal of the one question the world cannot answer.
+
     this.#settle("markUnknownInverse", actionId, "rolling_back", ["rolling_back"], error);
   }
 
@@ -828,6 +1028,15 @@ class SqliteJournal implements Journal {
     });
   }
 
+  listPending(): readonly ActionRow[] {
+    return this.#run("listPending", () =>
+      this.#db
+        .prepare("SELECT * FROM actions WHERE status = 'pending' ORDER BY ts")
+        .all()
+        .map(toAction),
+    );
+  }
+
   listGated(): readonly ActionRow[] {
     return this.#run("listGated", () =>
       this.#db.prepare("SELECT * FROM actions WHERE status = 'gated' ORDER BY ts").all().map(toAction),
@@ -855,12 +1064,7 @@ class SqliteJournal implements Journal {
         )
         .all(query.server, query.tool, query.notBefore)
         .map(toAction);
-      // Matched on meaning rather than on spelling: an agent that re-emits the
-      // same arguments in a different key order is making the same call, and
-      // sending a person back to approve what they just approved would teach
-      // them to stop reading what they are approving.
-      const wanted = canonical(query.args ?? {});
-      return rows.find((row) => canonical(row.args) === wanted);
+      return sameCall(rows, query.args);
     });
   }
 
@@ -882,8 +1086,7 @@ class SqliteJournal implements Journal {
         )
         .all(query.runId, query.server, query.tool)
         .map(toAction);
-      const wanted = canonical(query.args ?? {});
-      return rows.find((row) => canonical(row.args) === wanted);
+      return sameCall(rows, query.args);
     });
   }
 
@@ -913,8 +1116,7 @@ class SqliteJournal implements Journal {
         )
         .all(query.runId, query.server, query.tool)
         .map(toAction);
-      const wanted = canonical(query.args ?? {});
-      return rows.find((row) => canonical(row.args) === wanted);
+      return sameCall(rows, query.args);
     });
   }
 
@@ -986,6 +1188,35 @@ class SqliteJournal implements Journal {
         });
       }
       return tally;
+    });
+  }
+
+  standingPerRun(): ReadonlyMap<string, RunStanding> {
+    return this.#run("standingPerRun", () => {
+      // Two counts, two partial indexes, and INDEXED BY on both because the
+      // point is that neither ever reaches into a row. Left to choose, sqlite
+      // takes actions_by_run and reads the actions -- which carry the
+      // snapshots, and which is the cost this exists to remove.
+      const standing = new Map<string, { undoable: number; conflicted: number }>();
+      const count = (sql: string, field: "undoable" | "conflicted"): void => {
+        for (const raw of this.#db.prepare(sql).all()) {
+          const row = countedSchema.parse(raw);
+          const at = standing.get(row.run_id) ?? { undoable: 0, conflicted: 0 };
+          at[field] = row.n;
+          standing.set(row.run_id, at);
+        }
+      };
+      count(
+        `SELECT run_id, COUNT(*) AS n FROM actions INDEXED BY actions_undoable
+          WHERE status = 'applied' AND inverse_json IS NOT NULL GROUP BY run_id`,
+        "undoable",
+      );
+      count(
+        `SELECT run_id, COUNT(*) AS n FROM actions INDEXED BY actions_conflicted
+          WHERE status = 'unrecoverable' AND inverse_json IS NOT NULL GROUP BY run_id`,
+        "conflicted",
+      );
+      return standing;
     });
   }
 

@@ -52,6 +52,37 @@ CREATE TABLE IF NOT EXISTS actions (
   UNIQUE(run_id, seq)
 );
 
+-- Who is currently sending an inverse for an action, so that a dead owner can
+-- be told from a live one.
+--
+-- Without this, a row left in rolling_back by an undo that was killed could
+-- never be reclaimed by anything. The claim exists to stop two undos each
+-- sending the same inverse -- harmless for a restore, a second real change to
+-- the world for a compensation -- and refusing was the only safe answer to
+-- "is somebody still working on this?" when there was no way to ask. So an
+-- action could be stranded permanently by one Ctrl-C, on the command whose
+-- entire job is getting back. rollback.ts said as much in a comment: there is
+-- no lease to consult, and inventing a schema for one is a separate piece of
+-- work. This is that table.
+--
+-- Not a schema version bump, on the same argument the indexes above make: a
+-- table nothing older reads changes no row and no meaning, IF NOT EXISTS makes
+-- it idempotent, and an older build opening the same file afterwards neither
+-- notices nor cares -- it simply goes on refusing to reclaim, which is what it
+-- did before. A bump would refuse to open every journal already out there.
+--
+-- host and pid together, because a pid is only meaningful on the machine that
+-- issued it, and journals are shared. claimed_at is for the message rather
+-- than the decision: liveness is asked of the operating system, not inferred
+-- from a clock, so there is no timeout to tune and no window in which a slow
+-- undo is mistaken for a dead one.
+CREATE TABLE IF NOT EXISTS leases (
+  action_id  TEXT PRIMARY KEY REFERENCES actions(id),
+  host       TEXT NOT NULL,
+  pid        INTEGER NOT NULL,
+  claimed_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS actions_by_run ON actions(run_id, seq);
 
 -- Deliberately not a schema version bump. Adding an index changes no row and
@@ -137,4 +168,41 @@ CREATE INDEX IF NOT EXISTS actions_writes ON actions(run_id, seq)
 -- changes, no meaning changes, IF NOT EXISTS makes it idempotent, and an older
 -- build opening the same file afterwards neither notices nor cares.
 CREATE INDEX IF NOT EXISTS actions_seen ON actions(server, ts);
+
+-- The twin of actions_undoable, and partial for the same reason. The console
+-- asks, of every session, two questions: is there anything here an undo would
+-- reverse, and is there anything here a person still has to decide. The first
+-- is actions_undoable above; this is the second. It was being answered by
+-- materialising every action in every run -- snapshots, results and inverses,
+-- each through a zod parse -- eight times a second, to arrive at two integers
+-- per row. Measured on forty runs of five hundred actions with two-kilobyte
+-- snapshots, a hundred-megabyte journal: 62ms a frame, which on a 120ms tick
+-- is half the event loop spent deciding what to draw, so keypresses queued
+-- behind renders and the screen felt stuck.
+--
+-- The inverse_json test is in the predicate rather than in the query, so the
+-- count never reaches into a row: an unrecoverable action with no inverse is
+-- not a decision anybody can act on, and telling the two apart is exactly
+-- what cost the frame.
+--
+-- Added the same way as the ones above and for the same reason: no row
+-- changes, no meaning changes, IF NOT EXISTS makes it idempotent, and an older
+-- build opening the same file afterwards neither notices nor cares.
+CREATE INDEX IF NOT EXISTS actions_conflicted ON actions(run_id)
+  WHERE status = 'unrecoverable' AND inverse_json IS NOT NULL;
+
+-- The one query the seven above left behind, and the one running most often.
+-- recentActions asks for the newest twelve rows by time, and the watch screen
+-- asks it every 120ms. There was no index on ts alone -- actions_gated leads
+-- with status and actions_seen leads with server, so neither can serve a bare
+-- ORDER BY ts -- which left a full scan plus a temporary b-tree over a table
+-- whose rows carry the snapshots, to return twelve of them. The columns are
+-- in the same order the query sorts by, so sqlite walks this backwards and
+-- stops at the limit. Measured on forty runs of five hundred actions with
+-- two-kilobyte snapshots, a hundred-megabyte journal: 7.4ms to 0.03ms.
+--
+-- Added the same way as the ones above and for the same reason: no row
+-- changes, no meaning changes, IF NOT EXISTS makes it idempotent, and an older
+-- build opening the same file afterwards neither notices nor cares.
+CREATE INDEX IF NOT EXISTS actions_recent ON actions(ts, seq);
 `;

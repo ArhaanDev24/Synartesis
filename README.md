@@ -415,6 +415,7 @@ get it if it is not installed.
 | `show <id> --live` | The same, plus what has changed in the world since |
 | `show <id> --full` | Every argument, snapshot and inverse, nothing elided |
 | `gates` / `approve <id>` / `deny <id>` | What is waiting, and answering it |
+| `resolve <id> --applied\|--failed` | Settle a call whose outcome nothing established |
 | `undo <id>` | Reverse a session, newest action first |
 | `undo <id> --dry-run` | Plan it and change nothing |
 | `undo <id> --replan` | Rebuild each undo from the current manifest |
@@ -452,7 +453,10 @@ cannot start a process:** see the [user guide](docs/synartesis-user-guide.md).
 - **An error is not proof that nothing happened.** A timeout or a tool-level
   error after a write leaves the outcome *unknown*, not failed, and undo will
   not step past it. Where a pre-read exists it is consulted to settle the
-  question instead of guessing.
+  question instead of guessing, and where none can settle it, `resolve` is how
+  a person who looked says which way it went -- an action resolved as applied
+  still has no inverse, so undo reports it as something it cannot put back
+  rather than pretending otherwise.
 - **An undo is only as good as the policy that recorded it.** Inverses are
   resolved when the call happens, so a mistake in a manifest is baked into every
   run made under it. `undo --replan` rebuilds them from a corrected one.

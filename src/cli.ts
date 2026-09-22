@@ -103,6 +103,7 @@ const COMMANDS = `
   synartesis watch [--by <name>] [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
+  synartesis resolve [actionId] --applied|--failed [--by <name>] [--reason <text>]
   synartesis undo [runId] [--to <seq>] [--dry-run] [--replan] [--force [--yes]]
                           [--manifest <path>] [--journal <path>]
 
@@ -117,6 +118,14 @@ this command. Both share one journal, so either can undo what the other did.
 
 close ends a run left active by a proxy that was killed; nothing guesses at
 that, since several proxies can share one journal.
+
+resolve settles a call whose outcome was never established -- a proxy killed
+mid-write, or a server that answered too late. undo stops at one of those
+rather than guess, and stopping there used to be permanent: it blocked
+everything older in the same run. Only a person can say which way it went, so
+this records that they said it, and who. An action resolved as applied still
+has no inverse, so undo will report it as something it cannot put back and
+carry on with the rest.
 
 prune reclaims space. Putting a file back means keeping what was in it, so a
 journal grows at several times what an agent writes and never shrinks by
@@ -146,6 +155,8 @@ resource back as the run left it and --replan, or --force to overwrite.
   --once      watch prints the current state and exits
   --json      machine-readable output for list, show and gates
   --dry-run   read current state and print the plan without changing anything
+  --applied   resolve: the call did land, though nothing recorded it
+  --failed    resolve: the call never landed
   --replan    rebuild each undo from the current manifest, for a run recorded
               under a policy that turned out to be wrong
   --force     undo even where the resource changed after the run. On its own it
@@ -837,6 +848,7 @@ function pick<T extends { id: string }>(
 
 const RUN: Noun = { one: "run", many: "runs" };
 const WAITING: Noun = { one: "action awaiting approval", many: "actions awaiting approval" };
+const UNSETTLED: Noun = { one: "action whose outcome is unknown", many: "actions whose outcome is unknown" };
 
 // Piping into head or less closes the pipe early. That is the reader saying it
 // has seen enough, not an error, and a stack trace there is pure noise.
@@ -1462,6 +1474,80 @@ function runPrune(argv: readonly string[], journal: Journal, journalPath: string
   return 0;
 }
 
+/**
+ * Settles an outcome the machine could not establish, on a person's word.
+ *
+ * `pending` is the one status that means "a call went out and nobody knows
+ * what it did", and undo stops at one rather than producing a state that is
+ * neither the before nor the after. That is right, and until now it was
+ * also permanent: nothing in this CLI could settle such a row, so a single
+ * interrupted call blocked the undo of everything older in its run for ever,
+ * and the only way past was `--to` above it, which abandons the rest.
+ *
+ * The machine cannot answer the question, so this asks the one party who
+ * can, records what they said and who they were, and stops there. Settling
+ * one as `applied` does not invent an inverse for it -- none was ever
+ * resolved -- so undo will report it as something it cannot put back and go
+ * on to the rest of the run. That is the whole point: unblocking the run and
+ * undoing the action are different things, and only the first is on offer.
+ */
+function runResolve(argv: readonly string[], journal: Journal): number {
+  const applied = argv.includes("--applied");
+  const failed = argv.includes("--failed");
+  if (applied === failed) {
+    throw new UsageError(
+      "resolve needs exactly one of --applied (the call landed) or --failed (it never did)",
+    );
+  }
+  const by = flag(argv, "--by") ?? process.env["USER"] ?? process.env["LOGNAME"] ?? "unknown";
+  const why = flag(argv, "--reason");
+  const given = positional(argv)[1];
+
+  // Among every action first, so a row somebody already settled is told what
+  // became of it rather than "no such action" -- the same courtesy approve
+  // pays, and for the same reason: the id came from somewhere.
+  if (given !== undefined) {
+    const already = journal.getAction(given);
+    if (already !== undefined && already.status !== "pending") {
+      process.stderr.write(
+        `synartesis: ${given} is not waiting to be resolved (it is ${labelFor(already)})\n`,
+      );
+      return 1;
+    }
+  }
+
+  const action = pick(journal.listPending(), given, UNSETTLED);
+  const outcome = applied ? "applied" : "failed";
+  // Who said so and why, on the row, because this is the one status in the
+  // journal that was decided by a person rather than observed. An audit that
+  // cannot tell those apart is worse than one that records less.
+  const note =
+    `resolved as ${outcome} by ${by}` + (why === undefined ? "" : `: ${why}`);
+  if (!journal.settleByHand(action.id, outcome, note)) {
+    const now = journal.getAction(action.id);
+    process.stderr.write(
+      `synartesis: ${action.id} was settled by the proxy first (it is ${now?.status ?? "gone"})\n`,
+    );
+    return 1;
+  }
+
+  out("");
+  out(
+    `  ${style.accent(outcome)} ${style.strong(`${action.server}.${action.tool}`)} ${style.quiet(action.id.slice(0, 8))}`,
+  );
+  out("");
+  out(
+    `  ${style.quiet(
+      applied
+        ? "Undo will now pass it, and report it as something it cannot put back:"
+        : "Undo will now pass it, as a call that never applied:",
+    )}`,
+  );
+  out(`  ${style.strong(`${cliCommand()} undo ${action.runId.slice(0, 8)}`)}`);
+  out("");
+  return 0;
+}
+
 function runClose(argv: readonly string[], journal: Journal): number {
   // Left active by a proxy that was killed rather than disconnected. Nothing
   // can tell that apart from a run still going, so this is asked for, never
@@ -1817,6 +1903,38 @@ async function withUpstreams<T>(
   }
 }
 
+/**
+ * Ctrl-C, answered between actions rather than in the middle of one.
+ *
+ * There was no signal handling here at all, so an interrupt during an undo
+ * was node's default: the process dies wherever it happens to be. Do that
+ * while an inverse is in flight and the row stays claimed with nobody able
+ * to say whether the call landed -- the one state this tool has no way back
+ * from, one keystroke away, on the command whose whole job is getting back.
+ *
+ * So the first Ctrl-C asks the rollback to stop at the next clean point and
+ * says so, because a keypress that appears to do nothing is a keypress people
+ * press again. The second is the operating system's, and by then the thing
+ * being protected is whatever is still in the air, which nothing here can
+ * protect anyway.
+ */
+function stopOnInterrupt(): AbortSignal {
+  const stopping = new AbortController();
+  let asked = false;
+  for (const sign of ["SIGINT", "SIGTERM"] as const) {
+    process.once(sign, () => {
+      if (asked) {
+        process.exit(130);
+      }
+      asked = true;
+      stopping.abort();
+      out("");
+      out(`  ${style.quiet("stopping after this action; press again to stop now")}`);
+    });
+  }
+  return stopping.signal;
+}
+
 /** The servers a session actually went to, which are the only ones it needs. */
 function serversUsedBy(journal: Journal, runId: string): ReadonlySet<string> {
   return new Set(journal.getActions(runId).map((action) => action.server));
@@ -1844,6 +1962,7 @@ async function performUndo(
         ...(options.replan === true ? { replanWith: manifest } : {}),
         dryRun: options.dryRun,
         ...(options.force === true ? { force: true } : {}),
+        interrupt: stopOnInterrupt(),
       }),
     // A replan re-resolves inverses from the current policy, which may name a
     // server this run never used; everything else needs only what it touched.
@@ -1859,7 +1978,13 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   const rawTo = flag(argv, "--to");
   const toSeq = rawTo === undefined ? undefined : Number(rawTo);
   if (toSeq !== undefined && (!Number.isInteger(toSeq) || toSeq < 1)) {
-    throw new UsageError("--to needs a positive whole number");
+    // Without the command list, like its sibling below that refuses a --to
+    // past the end of the run. The flag and the command are both spelled
+    // correctly here; it is the value that is wrong, and the list is for a
+    // mistyped flag or command. Answering the same mistake in two shapes,
+    // one of them five lines of `install` and `watch`, is worse than either
+    // shape consistently.
+    throw new UsageError("--to needs a positive whole number", false);
   }
 
   // Defaults to the most recent run: the thing anyone wants to undo is
@@ -1867,6 +1992,31 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   const given = positional(argv)[1];
   const chosen = pick([...journal.listRuns()].reverse(), given, RUN, true);
   const runId = chosen.id;
+
+  // An agent may still be working in it. The newest session is, by
+  // definition, the one a running proxy is writing into, so `undo` with no id
+  // pointed straight at it -- and undoing underneath a live agent means its
+  // next call lands on a resource this just put back, and a second copy of
+  // every server it uses is spawned alongside the one it is already talking
+  // to. Sometimes that is exactly what somebody wants, which is why this asks
+  // rather than refuses; naming the session is not enough, because the whole
+  // problem is that it does not look live from here.
+  // Not on a dry run, which writes nothing: a preview is exactly what
+  // somebody should be able to take of a session that is still going, and
+  // refusing one would send them to --yes to look.
+  if (
+    journal.getRun(runId)?.status === "active" &&
+    !argv.includes("--yes") &&
+    !argv.includes("--dry-run")
+  ) {
+    throw new UsageError(
+      `${runId.slice(0, 8)} has not ended, so an agent may still be writing to it.\n` +
+        `  See what an undo would do:  ${cliCommand()} undo ${runId.slice(0, 8)} --dry-run\n` +
+        `  If its proxy is gone:       ${cliCommand()} close ${runId.slice(0, 8)}\n` +
+        `  Undo it anyway:             ${cliCommand()} undo ${runId.slice(0, 8)} --yes`,
+      false,
+    );
+  }
 
   // Say which one, before touching it. Without an id this picks the newest
   // session, which is not necessarily the one on screen in another window --
@@ -2050,7 +2200,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
  */
 const KNOWN_COMMANDS = [
   "install", "uninstall", "status", "init", "check", "pin", "list", "show",
-  "gates", "close", "prune", "proxy", "desktop", "watch", "approve", "deny",
+  "gates", "close", "prune", "proxy", "desktop", "watch", "approve", "deny", "resolve",
   "undo", "help", "version",
 ];
 
@@ -2079,6 +2229,9 @@ const FLAGS = new Set([
   "--dry-run",
   "--replan",
   "--reason",
+  // resolve: which way the unknown outcome actually went.
+  "--applied",
+  "--failed",
   "--force",
   "--yes",
   "--older-than",
@@ -2327,6 +2480,8 @@ async function main(argv: readonly string[]): Promise<number> {
         return runPrune(argv, journal, journalPath);
       case "gates":
         return runGates(journal, asJson);
+      case "resolve":
+        return runResolve(argv, journal);
       case "approve":
         return runDecision(argv, journal, true);
       case "deny":

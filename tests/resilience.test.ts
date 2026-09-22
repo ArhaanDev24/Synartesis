@@ -165,3 +165,145 @@ describe("several proxies sharing one journal", () => {
     }
   });
 });
+
+/**
+ * The states a person could reach and not get back out of.
+ *
+ * Each of these was a guard written correctly with no exit built behind it:
+ * undo stopped, for the right reason, and then stopped for ever. The promise
+ * this whole tool makes is that you can always get back, so a halt that
+ * nothing can answer is a worse failure than the one it was protecting
+ * against.
+ */
+describe("the ways out of a halt", () => {
+  it("settles an unknown outcome on a person's word, and undoes the rest", async () => {
+    const { client, journal, router, runId, store } = await session();
+    const before = store.__snapshot();
+    await client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    await client.callTool({ name: "update_customer", arguments: { id: "c_002", plan: "free" } });
+
+    // The newest call went out and nobody can say whether it landed.
+    const interrupted = journal.recordPending({
+      runId,
+      server: "crm",
+      tool: "send_email",
+      args: { to: "a@b.c" },
+      class: "irreversible",
+    });
+    journal.markUnknown(interrupted.actionId, "the client gave up waiting");
+
+    // Which stops everything older than it, and stopped it permanently.
+    const blocked = await rollback({ journal, router, runId });
+    expect(blocked.status).toBe("partial");
+    expect(blocked.halted?.seq).toBe(interrupted.seq);
+
+    // A person looks, and says what they found.
+    const settled = journal.settleByHand(
+      interrupted.actionId,
+      "failed",
+      "resolved as failed by arhaan: no mail was sent",
+    );
+    expect(settled).toBe(true);
+
+    const after = await rollback({ journal, router, runId });
+    expect(after.halted).toBeUndefined();
+    // And the two writes underneath it are actually put back, which is the
+    // whole point of being able to answer the question.
+    expect(store.__snapshot()).toEqual(before);
+  });
+
+  it("does not invent an undo for an action resolved as applied", async () => {
+    const { client, journal, router, runId } = await session();
+    await client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    const unknown = journal.recordPending({
+      runId,
+      server: "crm",
+      tool: "send_email",
+      args: { to: "a@b.c" },
+      class: "irreversible",
+    });
+    journal.markUnknown(unknown.actionId, "the client gave up waiting");
+
+    journal.settleByHand(unknown.actionId, "applied", "resolved as applied by arhaan: it arrived");
+
+    const report = await rollback({ journal, router, runId });
+    // No inverse was ever resolved for it, so it is reported as something
+    // that cannot be put back rather than quietly skipped or falsely
+    // reversed -- and the run says partial because of it.
+    const step = report.steps.find((one) => one.seq === unknown.seq);
+    expect(step?.kind).toBe("permanent");
+    expect(report.status).toBe("partial");
+  });
+
+  it("lets the proxy's own answer win over a person's", async () => {
+    const { journal, runId } = await session();
+    const action = journal.recordPending({
+      runId,
+      server: "crm",
+      tool: "send_email",
+      args: { to: "a@b.c" },
+      class: "irreversible",
+    });
+    // The proxy came back and recorded what it actually saw.
+    journal.markFailed(action.actionId, "upstream refused");
+    // The person's guess arrives second and must not overwrite it.
+    expect(journal.settleByHand(action.actionId, "applied", "resolved by arhaan")).toBe(false);
+    expect(journal.getAction(action.actionId)?.status).toBe("failed");
+  });
+
+  it("stops an undo between actions when asked, leaving nothing half applied", async () => {
+    const { client, journal, router, runId } = await session();
+    await client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    await client.callTool({ name: "update_customer", arguments: { id: "c_002", plan: "free" } });
+
+    const stopping = new AbortController();
+    stopping.abort();
+    const report = await rollback({ journal, router, runId, interrupt: stopping.signal });
+
+    expect(report.status).toBe("partial");
+    expect(report.halted?.reason).toMatch(/interrupted/);
+    // Not one row claimed and abandoned: the stop was taken before the claim,
+    // which is the difference between a run that can be resumed and the one
+    // state this tool has no way back from.
+    for (const action of journal.getActions(runId)) {
+      expect(action.status).not.toBe("rolling_back");
+    }
+    // And running it again finishes the job.
+    const resumed = await rollback({ journal, router, runId });
+    expect(resumed.halted).toBeUndefined();
+  });
+
+  it("does not let a client disconnecting erase that a run was undone", async () => {
+    const { client, journal, router, runId } = await session();
+    await client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    await rollback({ journal, router, runId });
+    expect(journal.getRun(runId)?.status).toBe("rolled_back");
+
+    // The agent's client goes away afterwards. A disconnect says this client
+    // has gone, which is not news about whether the session was put back --
+    // and it used to stamp `complete` straight over the fact that it had
+    // been, so a session somebody had just reversed came back looking
+    // untouched in `list`.
+    await client.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(journal.getRun(runId)?.status).toBe("rolled_back");
+  });
+
+  it("does not let a disconnect overwrite how a session ended", () => {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-ended-"));
+    const journal = openJournal(join(dir, "journal.db"));
+    try {
+      const runId = journal.beginRun("an-agent");
+      journal.endRun(runId, "rolled_back");
+
+      // What the proxy does when its client goes away. It says nothing about
+      // whether the session was put back, and unrestricted it erased the only
+      // record that it had been.
+      journal.endRun(runId, "complete", ["active"]);
+      expect(journal.getRun(runId)?.status).toBe("rolled_back");
+    } finally {
+      journal.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

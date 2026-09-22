@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +18,13 @@ import { rollback } from "../src/rollback/rollback.js";
 import { parseManifest } from "../src/manifest/load.js";
 import type { Manifest } from "../src/manifest/types.js";
 import { autoApproveGate, inMemoryUpstream } from "./helpers/harness.js";
+
+/** A pid that is certainly nobody: a process we started and watched exit. */
+async function exited(): Promise<number> {
+  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  await new Promise((resolve) => child.once("exit", resolve));
+  return child.pid ?? 0;
+}
 
 const cleanups: (() => Promise<void> | void)[] = [];
 
@@ -914,5 +922,66 @@ describe("two undos where the first is still mid-inverse", () => {
     // The first undo will send its own inverse when it finishes. A second one
     // is a second real change to the world for anything compensable.
     expect(writes).toBe(0);
+  });
+
+  it("resumes one whose owner died, because the world proves nothing was sent", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    const [action] = active.journal.getActions(active.runId);
+    if (action === undefined) {
+      throw new Error("nothing recorded");
+    }
+
+    // An undo claimed it and was killed before it sent anything -- one Ctrl-C
+    // on the command whose whole job is getting back. The row says
+    // `rolling_back` and used to stay that way for ever: no flag, no command
+    // and no amount of waiting could reclaim it.
+    expect(active.journal.markRollingBack(action.id)).toBe(true);
+    const dead = await exited();
+    const db = new Database(active.journalPath);
+    db.prepare("UPDATE leases SET pid = ? WHERE action_id = ?").run(dead, action.id);
+    db.close();
+
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+    });
+
+    // Reclaimed and finished. Safe because the drift check ran first: the
+    // resource still matched what the run left, so the inverse provably never
+    // landed and sending it cannot double-apply.
+    expect(report.status).toBe("rolled_back");
+    expect(report.steps[0]?.kind).toBe("revert");
+    expect(active.store.__snapshot()).toEqual(active.before);
+    expect(active.journal.getActions(active.runId)[0]?.status).toBe("rolled_back");
+  });
+
+  it("still refuses when the owner is alive, whatever is asked of it", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    const [action] = active.journal.getActions(active.runId);
+    if (action === undefined) {
+      throw new Error("nothing recorded");
+    }
+    // Claimed by this process, which is indisputably running.
+    expect(active.journal.markRollingBack(action.id)).toBe(true);
+
+    for (const extra of [{}, { force: true }, { replanWith: MANIFEST }]) {
+      const report = await rollback({
+        journal: active.journal,
+        router: active.router,
+        runId: active.runId,
+        ...extra,
+      });
+      expect(report.status).toBe("partial");
+      expect(report.halted?.reason).toMatch(/still running/);
+    }
   });
 });

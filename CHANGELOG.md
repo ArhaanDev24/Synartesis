@@ -2,6 +2,125 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.8.5 — 2026-09-22
+
+Three states you could get into and not get out of, two screens that read the
+whole journal to draw one frame, and a gate that let two statements through.
+Found by auditing rather than by using it, which is the difference between
+this release and the last one.
+
+### Fixed
+
+- **An undo killed halfway can now be resumed.** An action whose inverse was
+  being sent is marked `rolling_back`, and until now nothing could ever
+  reclaim one: no flag, no command, no amount of waiting. The claim was right
+  to refuse -- sending a second inverse is harmless for a restore and a second
+  real change to the world for a compensation -- but it was refusing because
+  it could not tell a process still working from one that had died, and there
+  was nothing to ask. One Ctrl-C during an undo put an action permanently
+  beyond the command whose whole job is getting back.
+
+  There is a lease now, in a `leases` table, holding the host and process id
+  that took each claim. A claim is reclaimed only on evidence, and only when
+  both questions have answers: the drift check has already proved the inverse
+  never landed (a `rolling_back` row that gets that far has a verified
+  pre-read, or it halts earlier), and the operating system says the process
+  that held it is gone. Anything less certain -- a lease from another machine,
+  a lease taken by a build from before the table existed, no lease at all --
+  still halts, and now says who held it and since when. There is no timeout to
+  tune, so there is no window in which an undo that is merely slow is mistaken
+  for one that died.
+
+  No schema version bump. `CREATE TABLE IF NOT EXISTS` changes no row and no
+  meaning, runs on every open, and an older build opening the same journal
+  neither notices nor cares -- the same argument the indexes have carried
+  since 0.6. A bump would refuse to open every journal already out there,
+  because there is still no migration path.
+
+- **A call whose outcome was never established no longer blocks a whole run
+  for ever.** `pending` means the call went out and nobody can say whether it
+  landed, and undo stops at one rather than produce a state that is neither
+  the before nor the after. That was right and permanent: nothing in the CLI
+  could settle such a row, so one interrupted call blocked the undo of
+  everything older than it, and the only way past was `--to` above it, which
+  abandons the rest.
+
+  `synartesis resolve <action> --applied|--failed` records what a person
+  found, and who they were. It claims nothing else: an action resolved as
+  applied has no inverse, because none was ever resolved, so undo reports it
+  as something it cannot put back and carries on with the rest of the run.
+  Unblocking a run and undoing an action are different things and only the
+  first is on offer. A proxy that comes back and records what it actually saw
+  wins over a person's judgement, because it was there.
+
+- **Ctrl-C during an undo stops between actions instead of wherever it lands.**
+  There was no signal handling in the CLI at all, so an interrupt was node's
+  default: die immediately, including with an inverse in flight, which is the
+  single best way to produce the state the first item above describes. The
+  first Ctrl-C now asks the rollback to stop before it claims the next action
+  and says so; the second is the operating system's. Deliberately not wired to
+  the abort signal that cancels a request in flight -- what is already in the
+  air is allowed to finish and be recorded.
+
+- **A client disconnecting no longer erases that a session was undone.** The
+  proxy ends its run when its client goes away, which says nothing about
+  whether anything was put back -- and it was an unguarded write, so it
+  stamped `complete` straight over the `rolled_back` an undo had just
+  recorded. A session somebody had reversed came back looking untouched.
+
+- **`undo` no longer defaults to a session an agent is still writing to.** The
+  newest run is, by definition, the one a running proxy is using, and `undo`
+  with no id pointed straight at it. A preview is always allowed, because it
+  writes nothing; doing it for real now needs `--yes`, and the refusal names
+  all three ways on. A session whose proxy exited normally is `complete`, so
+  this fires only where something really is unfinished.
+
+- **Two writes the `on_write` gate read as reads.**
+  `WITH x AS (DELETE FROM users RETURNING *) SELECT * FROM x` is an ordinary
+  PostgreSQL data-modifying CTE, and `EXPLAIN ANALYZE DELETE FROM users` runs
+  the statement it claims to be explaining. Both begin with a word on the
+  read list, neither contains a semicolon, and both were passed through
+  ungated while emptying a table. The heuristic's promise is that anything it
+  cannot confidently read as a read is gated; these were read confidently and
+  wrongly. The leading word still decides whether a statement could be a read,
+  and a second pass over it -- with comments and string literals removed, so a
+  keyword cannot hide in either -- decides whether anything in it writes.
+
+  No shipped policy uses `on_write`, so nothing in the box was exposed. The
+  documentation invites you to use it for your own SQL server, which is
+  exactly who this was a hole for.
+
+### Changed
+
+- **The console drew each frame by reading the entire journal.** `runsView`
+  called `getActions` for every session on screen -- every snapshot, result
+  and inverse in each of them, each through a schema parse -- to arrive at two
+  integers per row, eight times a second. `tallyRuns` was added for precisely
+  this and `list` was moved onto it; the console was missed. On a
+  hundred-megabyte journal that was 62ms a frame against a 120ms tick, so half
+  the event loop went on deciding what to draw and keypresses queued behind
+  renders. It is about 2ms now, and what each session still has waiting comes
+  from two partial indexes rather than from its rows.
+
+- **`watch` scanned the whole table to show twelve lines.** `recentActions`
+  orders by time and there was no index on time alone, so every 120ms it read
+  every row in the table -- the ones carrying the snapshots -- and sorted them
+  in a temporary b-tree to return twelve. 7.4ms to 0.03ms on the same journal.
+
+- **A large write no longer pays to canonicalise its own arguments for
+  nothing.** The three lookups that run on the way in to a call each built a
+  canonical form of the arguments before checking whether there was any
+  candidate row to compare it against -- and their indexes are partial
+  precisely so that there almost never is. 23.5ms of pure waste on a
+  ten-megabyte write, gone with an early return.
+
+- **A budget test for both screens.** Every performance test here measured one
+  call against a journal a few hundred rows deep, which is the one shape in
+  which none of the above exists. `tests/screen-budget.test.ts` seeds four
+  thousand actions and holds a console frame and a watch frame to a fraction
+  of their tick, so the next regression is caught by CI rather than by
+  somebody's fan.
+
 ## 0.8.4 — 2026-09-21
 
 Bugs, all of them found by using the thing rather than by a test going red:

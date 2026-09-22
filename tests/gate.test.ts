@@ -231,6 +231,28 @@ describe("the on_write heuristic", () => {
     expect(shouldGateOnWrite({ sql: "DROP TABLE customers" })).toBe(true);
   });
 
+  it("gates a write hiding behind a word that begins a read", () => {
+    // Both of these begin with a word on the read list, contain no semicolon,
+    // and delete every row in the table. They were passed through ungated.
+    expect(
+      shouldGateOnWrite({ sql: "WITH x AS (DELETE FROM users RETURNING *) SELECT * FROM x" }),
+    ).toBe(true);
+    // ANALYZE runs the statement it claims to be explaining.
+    expect(shouldGateOnWrite({ sql: "EXPLAIN ANALYZE DELETE FROM users" })).toBe(true);
+    // And the same trick in the other direction: a comment is not code.
+    expect(shouldGateOnWrite({ sql: "SELECT 1 /* harmless */ ; DROP TABLE users" })).toBe(true);
+    expect(shouldGateOnWrite({ sql: "SELECT 1 -- \n; DROP TABLE users" })).toBe(true);
+  });
+
+  it("does not gate a write keyword that is only ever data", () => {
+    // Inside a literal it is a string, not a statement, and gating on it
+    // would teach people that the gate fires at random.
+    expect(shouldGateOnWrite({ sql: "SELECT * FROM logs WHERE msg = 'delete from users'" })).toBe(
+      false,
+    );
+    expect(shouldGateOnWrite({ sql: 'SELECT "drop" FROM t' })).toBe(false);
+  });
+
   it("gates anything it cannot classify", () => {
     // Fail closed (D4): not recognising a statement is not evidence that it is
     // safe, and a silent passthrough on an unknown destructive call is the one

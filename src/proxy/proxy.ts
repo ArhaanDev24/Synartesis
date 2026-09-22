@@ -1292,7 +1292,12 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
   server.onclose = (): void => {
     connected = false;
     if (runId !== undefined) {
-      journal.endRun(runId, "complete");
+      // Only if it is still running. A disconnect says this client went away,
+      // which is not news about whether the session was put back -- and undo
+      // may have ended it already. Unrestricted, this overwrote a
+      // `rolled_back` with `complete` the moment the agent's client closed,
+      // so the session that had been reversed came back looking untouched.
+      journal.endRun(runId, "complete", ["active"]);
       runId = undefined;
     }
     previousOnClose?.();
