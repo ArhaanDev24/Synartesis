@@ -2,6 +2,37 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.8.6 — 2026-09-22
+
+A test I added in 0.8.5 failed the release build. The published package was
+never affected -- tests do not ship -- but the tag produced no GitHub release
+and no installers, so this is 0.8.5 with that test written properly.
+
+### Fixed
+
+- **The new screen budget asserted milliseconds, and milliseconds are a
+  property of the machine.** `tests/screen-budget.test.ts` held a console
+  frame and a watch frame under a stated number of milliseconds. That passed
+  on the machine it was written on and failed on a CI runner twenty minutes
+  later, which is several times slower and shared -- the gate in `release.yml`
+  went red and 0.8.5 never got its installers.
+
+  It asserts two machine-independent things now. A ratio, measured back to
+  back on whatever is running: answering from the indexes against answering
+  by reading every action in every run, which is about 36x here and has to
+  clear 4, because going back to reading the rows scores 1. And a query plan,
+  which is a fact rather than a duration -- the watch screen's newest-first
+  read has to name the index, and must not say `USE TEMP B-TREE FOR ORDER BY`,
+  which is exactly what it said before 0.8.5 added `actions_recent`.
+
+  It also seeds its four thousand actions once for the file rather than once
+  per test, which was most of the runtime and bought nothing: all three
+  questions are read-only.
+
+  The correctness half is new and is the part worth keeping. The two ways of
+  counting -- from the indexes and from the rows -- must agree, because a
+  frame that is fast and wrong is worse than the slow one it replaced.
+
 ## 0.8.5 — 2026-09-22
 
 Three states you could get into and not get out of, two screens that read the
