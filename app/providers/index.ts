@@ -96,6 +96,16 @@ export interface Preset {
  * Any endpoint speaking `/v1/chat/completions` can be typed in by hand; these
  * are the ones worth not having to look up. The model ids are defaults a
  * person is expected to change -- a local install has whatever it has pulled.
+ *
+ * **Send a request to the host before adding one here.** 0.8.7 shipped a
+ * GitHub Models entry whose endpoint had been retired three weeks earlier:
+ * the host still answered, with `200 OK` and `content-type: text/plain`, so
+ * it looked alive from a distance and could never have worked. It was added
+ * from blog posts and community threads, all of which predated the
+ * retirement, and the vendor's own documentation said plainly that the
+ * inference API was gone. A preset that does not work is worse than an
+ * absent one: the person who picks it concludes this window is broken, not
+ * that the service is.
  */
 export const PRESETS: readonly Preset[] = [
   {
@@ -164,18 +174,20 @@ export const PRESETS: readonly Preset[] = [
     note: "Hosted, with a free tier and no card. Rate limited. Check the model still calls tools.",
   },
   {
-    name: "GitHub Models",
-    keyUrl: "https://github.com/settings/personal-access-tokens",
+    name: "OpenRouter",
+    keyUrl: "https://openrouter.ai/keys",
     config: {
       kind: "openai-compatible",
-      // Publisher-qualified, which the older Azure endpoint did not require.
-      // That endpoint is being retired, so this names the current one.
-      model: "openai/gpt-4o",
-      baseURL: "https://models.github.ai/inference",
-      label: "GitHub Models",
+      // One of the free ids that advertises tool support; the catalogue at
+      // /api/v1/models says which, and it moves. A `:free` model without
+      // tools cannot drive this window at all, so the suffix alone is not
+      // enough to go on when changing this.
+      model: "qwen/qwen3.8-27b:free",
+      baseURL: "https://openrouter.ai/api/v1",
+      label: "OpenRouter",
     },
     needsKey: true,
-    note: "Free with a GitHub token that has models:read. Rate limited, and meant for trying things rather than for a day's work.",
+    note: "Many models behind one key, including free ones. Pick an id ending :free that supports tools.",
   },
   {
     name: "Mistral",

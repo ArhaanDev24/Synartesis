@@ -2,6 +2,32 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.8.8 — 2026-09-22
+
+### Fixed
+
+- **The GitHub Models preset added in 0.8.7 could never have worked.** GitHub
+  retired its inference API on 30 July 2026, three weeks before that entry was
+  written. The host is still there and still answers -- `200 OK`, with
+  `content-type: text/plain` and a body of `OK`, whatever path you ask for --
+  which is exactly the shape of thing that looks alive until you try to use
+  it. The entry was built from blog posts and community threads, every one of
+  them written before the retirement, while the vendor's own documentation
+  said in plain words that the API was gone.
+
+  Removed, and replaced with **OpenRouter**: one key, many models, and
+  nineteen of the free ones currently advertise tool support, which is the
+  constraint that actually decides whether a model can drive this window at
+  all. Its catalogue is public, so which nineteen can be checked rather than
+  guessed.
+
+  Groq, added in the same release, was checked the same way and is fine.
+
+  The note now at the head of the preset list is the part worth keeping: send
+  a request to the host before adding one. A preset that does not work is
+  worse than no preset, because the person who picks it concludes this window
+  is broken rather than that the service is.
+
 ## 0.8.7 — 2026-09-22
 
 ### Added
