@@ -150,6 +150,34 @@ export const PRESETS: readonly Preset[] = [
     note: "Your own server. Start it with a tool-call parser or tools will be ignored.",
   },
   {
+    name: "Groq",
+    keyUrl: "https://console.groq.com/keys",
+    config: {
+      kind: "openai-compatible",
+      model: "llama-3.3-70b-versatile",
+      baseURL: "https://api.groq.com/openai/v1",
+      label: "Groq",
+    },
+    needsKey: true,
+    // The free tier is the point of this entry: the local presets above are
+    // free only if you have the machine for them, and this one is not.
+    note: "Hosted, with a free tier and no card. Rate limited. Check the model still calls tools.",
+  },
+  {
+    name: "GitHub Models",
+    keyUrl: "https://github.com/settings/personal-access-tokens",
+    config: {
+      kind: "openai-compatible",
+      // Publisher-qualified, which the older Azure endpoint did not require.
+      // That endpoint is being retired, so this names the current one.
+      model: "openai/gpt-4o",
+      baseURL: "https://models.github.ai/inference",
+      label: "GitHub Models",
+    },
+    needsKey: true,
+    note: "Free with a GitHub token that has models:read. Rate limited, and meant for trying things rather than for a day's work.",
+  },
+  {
     name: "Mistral",
     keyUrl: "https://console.mistral.ai/api-keys",
     config: {

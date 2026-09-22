@@ -2,6 +2,26 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.8.7 — 2026-09-22
+
+### Added
+
+- **Two presets for people with no GPU.** The window has run free models since
+  it had a model picker -- Ollama, LM Studio and vLLM all need no key and
+  nothing leaves the machine -- but every one of those is free only if you own
+  the hardware to run it. **Groq** and **GitHub Models** are hosted, both have
+  a free tier, and neither wants a card: a GitHub token you already have is
+  enough for the second. Both speak `/v1/chat/completions`, so they are
+  presets rather than code, which is what the note at the head of that list
+  has always said any endpoint can be.
+
+  The note beside each says what it actually costs -- rate limited, and meant
+  for trying things rather than for a day's work -- because the failure worth
+  preventing here is somebody picking a free option and reading its quota
+  refusal as this window being broken. The same reason the local entries say
+  to pick a model that can call tools: the window is an MCP client, and a
+  model that cannot emit a tool call cannot drive it at all.
+
 ## 0.8.6 — 2026-09-22
 
 A test I added in 0.8.5 failed the release build. The published package was
