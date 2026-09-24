@@ -83,6 +83,39 @@ CREATE TABLE IF NOT EXISTS leases (
   claimed_at TEXT NOT NULL
 );
 
+-- What each session's servers were started with, so an undo can tell whether
+-- it is about to act on the same thing.
+--
+-- An undo starts the server again, reading its environment from the client
+-- entry that wraps it. If that entry has changed since -- a memory server now
+-- pointed at a different file -- the undo reaches a different store from the
+-- one the session wrote to, sends its inverse there, and reports success. It
+-- cannot tell, because nothing recorded what the session's server was given.
+--
+-- The working directory, and for every variable the client entry or the policy
+-- declares, its name and a keyed HMAC of its value -- never the value. These
+-- are mostly tokens, and a token is a different class of secret from the file
+-- contents the rest of this journal holds: it must not land here in any form
+-- that gives it back. A keyed hash does not, for anything with a token's
+-- entropy, even to someone holding this file. The key is kept in the journal
+-- itself (the secrets table below) rather than beside it: this file is already
+-- the sensitive one and already owner-only, and a second file would be one
+-- more thing to protect and to lose.
+--
+-- Not a schema version bump, for the reason the leases table above is not.
+CREATE TABLE IF NOT EXISTS secrets (
+  name  TEXT PRIMARY KEY,
+  value BLOB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_servers (
+  run_id       TEXT NOT NULL REFERENCES runs(id),
+  server       TEXT NOT NULL,
+  cwd          TEXT,
+  fingerprints TEXT NOT NULL,
+  PRIMARY KEY (run_id, server)
+);
+
 CREATE INDEX IF NOT EXISTS actions_by_run ON actions(run_id, seq);
 
 -- Deliberately not a schema version bump. Adding an index changes no row and

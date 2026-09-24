@@ -168,9 +168,18 @@ export function readServers(text: string): Record<string, ServerEntry> {
     if (command !== undefined) {
       entry["command"] = unquote(command);
     }
-    const args = parseArray(readKey(lines, table, "args"));
+    const rawArgs = readKey(lines, table, "args");
+    const args = parseArray(rawArgs);
     if (args !== undefined) {
       entry["args"] = args;
+    } else if (rawArgs !== undefined) {
+      // Present but not read. This used to fall through as "no args", which is
+      // a different and wrong answer: a server that happened to start without
+      // them was then wrapped, and writing its table back replaced only the
+      // opening `args = [` line and left the rest dangling -- invalid TOML,
+      // and Codex would not start. Said instead, so it is skipped with a
+      // reason.
+      entry["unreadable"] = "its args array spans several lines, which this cannot read exactly";
     }
     const url = readKey(lines, table, "url");
     if (url !== undefined) {
@@ -211,6 +220,12 @@ export function writeServers(text: string, servers: Record<string, ServerEntry>)
       continue;
     }
     const now = current[table.name];
+    // Never, whoever asks. A table whose args could not be read exactly is one
+    // this cannot write without guessing at the lines it did not understand.
+    const unreadable = now?.["unreadable"];
+    if (typeof unreadable === "string") {
+      throw new Error(`cannot rewrite [mcp_servers.${table.name}]: ${unreadable}`);
+    }
     if (
       now?.command === wanted.command &&
       JSON.stringify(now.args ?? []) === JSON.stringify(wanted.args ?? [])

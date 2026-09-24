@@ -102,4 +102,60 @@ export async function verifyAgainstServers(
   }
 }
 
+/**
+ * The policy with every rule that calls a tool its server no longer has
+ * turned back into the fail-closed default -- irreversible, held for a
+ * person -- and a line for each saying which and why.
+ *
+ * For the proxy at start, and only there. A policy that calls tools that do
+ * not exist used to stop the proxy starting, which is right for a policy that
+ * was written wrong and exactly wrong for one that was right until the server
+ * moved: `github-mcp-server` 1.12 folded `get_issue` and `update_issue` into
+ * `issue_read` and `issue_write`, the shipped policy still named the old
+ * ones, and everybody who had wrapped GitHub and let it update was left with
+ * no GitHub at all -- a server the client showed only as disconnected.
+ *
+ * Falling back is strictly more cautious than the rule it replaces: the tool
+ * is held rather than passed, and nothing is recorded as undoable that cannot
+ * be undone. `check` and `init` still call `verifyAgainstServers` and still
+ * fail hard, because a policy wrong on first contact should be fixed, not
+ * quietly tolerated.
+ */
+export async function withoutMissingTools(
+  upstreams: readonly Upstream[],
+  manifest: Manifest,
+): Promise<{ readonly manifest: Manifest; readonly disabled: readonly string[] }> {
+  const available = new Map<string, Set<string>>();
+  for (const upstream of upstreams) {
+    available.set(upstream.name, new Set((await toolShapes(upstream)).map((tool) => tool.name)));
+  }
+  const missing = (qualified: string): boolean => {
+    const target = splitQualified(qualified);
+    if (target === undefined) {
+      return false;
+    }
+    const names = available.get(target.server);
+    // A server that is not connected here is some other proxy's to check.
+    return names !== undefined && !names.has(target.tool);
+  };
+
+  const disabled: string[] = [];
+  const tools = manifest.tools.map((policy) => {
+    const gone = [
+      ["snapshot", policy.snapshot?.tool],
+      ["inverse", policy.inverse?.tool],
+      ["verify", policy.verify?.tool],
+    ].filter((pair): pair is [string, string] => pair[1] !== undefined && missing(pair[1]));
+    if (gone.length === 0) {
+      return policy;
+    }
+    disabled.push(
+      `${policy.match}: its ${gone.map(([role, tool]) => `${role} ${tool}`).join(" and ")} ` +
+        `${gone.length === 1 ? "is" : "are"} gone from the server, so it is held until the policy is updated`,
+    );
+    return { match: policy.match, class: "irreversible" as const, gate: "always" as const, refusal: "uncertain" as const };
+  });
+  return { manifest: { ...manifest, tools }, disabled };
+}
+
 export { toolShapes };

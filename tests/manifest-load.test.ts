@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { ManifestError } from "../src/errors.js";
 import { loadManifest, parseManifest } from "../src/manifest/load.js";
+import { upstreamEnv } from "../src/proxy/environment.js";
 
 const VALID = `
 version: 1
@@ -308,27 +309,38 @@ tools:
 });
 
 describe("environment for a server", () => {
-  it("takes the value from the shell rather than passing the reference on", () => {
+  const withEnv = (lines: readonly string[]): string =>
+    [
+      "version: 1",
+      "servers:",
+      "  api:",
+      "    command: node",
+      "    env:",
+      ...lines,
+      "tools: []",
+    ].join("\n");
+
+  it("keeps the reference as written, and fills it in when the server starts", () => {
     // Two shipped manifests tell people to write ${VAR} so a token never lands
-    // in a file that gets committed. If nothing expands it, what reaches the
-    // server is the six characters of the reference.
+    // in a file that gets committed. It is filled in at start, not at read,
+    // so one server's missing token is not every server's problem.
+    const manifest = parseManifest(
+      withEnv([
+        '      TOKEN: "${SYNARTESIS_TEST_TOKEN}"',
+        '      MIXED: "Bearer ${SYNARTESIS_TEST_TOKEN}"',
+        '      PLAIN: "left alone"',
+      ]),
+      "manifest.yaml",
+    );
+    const spec = manifest.servers["api"];
+    if (spec === undefined) {
+      throw new Error("no server");
+    }
+    expect(spec.env?.["TOKEN"]).toBe("${SYNARTESIS_TEST_TOKEN}");
+
     process.env["SYNARTESIS_TEST_TOKEN"] = "s3cret";
     try {
-      const manifest = parseManifest(
-        [
-          "version: 1",
-          "servers:",
-          "  api:",
-          "    command: node",
-          "    env:",
-          '      TOKEN: "${SYNARTESIS_TEST_TOKEN}"',
-          '      MIXED: "Bearer ${SYNARTESIS_TEST_TOKEN}"',
-          '      PLAIN: "left alone"',
-          "tools: []",
-        ].join("\n"),
-        "manifest.yaml",
-      );
-      expect(manifest.servers["api"]?.env).toEqual({
+      expect(upstreamEnv("api", spec, { kind: "manifest" })).toEqual({
         TOKEN: "s3cret",
         MIXED: "Bearer s3cret",
         PLAIN: "left alone",
@@ -338,21 +350,113 @@ describe("environment for a server", () => {
     }
   });
 
-  it("says which variable is missing rather than starting a server without it", () => {
+  it("says which variable is missing, when the server that needs it starts", () => {
     delete process.env["SYNARTESIS_ABSENT"];
-    expect(() =>
-      parseManifest(
-        [
-          "version: 1",
-          "servers:",
-          "  api:",
-          "    command: node",
-          "    env:",
-          '      TOKEN: "${SYNARTESIS_ABSENT}"',
-          "tools: []",
-        ].join("\n"),
-        "manifest.yaml",
-      ),
-    ).toThrow(/SYNARTESIS_ABSENT/);
+    const manifest = parseManifest(withEnv(['      TOKEN: "${SYNARTESIS_ABSENT}"']), "manifest.yaml");
+    const spec = manifest.servers["api"];
+    if (spec === undefined) {
+      throw new Error("no server");
+    }
+    expect(() => upstreamEnv("api", spec, { kind: "manifest" })).toThrow(/SYNARTESIS_ABSENT/);
+  });
+
+  it("does not let one server's unset variable stop the policy loading", () => {
+    // The shape of the bug: undo of a filesystem session refused because the
+    // GitHub token was not exported in that terminal.
+    delete process.env["SYNARTESIS_ONLY_GITHUB_NEEDS_THIS"];
+    const manifest = parseManifest(
+      [
+        "version: 1",
+        "servers:",
+        "  fs:",
+        "    command: node",
+        "  github:",
+        "    command: node",
+        "    env:",
+        '      TOKEN: "${SYNARTESIS_ONLY_GITHUB_NEEDS_THIS}"',
+        "tools: []",
+      ].join("\n"),
+      "manifest.yaml",
+    );
+    const fs = manifest.servers["fs"];
+    if (fs === undefined) {
+      throw new Error("no server");
+    }
+    expect(() => upstreamEnv("fs", fs, { kind: "manifest" })).not.toThrow();
+  });
+
+  it("still refuses a malformed reference at load, with a line", () => {
+    expect(() => parseManifest(withEnv(['      TOKEN: "${1BAD}"']), "manifest.yaml")).toThrow(
+      /manifest\.yaml:\d+/,
+    );
+  });
+});
+
+describe("what a started server inherits", () => {
+  const spec = { command: "node", args: [] } as const;
+
+  it("inherits the proxy's environment under --server, minus the launcher's", () => {
+    // SYNARTESIS_TOKEN is the proxy's own HTTP bearer; the npm ones were
+    // measured -- npx adds twenty-six, and a server started through npx itself
+    // would pick up npm_config_package and resolve the wrong thing.
+    const saved = { ...process.env };
+    process.env["SLACK_BOT_TOKEN"] = "xoxb-real";
+    process.env["SYNARTESIS_TOKEN"] = "proxy-secret";
+    process.env["npm_config_package"] = "synartesis";
+    process.env["INIT_CWD"] = "/somewhere";
+    try {
+      const env = upstreamEnv("slack", spec, { kind: "inherit" }) ?? {};
+      expect(env["SLACK_BOT_TOKEN"]).toBe("xoxb-real");
+      expect(env["SYNARTESIS_TOKEN"]).toBeUndefined();
+      expect(env["npm_config_package"]).toBeUndefined();
+      expect(env["INIT_CWD"]).toBeUndefined();
+    } finally {
+      process.env = saved;
+    }
+  });
+
+  it("lets what the policy declares win over what was inherited", () => {
+    const saved = { ...process.env };
+    process.env["MEMORY_FILE_PATH"] = "/from/the/client";
+    try {
+      const env =
+        upstreamEnv("memory", { ...spec, env: { MEMORY_FILE_PATH: "/from/the/policy" } }, {
+          kind: "inherit",
+        }) ?? {};
+      expect(env["MEMORY_FILE_PATH"]).toBe("/from/the/policy");
+    } finally {
+      process.env = saved;
+    }
+  });
+
+  it("puts the client entry's environment over the terminal's for an undo", () => {
+    const saved = { ...process.env };
+    process.env["AWS_PROFILE"] = "from-the-shell";
+    try {
+      const env =
+        upstreamEnv("memory", spec, {
+          kind: "client",
+          env: { MEMORY_FILE_PATH: "/where/the/session/wrote" },
+        }) ?? {};
+      expect(env["MEMORY_FILE_PATH"]).toBe("/where/the/session/wrote");
+      // The shell underneath, because the client passes its whole environment
+      // on and a server that relied on it has to work under undo too.
+      expect(env["AWS_PROFILE"]).toBe("from-the-shell");
+    } finally {
+      process.env = saved;
+    }
+  });
+
+  it("gives the desktop window's servers only the entry, never its own environment", () => {
+    const saved = { ...process.env };
+    process.env["ANTHROPIC_API_KEY"] = "sk-the-persons-model-key";
+    try {
+      const env =
+        upstreamEnv("memory", spec, { kind: "client", env: { MEMORY_FILE_PATH: "/x" }, own: false }) ?? {};
+      expect(env["ANTHROPIC_API_KEY"]).toBeUndefined();
+      expect(env["MEMORY_FILE_PATH"]).toBe("/x");
+    } finally {
+      process.env = saved;
+    }
   });
 });

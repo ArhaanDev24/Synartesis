@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 
 import { parseManifest } from "../src/manifest/load.js";
+import { createPolicyResolver } from "../src/manifest/match.js";
 
 describe("the manifests that ship with this", () => {
   it("never calls a move plainly reversible, because it is only sometimes", () => {
@@ -85,5 +86,51 @@ describe("what the published package carries", () => {
     // And the things a user does need are still declared.
     expect(files).toContain("dist");
     expect(files).toContain("manifests");
+  });
+});
+
+describe("the github policy, against what v1.12 actually exposes", () => {
+  // The tool list is copied from github-mcp-server's own README at v1.12.2,
+  // the version the policy was written for. 1.12 renamed the tools the old
+  // policy used, and a policy naming tools that do not exist took GitHub down
+  // for everyone who had wrapped it. This fails if that happens again.
+  const exposed = new Set(
+    readFileSync("fixtures/github-mcp-server-1.12.2-tools.txt", "utf8").split("\n").filter(Boolean),
+  );
+  process.env["GITHUB_PERSONAL_ACCESS_TOKEN"] ??= "test-token";
+  const manifest = parseManifest(readFileSync("manifests/github.yaml", "utf8"), "manifests/github.yaml");
+  const resolver = createPolicyResolver(manifest);
+
+  it("calls only tools the server has", () => {
+    for (const rule of manifest.tools) {
+      for (const call of [rule.snapshot?.tool, rule.inverse?.tool, rule.verify?.tool]) {
+        if (call !== undefined) {
+          expect(exposed.has(call.replace(/^github\./, "")), `${rule.match} calls ${call}`).toBe(true);
+        }
+      }
+      if (!rule.match.includes("*")) {
+        expect(exposed.has(rule.match.replace(/^github\./, "")), rule.match).toBe(true);
+      }
+    }
+  });
+
+  it("holds the tool that creates as well as updates, and the write that looks like a read", () => {
+    expect(resolver.resolve("github.issue_write").policy.gate).toBe("always");
+    // Ends in _read, marks notifications read: a write.
+    expect(resolver.resolve("github.mark_all_notifications_read").policy.class).toBe("irreversible");
+    expect(resolver.resolve("github.issue_read").policy.class).toBe("readonly");
+    expect(resolver.resolve("github.projects_get").policy.class).toBe("readonly");
+  });
+
+  it("classes every tool ending in _read, _get or _list as a read only if it is one", () => {
+    // A suffix rule is a guess about names, so every tool it catches is
+    // listed here and checked against what it does.
+    const writesNamedLikeReads = new Set(["mark_all_notifications_read"]);
+    for (const tool of exposed) {
+      if (/_(read|get|list)$/.test(tool)) {
+        const cls = resolver.resolve(`github.${tool}`).policy.class;
+        expect(cls, tool).toBe(writesNamedLikeReads.has(tool) ? "irreversible" : "readonly");
+      }
+    }
   });
 });

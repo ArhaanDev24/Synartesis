@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { ManifestError, UpstreamError, describe } from "../errors.js";
-import { connectStdioUpstream } from "../proxy/upstream.js";
+import { connectUpstream } from "../proxy/upstream.js";
 import { knownPolicyFor, toolsReferencedBy } from "./known.js";
 
 export interface Draft {
@@ -18,6 +18,16 @@ export interface DraftOptions {
   readonly name: string;
   readonly command: string;
   readonly args: readonly string[];
+  /**
+   * The environment and directory the client gives this server, when a client
+   * entry is being drafted. Without them a server that authenticates through
+   * its environment was started with none, refused to list its tools, and was
+   * reported to the person as "will not start" -- which is true only of the
+   * way it was being started. Absent for `init`, where the person typed the
+   * command into their own terminal and the server inherits that.
+   */
+  readonly env?: Readonly<Record<string, string>>;
+  readonly cwd?: string;
   /** Existing manifest source to extend rather than replace. */
   readonly existing?: string;
 }
@@ -145,12 +155,15 @@ function adopt(
  * is gated, so an unfinished manifest is annoying rather than dangerous.
  */
 export async function draftManifest(options: DraftOptions): Promise<Draft> {
-  const upstream = await connectStdioUpstream({
-    name: options.name,
-    command: options.command,
-    args: options.args,
-    stderr: "capture",
-  });
+  const upstream = await connectUpstream(
+    options.name,
+    { command: options.command, args: options.args },
+    {
+      env: options.env === undefined ? { kind: "inherit" } : { kind: "client", env: options.env },
+      stderr: "capture",
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    },
+  );
 
   let tools: Tool[];
   try {

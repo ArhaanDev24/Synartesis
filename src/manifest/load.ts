@@ -83,37 +83,33 @@ class Source {
 }
 
 /**
- * `${VAR}` in a server's environment, taken from the shell the proxy was
- * started from.
+ * `${VAR}` in a server's environment is kept as written here and filled in
+ * when that server is started -- see `upstreamEnv` in `src/proxy/environment.ts`.
  *
- * This is how a token stays out of a file that gets committed, which is what
- * the shipped manifests tell people to do. Without expansion the server
- * receives the reference itself and fails with an authentication error that
- * says nothing about the cause. A variable that is not set is refused at load
- * time rather than passed on empty, for the same reason: never start with a
- * policy that cannot work.
+ * It used to be expanded while the policy was read, for every server at once,
+ * refusing if any variable was unset. That made one server's missing token
+ * everybody's problem: undoing a filesystem session failed unless the GitHub
+ * token was exported in that terminal, and a proxy started for one server
+ * refused to start over a variable only another server used. Only the syntax
+ * is checked here, so a malformed reference is still a load error with a line
+ * number rather than a surprise at start.
  */
-const REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
+const MALFORMED = /\$\{(?![A-Za-z_][A-Za-z0-9_]*\})/;
 
-function expandEnvironment(
+function checkReferences(
   source: Source,
   path: Path,
   env: Readonly<Record<string, string>>,
-): Record<string, string> {
-  const expanded: Record<string, string> = {};
+): Readonly<Record<string, string>> {
   for (const [key, value] of Object.entries(env)) {
-    expanded[key] = value.replace(REFERENCE, (whole, name: string) => {
-      const found = process.env[name];
-      if (found === undefined) {
-        source.fail(
-          [...path, "env", key],
-          `${whole} is not set in this environment; export ${name} before starting, or write the value here`,
-        );
-      }
-      return found;
-    });
+    if (MALFORMED.test(value)) {
+      source.fail(
+        [...path, "env", key],
+        "a reference is written ${NAME}: letters, digits and underscores, not starting with a digit",
+      );
+    }
   }
-  return expanded;
+  return env;
 }
 
 function serverSegment(pattern: string): string {
@@ -358,7 +354,7 @@ export function parseManifest(text: string, file: string): Manifest {
           args: spec.args,
           ...(spec.env === undefined
             ? {}
-            : { env: expandEnvironment(source, ["servers", name], spec.env) }),
+            : { env: checkReferences(source, ["servers", name], spec.env) }),
           ...(spec.provenance === undefined ? {} : { provenance: spec.provenance }),
         },
       ]),

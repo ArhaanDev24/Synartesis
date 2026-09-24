@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import {
   ConfigError,
+  discover,
   readDocument,
   readServers,
   saveServers,
@@ -20,6 +21,7 @@ import {
   keyFor,
   planInstall,
   readRecord,
+  recordPathFor,
 } from "../src/install/install.js";
 
 /**
@@ -112,6 +114,21 @@ describe("installing and uninstalling", () => {
     applyUninstall([site], manifest);
     // Compared as data: the write reformats, and what matters is the content.
     expect(JSON.parse(readFileSync(site.path, "utf8"))).toEqual(JSON.parse(before));
+  });
+
+  it("keeps the record of original entries readable by its owner only", async () => {
+    // It holds every original entry so uninstall can restore it -- and so
+    // every token those entries carried. It was written world-readable.
+    const dir = scratch();
+    const site = siteIn(dir);
+    const manifest = join(dir, "synartesis.yaml");
+    // An earlier version's record, at the default mode.
+    writeFileSync(recordPathFor(manifest), "{}\n", { mode: 0o644 });
+
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER);
+    applyInstall(plans, manifest, yaml);
+
+    expect(statSync(recordPathFor(manifest)).mode & 0o777).toBe(0o600);
   });
 
   it("keeps every key that is nothing to do with us", async () => {
@@ -387,5 +404,96 @@ describe("a client that keeps its servers in TOML", () => {
     const site = codexSiteIn(dir);
     const { plans } = await planInstall([site], join(dir, "synartesis.yaml"), INVOKER);
     expect(plans[0]?.skipped.map((skip) => skip.name)).toContain("off");
+  });
+});
+
+describe("finding Claude Code's servers", () => {
+  it("finds them under every project, not only the one install was run from", () => {
+    // `claude mcp add` defaults to local scope, which Claude Code stores under
+    // the project's path in ~/.claude.json. Reading only the current project
+    // meant `install` found nothing for most people, wherever they stood.
+    const home = scratch();
+    const saved = process.env["HOME"];
+    process.env["HOME"] = home;
+    try {
+      writeFileSync(
+        join(home, ".claude.json"),
+        JSON.stringify({
+          projects: {
+            "/work/api": { mcpServers: { github: { command: "github-mcp-server", args: ["stdio"] } } },
+            "/work/site": { mcpServers: {} },
+            "/somewhere/else": {},
+          },
+        }),
+      );
+      const scopes = discover(home)
+        .filter((site) => site.client === "claude-code")
+        .map((site) => site.scope);
+      expect(scopes).toContain("project /work/api");
+      // Projects that list nothing are not offered as empty sections.
+      expect(scopes).not.toContain("project /work/site");
+      expect(scopes).not.toContain("project /somewhere/else");
+    } finally {
+      process.env["HOME"] = saved;
+    }
+  });
+});
+
+describe("installing again after uninstalling", () => {
+  it("covers the same server again, rather than duplicating and then dropping it", async () => {
+    // uninstall restores the client entry and leaves the policy. The second
+    // install used to add a duplicate `filesystem-claude-desktop`, and the
+    // third skipped it as "already in the policy as ..." -- which reads as
+    // covered, and left it unwrapped.
+    const dir = scratch();
+    const site = siteIn(dir);
+    const manifest = join(dir, "synartesis.yaml");
+    for (let round = 1; round <= 3; round += 1) {
+      const { plans, yaml } = await planInstall([site], manifest, INVOKER);
+      applyInstall(plans, manifest, yaml);
+
+      const entry = readServers(readDocument(site), site.at)["filesystem"];
+      expect(isWrapped(entry ?? {}), `round ${String(round)}`).toBe(true);
+      const args = entry?.args ?? [];
+      expect(args[args.indexOf("--server") + 1], `round ${String(round)}`).toBe("filesystem");
+      expect(readFileSync(manifest, "utf8"), `round ${String(round)}`).not.toContain("filesystem-claude-desktop");
+
+      applyUninstall([site], manifest);
+    }
+  });
+});
+
+describe("a server that will not start", () => {
+  it("is skipped with the whole of what it said, not the first sixty characters", async () => {
+    // The part worth reading comes last: "upstream slack failed during
+    // connect: MCP error -32000: Conn" was all anybody saw, with "Please set
+    // SLACK_BOT_TOKEN" cut off after it.
+    const dir = scratch();
+    const site = siteIn(dir, {
+      mcpServers: {
+        slack: {
+          command: process.execPath,
+          args: ["-e", 'console.error("Error: Please set SLACK_BOT_TOKEN"); process.exit(1)'],
+        },
+      },
+    });
+    const { plans } = await planInstall([site], join(dir, "synartesis.yaml"), INVOKER);
+    const why = plans[0]?.skipped.find((one) => one.name === "slack")?.why ?? "";
+    expect(why).toContain("Please set SLACK_BOT_TOKEN");
+  });
+});
+
+describe("connecting one chosen server", () => {
+  it("drafts only that one, and starts nothing else", async () => {
+    // The console connects what a person picked. Planning the whole site
+    // started every server on it and wrote a drafted policy for each into
+    // the file, though only the chosen one was wrapped.
+    const dir = scratch();
+    const site = siteIn(dir);
+    const manifest = join(dir, "synartesis.yaml");
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER, (_site, name) => name === "notes");
+    expect(plans[0]?.servers.map((server) => server.name)).toEqual(["notes"]);
+    applyInstall(plans, manifest, yaml);
+    expect(readFileSync(manifest, "utf8")).not.toMatch(/^ {2}filesystem:/m);
   });
 });

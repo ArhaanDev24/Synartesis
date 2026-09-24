@@ -390,3 +390,74 @@ describe("refusing a flag before acting on the session", () => {
     expect(said.stderr.split("\n").filter((line) => line.trim() !== "")).toHaveLength(1);
   });
 });
+
+describe("undo with no session named", () => {
+  it("reaches past an empty session a client left open to the one that did something", async () => {
+    // Clients open a session every time they start, whether or not anything
+    // is called, and the real journal this was found in had 107 empty
+    // sessions out of 114. The newest was usually empty and still open, so
+    // 0.8.5's guard against undoing a live session refused -- about a session
+    // with nothing in it -- and --yes then printed "Nothing was recorded in
+    // it".
+    const dir = workspace();
+    const journal = join(dir, "j.db");
+    const state = join(dir, "crm.json");
+    const manifest = join(dir, "synartesis.yaml");
+    writeFileSync(
+      manifest,
+      readFileSync(POLICY, "utf8").replace(
+        'args: ["dist/toy-crm.js"]',
+        `args: ["${resolve("dist/toy-crm.js")}", "--state", "${state}"]`,
+      ),
+    );
+    await run(
+      ["proxy", "--manifest", manifest, "--journal", journal],
+      `${HELLO}\n${call(2, "update_customer", { id: "c_001", notes: "by the agent" })}\n`,
+    );
+    const worked = readFileSync(state, "utf8");
+
+    // The client restarted: a new session, nothing in it, not ended.
+    const open = await import("../src/journal/journal.js");
+    const j = open.openJournal(journal, { mustExist: true });
+    const empty = j.beginRun("claude-ai");
+    j.close();
+
+    const undone = await run(["undo", "--manifest", manifest, "--journal", journal]);
+    expect(undone.stderr).not.toContain("has not ended");
+    expect(undone.stdout).toContain("the most recent with something to undo");
+    expect(undone.stdout).not.toContain(empty.slice(0, 8));
+    expect(readFileSync(state, "utf8")).not.toBe(worked);
+  });
+});
+
+describe("reading the session list past the empty ones", () => {
+  it("shows the newest session that did something, and folds the empty ones in list", async () => {
+    const dir = workspace();
+    const journal = join(dir, "j.db");
+    await run(
+      ["proxy", "--manifest", POLICY, "--journal", journal],
+      `${HELLO}\n${call(2, "update_customer", { id: "c_001", notes: "by the agent" })}\n`,
+    );
+    const open = await import("../src/journal/journal.js");
+    const j = open.openJournal(journal, { mustExist: true });
+    const empties = [j.beginRun("claude-ai"), j.beginRun("claude-ai"), j.beginRun("claude-ai")];
+    for (const id of empties) {
+      j.endRun(id, "complete");
+    }
+    j.close();
+
+    const shown = await run(["show", "--journal", journal]);
+    expect(shown.stdout).toContain("update_customer");
+
+    const listed = await run(["list", "--journal", journal]);
+    expect(listed.stdout).toContain("3 sessions with nothing in them");
+    for (const id of empties) {
+      expect(listed.stdout).not.toContain(id.slice(0, 8));
+    }
+    // The contract scripts read still lists every one.
+    const json = z.array(z.object({ id: z.string() })).parse(
+      JSON.parse((await run(["list", "--json", "--journal", journal])).stdout),
+    );
+    expect(json).toHaveLength(4);
+  });
+});

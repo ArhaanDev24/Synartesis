@@ -81,6 +81,32 @@ function claudeDesktopPath(): string {
 }
 
 /**
+ * A value with the client's own references filled in from this environment,
+ * the way that client would have filled them in itself.
+ *
+ * Each client has its own syntax and each was read from the vendor's own
+ * documentation. Claude Code: `${VAR}` and `${VAR:-default}`, and an unset
+ * variable with no default is left as written. Cursor: `${env:VAR}`. A client
+ * with no expansion leaves the text alone, as it would.
+ */
+export function expandForClient(client: ClientId, value: string): string {
+  if (client === "claude-code") {
+    return value.replace(
+      /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g,
+      (whole, name: string, fallback: string | undefined) =>
+        process.env[name] ?? fallback ?? whole,
+    );
+  }
+  if (client === "cursor") {
+    return value.replace(
+      /\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g,
+      (whole, name: string) => process.env[name] ?? whole,
+    );
+  }
+  return value;
+}
+
+/**
  * Every place on this machine that could hold servers for a supported client.
  *
  * Sites are returned whether or not they currently list anything: a config
@@ -92,22 +118,43 @@ export function discover(cwd: string): readonly ConfigSite[] {
   const sites: ConfigSite[] = [];
 
   // Claude Code keeps a per-project map inside one file, keyed by absolute
-  // path, and may also keep a global one. Both are worth offering; the
-  // project's own is the one that matches where you are standing.
+  // path, and may also keep a global one.
+  //
+  // Every project, not only the one this was run from. `claude mcp add`
+  // defaults to local scope -- Claude Code's own documentation: "Local scope is
+  // the default", stored "in ~/.claude.json under that project's path" -- so
+  // most people's servers live under some project other than wherever they
+  // happen to be standing when they run install. Reading only the current one
+  // meant "run it from anywhere" found nothing for most Claude Code users.
+  // The current project comes first; others are offered only when they
+  // actually list servers, so a file that remembers a hundred directories
+  // does not produce a hundred empty sections.
   const claudeCode = join(home, ".claude.json");
   if (existsSync(claudeCode)) {
     const document = readJson(claudeCode);
     const projects = document?.["projects"];
     const here = resolve(cwd);
-    if (isRecord(projects) && Object.prototype.hasOwnProperty.call(projects, here)) {
-      sites.push({
-        client: "claude-code",
-        label: LABELS["claude-code"],
-        format: "json",
-        path: claudeCode,
-        scope: `project ${here}`,
-        at: ["projects", here, "mcpServers"],
-      });
+    if (isRecord(projects)) {
+      const others = Object.keys(projects)
+        .filter((path) => path !== here)
+        .sort();
+      for (const project of Object.prototype.hasOwnProperty.call(projects, here)
+        ? [here, ...others]
+        : others) {
+        const entry = projects[project];
+        const servers = isRecord(entry) ? entry["mcpServers"] : undefined;
+        if (project !== here && !(isRecord(servers) && Object.keys(servers).length > 0)) {
+          continue;
+        }
+        sites.push({
+          client: "claude-code",
+          label: LABELS["claude-code"],
+          format: "json",
+          path: claudeCode,
+          scope: `project ${project}`,
+          at: ["projects", project, "mcpServers"],
+        });
+      }
     }
     sites.push({
       client: "claude-code",

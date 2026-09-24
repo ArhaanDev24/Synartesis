@@ -95,3 +95,30 @@ describe("writing a server list back", () => {
     expect(readServers(after)["bare"]?.args).toEqual(["proxy"]);
   });
 });
+
+describe("a server whose args span several lines", () => {
+  const text = [
+    "[mcp_servers.fs]",
+    'command = "npx"',
+    "args = [",
+    '  "-y",',
+    '  "@modelcontextprotocol/server-filesystem",',
+    "]",
+    "",
+  ].join("\n");
+
+  it("is reported as unreadable, not read as having no args", () => {
+    // Read as "no args", a server that happened to start without them was
+    // wrapped -- and the writer below then replaced only the opening line.
+    expect(readServers(text)["fs"]?.["unreadable"]).toBeTypeOf("string");
+    expect(readServers(text)["fs"]?.args).toBeUndefined();
+  });
+
+  it("is never written, whoever asks", () => {
+    // Replacing `args = [` alone left the continuation lines dangling below
+    // it: invalid TOML, and Codex would not start.
+    expect(() => writeServers(text, { fs: { command: "synartesis", args: ["proxy"] } })).toThrow(
+      /several lines/,
+    );
+  });
+});

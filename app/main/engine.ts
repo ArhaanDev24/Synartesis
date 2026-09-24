@@ -9,7 +9,8 @@ import { createProxyServer } from "../../src/proxy/proxy.js";
 import { createRouter, SEPARATOR, type Router } from "../../src/proxy/routing.js";
 import { createPolicyResolver } from "../../src/manifest/match.js";
 import { noteFor } from "./briefing.js";
-import { connectStdioUpstream, type Upstream } from "../../src/proxy/upstream.js";
+import { connectUpstream, type Upstream } from "../../src/proxy/upstream.js";
+import { clientEnvFor } from "../../src/install/entry-env.js";
 import type { ProviderTool } from "../providers/types.js";
 import { connectToolset, createToolset, TOOLSET_POLICY } from "./toolset.js";
 
@@ -163,13 +164,20 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
   const down: ServerTrouble[] = [];
   for (const [name, spec] of Object.entries(manifest.servers)) {
     try {
+      // From the client entry that wraps this server, so a server that needs
+      // its token starts here as it does under the client -- it came up as
+      // "did not start" in the window before. Never this process's own
+      // environment underneath it: started from a shell, the window can carry
+      // the person's model API keys.
+      const client = clientEnvFor(options.manifestPath, name);
       upstreams.push(
-        await connectStdioUpstream({
-          name,
-          command: spec.command,
-          args: spec.args,
+        await connectUpstream(name, spec, {
+          env:
+            client === undefined
+              ? { kind: "manifest" }
+              : { kind: "client", env: client.env, own: false },
           stderr: "capture",
-          ...(spec.env === undefined ? {} : { env: spec.env }),
+          ...(client?.cwd === undefined ? {} : { cwd: client.cwd }),
         }),
       );
     } catch (error: unknown) {

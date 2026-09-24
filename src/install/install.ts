@@ -1,10 +1,17 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { draftManifest } from "../init/draft.js";
 import { parseManifest } from "../manifest/load.js";
 import { pathBinaryMatches } from "../invocation.js";
-import { ConfigError, saveServers, serversAt, type ConfigSite, type ServerEntry } from "./clients.js";
+import {
+  ConfigError,
+  expandForClient,
+  saveServers,
+  serversAt,
+  type ConfigSite,
+  type ServerEntry,
+} from "./clients.js";
 
 /**
  * Wrapping a client's servers, and putting them back.
@@ -98,7 +105,14 @@ export function readRecord(manifestPath: string): InstalledRecord {
 
 function writeRecord(manifestPath: string, record: InstalledRecord): void {
   mkdirSync(dirname(recordPathFor(manifestPath)), { recursive: true, mode: 0o700 });
-  writeFileSync(recordPathFor(manifestPath), `${JSON.stringify(record, undefined, 2)}\n`);
+  // Owner-only. This file keeps every original client entry so uninstall can
+  // put it back -- which means it keeps every token those entries carried, in
+  // plain text, and it was written at the default mode: readable by every
+  // account on the machine. `mode` only applies when a file is created, so a
+  // record written by an earlier version is tightened explicitly as well.
+  const path = recordPathFor(manifestPath);
+  writeFileSync(path, `${JSON.stringify(record, undefined, 2)}\n`, { mode: 0o600 });
+  chmodSync(path, 0o600);
 }
 
 /**
@@ -148,6 +162,8 @@ export interface PlannedServer {
   /** How far that bundled policy has been tested. */
   readonly provenance?: "live" | "documented";
   readonly tools?: number;
+  /** Already in the policy from an earlier install; only the entry changes. */
+  readonly again?: boolean;
 }
 
 export interface SitePlan {
@@ -186,12 +202,45 @@ export async function planInstall(
   sites: readonly ConfigSite[],
   manifestPath: string,
   invoker: Invoker,
+  /**
+   * Which entries to consider at all. The console connects the one server a
+   * person picked; planning every server at its site first meant starting
+   * each of them -- downloads for an npx one, a sign-in window for a remote
+   * bridge -- and writing a drafted policy for all of them into the file,
+   * though only the chosen one was wrapped.
+   */
+  only?: (site: ConfigSite, name: string) => boolean,
 ): Promise<{ readonly plans: readonly SitePlan[]; readonly yaml: string }> {
   let yaml = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : undefined;
   const plans: SitePlan[] = [];
-  const claimed = new Set<string>(
-    yaml === undefined ? [] : Object.keys(parseManifest(yaml, manifestPath).servers),
-  );
+  const existing = yaml === undefined ? {} : parseManifest(yaml, manifestPath).servers;
+  const claimed = new Set<string>(Object.keys(existing));
+  // Policy servers some client entry is already wrapped to, anywhere this run
+  // can see. A server in the policy that nothing points at any more is one
+  // uninstall unwrapped, and is free to be covered again.
+  const pointedAt = new Set<string>();
+  for (const site of sites) {
+    let entries: Record<string, ServerEntry>;
+    try {
+      entries = serversAt(site);
+    } catch {
+      continue;
+    }
+    for (const entry of Object.values(entries)) {
+      const args = entry.args ?? [];
+      const manifest = args[args.indexOf("--manifest") + 1];
+      const server = args[args.indexOf("--server") + 1];
+      if (
+        isWrapped(entry) &&
+        args.includes("--server") &&
+        manifest !== undefined &&
+        server !== undefined &&
+        resolve(manifest) === resolve(manifestPath)
+      ) {
+        pointedAt.add(server);
+      }
+    }
+  }
 
   for (const site of sites) {
     const servers = serversAt(site);
@@ -199,6 +248,9 @@ export async function planInstall(
     const skipped: { name: string; why: string }[] = [];
 
     for (const [name, entry] of Object.entries(servers)) {
+      if (only !== undefined && !only(site, name)) {
+        continue;
+      }
       if (isWrapped(entry)) {
         skipped.push({ name, why: "already covered" });
         continue;
@@ -214,8 +266,42 @@ export async function planInstall(
         skipped.push({ name, why: "switched off in the config" });
         continue;
       }
+      if (typeof entry["unreadable"] === "string") {
+        skipped.push({ name, why: `left alone: ${entry["unreadable"]}. Put args on one line, or wrap it by hand` });
+        continue;
+      }
       // A manifest holds one server per name. Two clients listing a `github`
       // each is ordinary, and the second must not silently redefine the first.
+      // Installed before, and unwrapped by uninstall since, which leaves the
+      // policy behind on purpose. The collision rule below exists for two
+      // clients that each list a `github`, and cannot tell that from this: so
+      // the second install used to add a duplicate `filesystem-claude-desktop`,
+      // and the third skipped it as "already in the policy as ..." -- which
+      // reads as covered and left it unwrapped. The same command and
+      // arguments, under a name nothing else is wrapped to, is the same
+      // server: wrap the entry to it again and draft nothing.
+      const again = [name, `${name}-${site.client}`].find((candidate) => {
+        const spec = existing[candidate];
+        const args = entry.args ?? [];
+        return (
+          spec !== undefined &&
+          !pointedAt.has(candidate) &&
+          spec.command === entry.command &&
+          spec.args.length === args.length &&
+          spec.args.every((arg, index) => arg === args[index])
+        );
+      });
+      if (again !== undefined) {
+        pointedAt.add(again);
+        planned.push({
+          name,
+          original: entry,
+          wrapped: proxyEntry(manifestPath, again, entry, invoker),
+          again: true,
+        });
+        continue;
+      }
+
       const key = claimed.has(name) ? `${name}-${site.client}` : name;
       if (claimed.has(key)) {
         skipped.push({ name, why: `already in the policy as ${key}` });
@@ -232,12 +318,21 @@ export async function planInstall(
           name: key,
           command: entry.command,
           args: [...(entry.args ?? [])],
+          // As the client would start it, so a server that needs its token to
+          // list its tools is drafted rather than reported as broken.
+          env: Object.fromEntries(
+            Object.entries(entry.env ?? {}).map(([k, v]) => [k, expandForClient(site.client, v)]),
+          ),
+          ...(entry.cwd === undefined ? {} : { cwd: expandForClient(site.client, entry.cwd) }),
           ...(yaml === undefined ? {} : { existing: yaml }),
         });
       } catch (error: unknown) {
         skipped.push({
           name,
-          why: `will not start: ${(error instanceof Error ? error.message : String(error)).slice(0, 60)}`,
+          // Whole. The sentence worth reading comes last -- the server's own
+          // "Please set SLACK_BOT_TOKEN" -- and cutting at sixty characters
+          // kept only the SDK's preamble ahead of it.
+          why: `will not start: ${error instanceof Error ? error.message : String(error)}`,
         });
         continue;
       }

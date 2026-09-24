@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { ManifestError, SynartesisError, describe } from "./errors.js";
 import { draftManifest } from "./init/draft.js";
 import { loadManifest, parseManifest } from "./manifest/load.js";
-import type { Manifest } from "./manifest/types.js";
+import type { Manifest, ServerSpec } from "./manifest/types.js";
 import {
   labelFor,
   openJournal,
@@ -42,7 +42,9 @@ import {
   warnUntested,
 } from "./manifest/standing.js";
 import { createRouter, type Router } from "./proxy/routing.js";
-import { connectStdioUpstream, type Upstream } from "./proxy/upstream.js";
+import { connectUpstream, type Upstream } from "./proxy/upstream.js";
+import { clientEnvFor } from "./install/entry-env.js";
+import { differing, fingerprint, upstreamEnv, type EnvSource } from "./proxy/environment.js";
 import { PROXY_FLAGS } from "./proxy/flags.js";
 import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { inspect, verdict, type Resource } from "./rollback/inspect.js";
@@ -69,6 +71,7 @@ import { ago, fullTime, shortTime } from "./clock.js";
 import { plainly, subject, summariseArgs } from "./describe.js";
 import {
   CLIENT_IDS,
+  ConfigError,
   discover,
   isClientId,
   type ClientId,
@@ -255,6 +258,61 @@ function positional(argv: readonly string[]): string[] {
 }
 
 /**
+ * Start a server the way the client that wraps it would, from a terminal that
+ * is not that client.
+ *
+ * Everything a person runs by hand -- undo above all, but also check and pin
+ * -- used to start servers with only what the policy declared, so an undo
+ * could not authenticate against any server whose token the client held, and
+ * a memory server came up on its default file rather than the one the session
+ * wrote to. The environment and working directory now come from the client
+ * entry that wraps the server; with no such entry, from the policy, as before.
+ */
+async function startAsTheClientWould(
+  manifestPath: string,
+  name: string,
+  spec: ServerSpec,
+  session?: { readonly journal: Journal; readonly runId: string },
+): Promise<Upstream> {
+  const client = clientEnvFor(manifestPath, name);
+  const source: EnvSource =
+    client === undefined ? { kind: "manifest" } : { kind: "client", env: client.env };
+
+  // Before acting for a session, check this is the server that session used.
+  // Reading the environment from the client entry is right, but the entry can
+  // have changed since -- a memory server now pointed at another file -- and
+  // then the inverse goes to a store the session never touched, and the undo
+  // says it worked. Refusing names the variable; nothing is printed of any
+  // value.
+  const recorded = session?.journal.runServer(session.runId, name);
+  if (session !== undefined && recorded !== undefined) {
+    const now = fingerprint(
+      session.journal.fingerprintKey(),
+      upstreamEnv(name, spec, source),
+      Object.keys(recorded.fingerprints),
+    );
+    const changed = differing(recorded.fingerprints, now);
+    if (changed.length > 0) {
+      const one = changed.length === 1;
+      throw new ConfigError(
+        `${changed.join(", ")} ${one ? "is" : "are"} not what this session's ${name} server was started with, ` +
+          `so undoing through it now could act on a different store from the one the session wrote to. ` +
+          `Set ${one ? "it" : "them"} back as ${one ? "it was" : "they were"} in ${client?.from ?? "the client config"} to undo this session.`,
+      );
+    }
+  }
+
+  // The directory the session's server actually ran in wins over the entry's:
+  // the entry may not name one, and the terminal this was typed in is not it.
+  const cwd = recorded?.cwd ?? client?.cwd;
+  return await connectUpstream(name, spec, {
+    env: source,
+    stderr: "capture",
+    ...(cwd === undefined ? {} : { cwd }),
+  });
+}
+
+/**
  * Prints the `pins:` block for the servers this manifest names.
  *
  * It prints rather than writes. Pinning is a person vouching for what a tool
@@ -270,13 +328,7 @@ async function runPin(argv: readonly string[]): Promise<number> {
   const upstreams: Upstream[] = [];
   try {
     for (const [name, spec] of Object.entries(manifest.servers)) {
-      const upstream = await connectStdioUpstream({
-        name,
-        command: spec.command,
-        args: spec.args,
-        stderr: "capture",
-        ...(spec.env === undefined ? {} : { env: spec.env }),
-      });
+      const upstream = await startAsTheClientWould(path, name, spec);
       upstreams.push(upstream);
       shapes.set(name, await toolShapes(upstream));
     }
@@ -355,15 +407,7 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   const offered = new Map<string, readonly string[]>();
   try {
     for (const [name, spec] of Object.entries(manifest.servers)) {
-      upstreams.push(
-        await connectStdioUpstream({
-          name,
-          command: spec.command,
-          args: spec.args,
-          stderr: "capture",
-          ...(spec.env === undefined ? {} : { env: spec.env }),
-        }),
-      );
+      upstreams.push(await startAsTheClientWould(path, name, spec));
     }
     await verifyAgainstServers(upstreams, manifest);
     for (const upstream of upstreams) {
@@ -500,9 +544,11 @@ async function runInstall(argv: readonly string[]): Promise<number> {
     out(`  ${style.quiet(plan.site.path)}`);
     for (const server of plan.servers) {
       const note =
-        server.adopted === undefined
-          ? style.accent("drafted, every tool held until you say how to undo it")
-          : style.quiet(`the policy that ships for ${server.adopted} (${String(server.tools ?? 0)} tools)`);
+        server.again === true
+          ? style.quiet("already in your policy from an earlier install; covered again")
+          : server.adopted === undefined
+            ? style.accent("drafted, every tool held until you say how to undo it")
+            : style.quiet(`the policy that ships for ${server.adopted} (${String(server.tools ?? 0)} tools)`);
       out(`    ${style.strong(server.name.padEnd(18))} ${note}`);
       // Said at the moment of adoption, where a person is choosing to rely on
       // it, rather than left in the file for them to find afterwards.
@@ -513,7 +559,11 @@ async function runInstall(argv: readonly string[]): Promise<number> {
       }
     }
     for (const skip of plan.skipped) {
-      out(`    ${style.quiet(skip.name.padEnd(18))} ${style.quiet(skip.why)}`);
+      // Wrapped, not cut: the end of a reason is usually the server's own
+      // words about what it needs.
+      for (const [at, line] of wrapped(skip.why, 58).entries()) {
+        out(`    ${style.quiet((at === 0 ? skip.name : "").padEnd(18))} ${style.quiet(line)}`);
+      }
     }
     if (plan.servers.length === 0 && plan.skipped.length === 0) {
       out(`    ${style.quiet("no servers listed")}`);
@@ -634,16 +684,15 @@ async function connectThese(
     (wanted.get(key) ?? wanted.set(key, new Set()).get(key))?.add(target.server);
   }
 
-  const { plans, yaml } = await planInstall([...sites.values()], manifestPath, invoker);
-  // Only what was asked for. A scan may have found five uncovered servers and
-  // the reader may have chosen one.
-  const narrowed = plans.map((plan) => ({
-    ...plan,
-    servers: plan.servers.filter((server) =>
-      wanted.get(`${plan.site.path}${plan.site.scope}`)?.has(server.name) === true,
-    ),
-  }));
-  const applied = applyInstall(narrowed, manifestPath, yaml);
+  // Only what was asked for, decided before anything is started. A scan may
+  // have found five uncovered servers and the reader may have chosen one.
+  const { plans, yaml } = await planInstall(
+    [...sites.values()],
+    manifestPath,
+    invoker,
+    (site, name) => wanted.get(`${site.path}${site.scope}`)?.has(name) === true,
+  );
+  const applied = applyInstall(plans, manifestPath, yaml);
   const count = applied.reduce((sum, entry) => sum + entry.servers.length, 0);
   if (count === 0) {
     return "nothing was connected; see the reasons above";
@@ -1036,8 +1085,44 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
       `  ${"session".padEnd(width)}  ${"started".padEnd(13)}  ${"did".padEnd(26)}  ${"state".padEnd(26)}  agent`,
     ),
   );
+  // Consecutive sessions with nothing in them are folded into one line.
+  // Clients open a session every time they start, whether or not anything is
+  // called, and the journal this was found against had 107 empty sessions
+  // among 114: the seven that did something were a scroll away, between rows
+  // saying nothing happened. Only in this table -- `--json` is a contract
+  // scripts read, and it still lists every one.
+  let quiet: RunRow[] = [];
+  const flushQuiet = (): void => {
+    if (quiet.length === 1) {
+      const [only] = quiet;
+      if (only !== undefined) {
+        const did = didWhat(journal, only, 0);
+        out(
+          `  ${style.strong(only.id.slice(0, width))}  ${style.quiet(shortTime(only.startedAt).trimEnd().padEnd(13))}  ` +
+            `${laid(did.what, 26)}  ${laid(did.state, 26)}  ${style.quiet(only.label ?? "-")}`,
+        );
+      }
+    } else if (quiet.length > 1) {
+      const newest = quiet[0];
+      const oldest = quiet[quiet.length - 1];
+      if (newest !== undefined && oldest !== undefined) {
+        out(
+          `  ${style.quiet(
+            `${"".padEnd(width)}  ${String(quiet.length)} sessions with nothing in them, ` +
+              `${shortTime(oldest.startedAt).trim()} to ${shortTime(newest.startedAt).trim()}`,
+          )}`,
+        );
+      }
+    }
+    quiet = [];
+  };
   for (const run of runs) {
     const actions = counted(run.id);
+    if (actions.actions === 0) {
+      quiet.push(run);
+      continue;
+    }
+    flushQuiet();
     const { unknown, waiting } = actions;
     // Only what the state column has not already said. It is drawn from the
     // last action, so it says "waiting for you" about one held call -- and a
@@ -1058,6 +1143,7 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
         `${laid(did.what, 26)}  ${laid(did.state, 26)}  ${style.quiet(run.label ?? "-")}${note}`,
     );
   }
+  flushQuiet();
   out("");
   // Only once it is big enough to be worth a sentence. Keeping what was in
   // every file an agent wrote adds up quietly, and finding out from df is
@@ -1079,7 +1165,16 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
 async function runShow(argv: readonly string[], journal: Journal, asJson: boolean): Promise<number> {
   const full = argv.includes("--full");
   const runs = [...journal.listRuns()].reverse();
-  const run = pick(runs, positional(argv)[1], RUN, true);
+  // With no id, the newest session that recorded anything -- for the reason
+  // bare `undo` looks past empty ones: a client opens a session every time it
+  // starts, so the newest is usually one with nothing in it, and "no actions
+  // recorded" was the answer most people got to `synartesis show`.
+  const given = positional(argv)[1];
+  const tally = journal.tallyRuns();
+  const run =
+    (given === undefined
+      ? runs.find((one) => (tally.get(one.id)?.actions ?? 0) > 0)
+      : undefined) ?? pick(runs, given, RUN, true);
   const runId = run.id;
 
   // The journal says what the agent did. It cannot say what has happened to
@@ -1094,6 +1189,7 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
           findManifest(flag(argv, "--manifest")),
           async (router) => await inspect({ journal, router, runId }),
           serversUsedBy(journal, runId),
+          { journal, runId },
         )
       : undefined;
 
@@ -1866,6 +1962,7 @@ async function withUpstreams<T>(
   manifestPath: string,
   use: (router: Router, manifest: Manifest) => Promise<T>,
   only?: ReadonlySet<string>,
+  session?: { readonly journal: Journal; readonly runId: string },
 ): Promise<T> {
   const manifest = loadManifest(manifestPath);
   const upstreams: Upstream[] = [];
@@ -1876,15 +1973,7 @@ async function withUpstreams<T>(
         continue;
       }
       try {
-        upstreams.push(
-          await connectStdioUpstream({
-            name,
-            command: spec.command,
-            args: spec.args,
-            stderr: "capture",
-            ...(spec.env === undefined ? {} : { env: spec.env }),
-          }),
-        );
+        upstreams.push(await startAsTheClientWould(manifestPath, name, spec, session));
       } catch (error: unknown) {
         missing.push(`${name}: ${describe(error)}`);
       }
@@ -1967,6 +2056,7 @@ async function performUndo(
     // A replan re-resolves inverses from the current policy, which may name a
     // server this run never used; everything else needs only what it touched.
     options.replan === true ? undefined : serversUsedBy(journal, runId),
+    { journal, runId },
   );
 }
 
@@ -1987,10 +2077,25 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     throw new UsageError("--to needs a positive whole number", false);
   }
 
-  // Defaults to the most recent run: the thing anyone wants to undo is
-  // almost always the last thing that happened.
+  // Defaults to the most recent run with something in it to undo: the thing
+  // anyone wants to undo is almost always the last thing that happened -- but
+  // not the last session opened. Clients open one every time they start,
+  // whether or not anything is called, so the newest was usually empty and
+  // still open, and bare `undo` refused over it (a 0.8.5 regression: the guard
+  // below ran before anything asked whether there was anything to undo).
+  // Counted from the same index-only tally the console uses to find "the
+  // session that did something", so the command line and the screen agree
+  // about which session is the last one. With nothing undoable anywhere it
+  // falls back to the newest, and says so below.
   const given = positional(argv)[1];
-  const chosen = pick([...journal.listRuns()].reverse(), given, RUN, true);
+  const runs = [...journal.listRuns()].reverse();
+  const standing = journal.standingPerRun();
+  const hasWork = (id: string): boolean => {
+    const here = standing.get(id);
+    return here !== undefined && (here.undoable > 0 || here.conflicted > 0);
+  };
+  const newestWithWork = given === undefined ? runs.find((run) => hasWork(run.id)) : undefined;
+  const chosen = newestWithWork ?? pick(runs, given, RUN, true);
   const runId = chosen.id;
 
   // An agent may still be working in it. The newest session is, by
@@ -2004,8 +2109,12 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   // Not on a dry run, which writes nothing: a preview is exactly what
   // somebody should be able to take of a session that is still going, and
   // refusing one would send them to --yes to look.
+  // Only where there is something to undo: an empty session that is still
+  // open carries no risk, and refusing over one is how this guard broke bare
+  // `undo` for nearly everybody.
   if (
     journal.getRun(runId)?.status === "active" &&
+    hasWork(runId) &&
     !argv.includes("--yes") &&
     !argv.includes("--dry-run")
   ) {
@@ -2039,7 +2148,11 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     ).length;
     out("");
     out(
-      `  ${style.quiet("no session named, so the most recent:")} ${style.strong(runId.slice(0, 8))} ` +
+      `  ${style.quiet(
+        newestWithWork === undefined
+          ? "no session named, so the most recent:"
+          : "no session named, so the most recent with something to undo:",
+      )} ${style.strong(runId.slice(0, 8))} ` +
         style.quiet(`${chosen.label ?? "an agent"}, ${shortTime(chosen.startedAt).trim()}`),
     );
     if (left === 0) {
@@ -2137,6 +2250,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
         manifestPath,
         async (router) => await inspect({ journal, router, runId }),
         serversUsedBy(journal, runId),
+        { journal, runId },
       )
     ).resources.filter(
       // Below --to nothing is undone, so a change down there is not something
@@ -2385,6 +2499,7 @@ async function main(argv: readonly string[]): Promise<number> {
             manifestPath,
             async (router) => await inspect({ journal, router, runId }),
             serversUsedBy(journal, runId),
+            { journal, runId },
           );
         } finally {
           journal.close();

@@ -307,3 +307,29 @@ describe("the ways out of a halt", () => {
     }
   });
 });
+
+describe("pruning a session that recorded how its servers started", () => {
+  it("removes that record along with the session instead of refusing", () => {
+    // run_servers references the run, and foreign keys are on. Deleting the
+    // run while that row existed is refused, so without this every session
+    // that recorded its servers -- which is every session -- would become
+    // impossible to prune.
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-prune-servers-"));
+    const journal = openJournal(join(dir, "journal.db"));
+    try {
+      const runId = journal.beginRun("an-agent");
+      journal.recordRunServer(runId, "crm", "/work", { CRM_TOKEN: "f00d" });
+      journal.endRun(runId, "complete");
+
+      const far = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const stale = journal.prunableRuns(far).map((run) => run.id);
+      expect(stale).toContain(runId);
+      expect(() => journal.deleteRuns(stale)).not.toThrow();
+      expect(journal.getRun(runId)).toBeUndefined();
+      expect(journal.runServer(runId, "crm")).toBeUndefined();
+    } finally {
+      journal.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

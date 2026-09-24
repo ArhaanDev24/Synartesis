@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
@@ -144,6 +145,11 @@ const runSchema = z.object({
 const seenSchema = z.object({ server: z.string(), ts: z.string() });
 
 const countedSchema = z.object({ run_id: z.string(), n: z.number() });
+
+const runServerSchema = z.object({
+  cwd: z.string().nullable(),
+  fingerprints: z.string(),
+});
 
 const leaseSchema = z.object({
   action_id: z.string(),
@@ -470,6 +476,22 @@ export interface Journal {
   /** Removes runs and their actions. Returns what actually went. */
   deleteRuns(runIds: readonly string[]): { runs: number; actions: number };
   /**
+   * What one of a session's servers was started with: its working directory,
+   * and a keyed fingerprint of each variable the client entry or the policy
+   * declared. Never the values. An undo compares against this before acting,
+   * so it can refuse to reach a different store from the one the session
+   * wrote to rather than report success about it.
+   */
+  recordRunServer(
+    runId: string,
+    server: string,
+    cwd: string | undefined,
+    fingerprints: Readonly<Record<string, string>>,
+  ): void;
+  runServer(runId: string, server: string): RunServer | undefined;
+  /** The key the fingerprints above are made with, created on first use. */
+  fingerprintKey(): Buffer;
+  /**
    * Reclaims the space the deletes freed. Deleting rows leaves a SQLite file
    * exactly as large as it was, so without this a prune frees nothing a user
    * can see. Cannot run inside a transaction.
@@ -477,6 +499,11 @@ export interface Journal {
   vacuum(): void;
   pragma(name: string): unknown;
   close(): void;
+}
+
+export interface RunServer {
+  readonly cwd?: string;
+  readonly fingerprints: Readonly<Record<string, string>>;
 }
 
 export interface PrunableRun {
@@ -1388,9 +1415,17 @@ class SqliteJournal implements Journal {
         let actions = 0;
         const dropActions = this.#db.prepare("DELETE FROM actions WHERE run_id = ?");
         const dropRun = this.#db.prepare("DELETE FROM runs WHERE id = ?");
+        // Every row that points at a run or at one of its actions goes first:
+        // foreign keys are on, so the other order is rejected rather than
+        // cascading, and a table added later that nobody taught this about
+        // would make every session that used it impossible to prune.
+        const dropServers = this.#db.prepare("DELETE FROM run_servers WHERE run_id = ?");
+        const dropLeases = this.#db.prepare(
+          "DELETE FROM leases WHERE action_id IN (SELECT id FROM actions WHERE run_id = ?)",
+        );
         for (const id of ids) {
-          // Actions first: they carry the foreign key onto the run, so the
-          // other order is rejected rather than cascading.
+          dropServers.run(id);
+          dropLeases.run(id);
           actions += dropActions.run(id).changes;
           runs += dropRun.run(id).changes;
         }
@@ -1399,6 +1434,51 @@ class SqliteJournal implements Journal {
       // immediate, for the same reason recordPending is: this reads before it
       // writes, and a deferred transaction cannot take the write lock later.
       return remove.immediate(runIds);
+    });
+  }
+
+  recordRunServer(
+    runId: string,
+    server: string,
+    cwd: string | undefined,
+    fingerprints: Readonly<Record<string, string>>,
+  ): void {
+    this.#run("recordRunServer", () => {
+      this.#db
+        .prepare(
+          `INSERT INTO run_servers (run_id, server, cwd, fingerprints) VALUES (?, ?, ?, ?)
+             ON CONFLICT(run_id, server) DO UPDATE SET cwd = excluded.cwd,
+               fingerprints = excluded.fingerprints`,
+        )
+        .run(runId, server, cwd ?? null, JSON.stringify(fingerprints));
+    });
+  }
+
+  runServer(runId: string, server: string): RunServer | undefined {
+    return this.#run("runServer", () => {
+      const raw = this.#db
+        .prepare("SELECT cwd, fingerprints FROM run_servers WHERE run_id = ? AND server = ?")
+        .get(runId, server);
+      if (raw === undefined) {
+        return undefined;
+      }
+      const row = runServerSchema.parse(raw);
+      const fingerprints = z.record(z.string(), z.string()).parse(JSON.parse(row.fingerprints));
+      return { ...(row.cwd === null ? {} : { cwd: row.cwd }), fingerprints };
+    });
+  }
+
+  fingerprintKey(): Buffer {
+    return this.#run("fingerprintKey", () => {
+      // Insert-if-absent, then read: two processes opening a fresh journal at
+      // once agree on one key rather than each keeping its own.
+      this.#db
+        .prepare("INSERT OR IGNORE INTO secrets (name, value) VALUES ('fingerprint', ?)")
+        .run(randomBytes(32));
+      const row = z
+        .object({ value: z.instanceof(Buffer) })
+        .parse(this.#db.prepare("SELECT value FROM secrets WHERE name = 'fingerprint'").get());
+      return row.value;
     });
   }
 

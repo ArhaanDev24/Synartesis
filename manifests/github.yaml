@@ -1,27 +1,34 @@
-# Policy for GitHub's MCP server.
+# Policy for GitHub's MCP server, github/github-mcp-server, written against
+# the tool reference in its README at v1.12.2.
 #
-# NOT verified against a live account. Everything here is derived from GitHub's
-# documented API shapes, which is exactly the position the filesystem policy was
-# in before it met a real server and turned out to be wrong in one place. Run
-# `synartesis check --manifest manifests/github.yaml` against your own token
-# before trusting it, and expect to correct at least one field.
+# NOT verified against a live account. Every name and argument below was read
+# from GitHub's own documentation, which is exactly the position the
+# filesystem policy was in before it met a real server and turned out to be
+# wrong in one place. Run `synartesis check` against your own token before
+# trusting it, and expect to correct at least one field.
 #
-# The npm package @modelcontextprotocol/server-github is deprecated. The
-# supported server is github/github-mcp-server. Synartesis speaks stdio only,
-# so use the local binary rather than GitHub's hosted remote server.
+# Why this was rewritten: 1.12 folded get_issue, update_issue, create_issue and
+# get_pull_request into issue_read, issue_write and pull_request_read, and
+# renamed update_pull_request's pull_number to pullNumber. The previous policy
+# still named the old tools, and a policy that calls tools a server does not
+# have used to stop the proxy starting -- so everyone who had wrapped GitHub
+# and let it update was left with no GitHub at all. The proxy now holds such a
+# rule instead of refusing to start, and this file names what 1.12 exposes.
 #
-# The honest limit of this adapter: GitHub has no ordinary-scope delete for most
-# things it creates. An issue can be closed but not un-created; a comment is
-# gone only if the author removes it; a published release stays published.
+# The honest limit of this adapter: GitHub has no ordinary-scope delete for
+# most things it creates. An issue can be closed but not un-created; a comment
+# is gone only if its author removes it; a published release stays published.
 # Anything that puts a permanent, publicly visible record into the world is
-# gated rather than dressed up as reversible.
+# held rather than dressed up as reversible -- and every write this file does
+# not name is held too, because an unlisted tool falls to the fail-closed
+# default.
 version: 1
 
 servers:
   github:
     command: github-mcp-server
     args: ["stdio"]
-    # Read from your shell; never written into this file.
+    # Read from where the server is started; never written into this file.
     env:
       GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
     # Nothing here has met a real github; every shape below comes from
@@ -30,49 +37,38 @@ servers:
 
 tools:
   # --- reads -------------------------------------------------------------
+  # 1.12 names most of its reads by suffix -- issue_read, pull_request_read,
+  # actions_get, projects_list -- as well as by the older prefixes.
   - match: "github.get_*"
     class: readonly
   - match: "github.list_*"
     class: readonly
   - match: "github.search_*"
     class: readonly
+  - match: "github.*_read"
+    class: readonly
+  - match: "github.*_get"
+    class: readonly
+  - match: "github.*_list"
+    class: readonly
 
-  # --- issues ------------------------------------------------------------
-
-  # An issue cannot be deleted through the API, only closed. Closing is not
-  # the same as never having existed: people were notified.
-  - match: "github.create_issue"
+  # The one tool the `*_read` suffix would misread: it *marks* notifications
+  # read, which is a write. The longer name wins over the pattern above.
+  - match: "github.mark_all_notifications_read"
     class: irreversible
     gate: always
 
-  # get_issue returns labels and assignees as objects while update_issue takes
-  # bare names, so the inverse projects the one field it needs out of each.
-  # `[]` reads the same key from every element and does nothing else; it is
-  # still a path, not a transform.
-  - match: "github.update_issue"
-    class: reversible
-    snapshot:
-      tool: "github.get_issue"
-      args:
-        owner: "$.owner"
-        repo: "$.repo"
-        issue_number: "$.issue_number"
-      # What GitHub says when the thing is not there. Anything else the
-      # pre-read reports -- a permissions change, a rate limit -- is a failed
-      # snapshot rather than absence, and the write is refused instead of being
-      # offered for approval as a creation.
-      absent_when: ["Not Found", "404"]
-    inverse:
-      tool: "github.update_issue"
-      args:
-        owner: "$.owner"
-        repo: "$.repo"
-        issue_number: "$.issue_number"
-        title: "$snapshot.title"
-        body: "$snapshot.body"
-        state: "$snapshot.state"
-        labels: "$snapshot.labels[].name"
-        assignees: "$snapshot.assignees[].login"
+  # --- issues ------------------------------------------------------------
+
+  # One tool that creates an issue or updates one, chosen by its `method`
+  # argument. An update could be undone from an issue_read taken first; a
+  # creation cannot be undone at all -- an issue can be closed but not
+  # un-created, and people were notified. A rule matches a tool by name alone,
+  # so it cannot tell the two apart, and treating the whole tool as undoable
+  # would promise an undo for every issue the agent opens. Held.
+  - match: "github.issue_write"
+    class: irreversible
+    gate: always
 
   - match: "github.add_issue_comment"
     class: irreversible
@@ -83,14 +79,17 @@ tools:
     class: irreversible
     gate: always
 
+  # pullNumber, not pull_number, in 1.12 -- the previous policy's inverse would
+  # have lost the one argument that says which pull request to put back.
   - match: "github.update_pull_request"
     class: reversible
     snapshot:
-      tool: "github.get_pull_request"
+      tool: "github.pull_request_read"
       args:
+        method: "get"
         owner: "$.owner"
         repo: "$.repo"
-        pull_number: "$.pull_number"
+        pullNumber: "$.pullNumber"
       # What GitHub says when the thing is not there. Anything else the
       # pre-read reports -- a permissions change, a rate limit -- is a failed
       # snapshot rather than absence, and the write is refused instead of being
@@ -101,7 +100,7 @@ tools:
       args:
         owner: "$.owner"
         repo: "$.repo"
-        pull_number: "$.pull_number"
+        pullNumber: "$.pullNumber"
         title: "$snapshot.title"
         body: "$snapshot.body"
         state: "$snapshot.state"
@@ -109,37 +108,13 @@ tools:
   - match: "github.merge_pull_request"
     class: irreversible
     gate: always
-  - match: "github.create_pull_request_review"
-    class: irreversible
-    gate: always
-  - match: "github.create_and_submit_pull_request_review"
-    class: irreversible
-    gate: always
-  - match: "github.submit_pending_pull_request_review"
-    class: irreversible
-    gate: always
 
-  # A pending review is a draft only its author can see, so deleting one puts
-  # nothing into the world. Recreating it restores the draft but not the
-  # comments that were inside it, which is a compensation rather than a
-  # reversal, and undo will report it as unverified.
-  - match: "github.delete_pending_pull_request_review"
-    class: compensable
-    inverse:
-      tool: "github.create_pending_pull_request_review"
-      args:
-        owner: "$.owner"
-        repo: "$.repo"
-        pull_number: "$.pull_number"
-
-  - match: "github.create_pending_pull_request_review"
-    class: compensable
-    inverse:
-      tool: "github.delete_pending_pull_request_review"
-      args:
-        owner: "$.owner"
-        repo: "$.repo"
-        pull_number: "$.pull_number"
+  # Creates, submits or deletes a review, by `method`. A submitted review is
+  # public and cannot be withdrawn; held whole for the same reason issue_write
+  # is.
+  - match: "github.pull_request_review_write"
+    class: irreversible
+    gate: always
 
   # --- file contents -----------------------------------------------------
 
@@ -172,6 +147,13 @@ tools:
         sha: "$result.content.sha"
         message: "Revert agent change to $.path"
 
+  # A commit removing the file. The contents are gone from the branch head and
+  # would have to be read first to be put back, which this server's read does
+  # not return in a form an inverse can use unchanged. Held.
+  - match: "github.delete_file"
+    class: irreversible
+    gate: always
+
   # A multi-file push is one commit touching many paths. This format captures
   # one pre-read per action, not one per path, so there is nothing honest to
   # restore from.
@@ -188,13 +170,13 @@ tools:
   - match: "github.create_repository"
     class: irreversible
     gate: always
-  - match: "github.create_release"
+  - match: "github.delete_repository"
     class: irreversible
     gate: always
 
-# This policy is written for the server version named at the top. A later
-# version can keep a tool's name and change what it takes, which would leave
-# the policy above describing something else -- and undo would still produce an
-# answer. `synartesis pin` prints a `pins:` block for the server you actually
-# have; with it pasted in, a tool whose shape has moved stops the proxy at
-# startup instead of being quietly trusted.
+# Written for github-mcp-server v1.12.2. A later version can keep a tool's name
+# and change what it takes, which would leave the policy above describing
+# something else -- and undo would still produce an answer. `synartesis pin`
+# prints a `pins:` block for the server you actually have; with it pasted in, a
+# tool whose shape has moved stops the proxy at startup instead of being
+# quietly trusted.

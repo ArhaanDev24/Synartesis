@@ -2,6 +2,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 import { UpstreamError } from "../errors.js";
+import type { ServerSpec } from "../manifest/types.js";
+import { upstreamEnv, type EnvSource } from "./environment.js";
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -13,6 +15,14 @@ export interface UpstreamSpec {
   readonly command: string;
   readonly args?: readonly string[];
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * The directory the server starts in. `install` copies a client entry's
+   * `cwd` onto the wrapped entry, and a server started with `.` in its args or
+   * scoped to a project reads that directory -- so an undo started from
+   * wherever the person happened to be standing could point a server at a
+   * different root from the one the session wrote to.
+   */
+  readonly cwd?: string;
   /**
    * Where the server's own stderr goes. The proxy inherits it, so a server
    * that fails to boot says why in the client's logs. The CLI captures it, so
@@ -166,6 +176,35 @@ function lastWords(text: string): string | undefined {
   return kept === "" ? undefined : kept;
 }
 
+/**
+ * Start a server named in the policy, with the environment it should have.
+ *
+ * The one way in. There were six places that started a server, each copying
+ * `command`, `args` and the manifest's `env` by hand, and none of them could
+ * give a server anything the client had configured -- which is how wrapping a
+ * server came to drop its API key. They all come through here now, and say
+ * where the environment comes from rather than each deciding.
+ */
+export async function connectUpstream(
+  name: string,
+  spec: ServerSpec,
+  options: {
+    readonly env: EnvSource;
+    readonly stderr?: UpstreamSpec["stderr"];
+    readonly cwd?: string;
+  },
+): Promise<Upstream> {
+  const env = upstreamEnv(name, spec, options.env);
+  return await connectStdioUpstream({
+    name,
+    command: spec.command,
+    args: spec.args,
+    ...(env === undefined ? {} : { env }),
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.stderr === undefined ? {} : { stderr: options.stderr }),
+  });
+}
+
 export async function connectStdioUpstream(spec: UpstreamSpec): Promise<Upstream> {
   const started = await start(spec);
   let current = started;
@@ -192,6 +231,7 @@ async function start(spec: UpstreamSpec): Promise<{ client: Client }> {
     command: spec.command,
     args: [...(spec.args ?? [])],
     ...(spec.env === undefined ? {} : { env: { ...spec.env } }),
+    ...(spec.cwd === undefined ? {} : { cwd: spec.cwd }),
     // "pipe" is what the sdk calls it; captured here so a failure can quote it.
     stderr: wanted === "capture" ? "pipe" : wanted,
   });
