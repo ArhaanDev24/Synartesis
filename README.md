@@ -609,6 +609,18 @@ pnpm check
 Every push runs that on Linux and macOS across Node 22 and 24, plus both demos,
 the installer, and a build of the desktop app.
 
+```bash
+pnpm stress
+```
+
+The same three attacks `check` runs lightly, at full strength: 500 random agent
+sessions, each undone and checked byte for byte against where it started (also
+undone to a random step, and with a person's edit made afterwards that must
+survive); `synartesis undo` killed with SIGKILL at random points 25 times over
+and run again; and eight agents racing one approval, ten times, which must send
+exactly one email. A failure names its seed, and `SYNARTESIS_STRESS_SEED`
+replays it. `pnpm coverage` reports what the suite reaches.
+
 **Windows is built and not tested.** The release attaches a Windows installer,
 and no CI job compiles or exercises it — the test matrix is Linux and macOS. It
 is expected to work, the code has no platform-specific paths outside

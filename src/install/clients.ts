@@ -267,7 +267,20 @@ export function discover(cwd: string): readonly ConfigSite[] {
     }
   }
 
-  return sites;
+  // One file, once. Run from the home directory, a client's project file and
+  // its global one are the same path -- ~/.cursor/mcp.json both ways -- and
+  // listed twice, install wrapped every server in it twice and drafted a
+  // second copy of each into the policy under another name. The first
+  // listing wins, which is the project one, as it always came first.
+  const seen = new Set<string>();
+  return sites.filter((site) => {
+    const key = `${resolve(site.path)}\u0000${site.at.join("\u0000")}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

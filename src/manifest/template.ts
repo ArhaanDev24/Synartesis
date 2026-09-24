@@ -107,7 +107,11 @@ function walk(current: unknown, parts: readonly Segment[], at: number, reference
       return walk(current[segment.index], parts, at + 1, reference);
     }
     case "key": {
-      if (typeof current !== "object" || !(segment.key in current)) {
+      // Own properties only. `in` also sees what every object inherits, so a
+      // snapshot with no `constructor` field resolved `$snapshot.constructor`
+      // to nothing instead of saying it was absent -- and the inverse quietly
+      // left that field out of what it put back.
+      if (typeof current !== "object" || !Object.hasOwn(current, segment.key)) {
         throw new ManifestError(`${reference} is unresolvable: ${segment.key} is absent`);
       }
       const next: unknown = Object.getOwnPropertyDescriptor(current, segment.key)?.value;

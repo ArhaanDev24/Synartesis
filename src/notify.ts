@@ -88,11 +88,14 @@ function launch(command: string, args: readonly string[]): void {
  * The notifier for this machine, or `SILENT` where there is none or it is
  * switched off.
  */
-export function desktopNotifier(env: NodeJS.ProcessEnv = process.env): Notifier {
+export function desktopNotifier(
+  env: NodeJS.ProcessEnv = process.env,
+  /** Which platform's notifier; passed only by tests, which run on one. */
+  os: NodeJS.Platform = platform(),
+): Notifier {
   if (env["SYNARTESIS_NOTIFY"] === "0") {
     return SILENT;
   }
-  const os = platform();
   if (os === "darwin") {
     return (notice) => {
       const { title, body } = words(notice);

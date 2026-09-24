@@ -948,7 +948,13 @@ class SqliteJournal implements Journal {
    * resource is contested.
    */
   markRollingBack(actionId: string, from: readonly ActionStatus[] = ["applied"]): boolean {
-    return this.#run("markRollingBack", () => {
+    // One transaction, which this comment below always claimed and the code
+    // never had: two autocommitted statements, so an undo killed between them
+    // left a row `rolling_back` with no lease -- and a row nobody is recorded
+    // as holding can never be told from one a live undo is sending, so every
+    // later undo refused it for good. Found by killing undo with SIGKILL at
+    // random points (tests/kill-undo.test.ts).
+    return this.#run("markRollingBack", () => this.#db.transaction(() => {
       const slots = from.map(() => "?").join(",");
       const result = this.#db
         .prepare(
@@ -968,7 +974,7 @@ class SqliteJournal implements Journal {
         )
         .run(actionId, hostname(), process.pid, new Date().toISOString());
       return true;
-    });
+    }).immediate());
   }
 
   leaseFor(actionId: string): Lease | undefined {

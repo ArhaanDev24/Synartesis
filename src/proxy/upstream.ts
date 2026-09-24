@@ -394,3 +394,55 @@ function refusal(error: unknown): string | undefined {
   }
   return undefined;
 }
+
+export interface Started<T> {
+  /** In the order they were asked for, not the order they answered. */
+  readonly started: readonly Upstream[];
+  readonly failed: readonly { readonly item: T; readonly error: unknown }[];
+}
+
+/**
+ * Starts several servers at once rather than one after another.
+ *
+ * Every place that starts more than one server waited for each before
+ * beginning the next, so three npx servers cost the sum of their start-ups --
+ * each of which can be seconds while npx resolves a package -- instead of the
+ * slowest. The order of what is returned is the order asked for, so routing
+ * and reports do not change with which server happened to be quickest.
+ */
+export async function startTogether<T>(
+  items: readonly T[],
+  start: (item: T) => Promise<Upstream>,
+): Promise<Started<T>> {
+  const settled = await Promise.allSettled(
+    items.map(async (item) => ({ item, upstream: await start(item) })),
+  );
+  const started: Upstream[] = [];
+  const failed: { item: T; error: unknown }[] = [];
+  items.forEach((item, index) => {
+    const result = settled[index];
+    if (result?.status === "fulfilled") {
+      started.push(result.value.upstream);
+    } else if (result !== undefined) {
+      failed.push({ item, error: result.reason });
+    }
+  });
+  return { started, failed };
+}
+
+/**
+ * All of them, or none: a failure closes whatever did start, then throws the
+ * first failure in the order asked for, as starting them one by one would.
+ */
+export async function startAll<T>(
+  items: readonly T[],
+  start: (item: T) => Promise<Upstream>,
+): Promise<readonly Upstream[]> {
+  const { started, failed } = await startTogether(items, start);
+  const first = failed[0];
+  if (first !== undefined) {
+    await Promise.all(started.map((upstream) => upstream.close().catch(() => undefined)));
+    throw first.error;
+  }
+  return started;
+}

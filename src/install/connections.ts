@@ -78,7 +78,13 @@ export function scan(journal: Journal | undefined, cwd: string): readonly Client
 
     const connections: Connection[] = Object.entries(servers).map(([server, entry]) => {
       const covered = isWrapped(entry);
-      const lastSeen = seen.get(server);
+      // The journal records the name the policy gives a server, which is not
+      // always the entry's: when two clients both list `github`, the second is
+      // `github-cursor` in the policy. Looked up by the entry's name, a server
+      // in daily use read "covered, nothing through it yet".
+      const args = entry.args ?? [];
+      const named = covered && args.includes("--server") ? args[args.indexOf("--server") + 1] : undefined;
+      const lastSeen = seen.get(named ?? server);
       return {
         client: site.client,
         scope: site.scope,

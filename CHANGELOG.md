@@ -2,6 +2,69 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.9.1 — 2026-09-24
+
+This release attacks undo instead of describing it. The new tests generate the
+agent sessions rather than script them, kill undo with SIGKILL partway through,
+and race several agents against one approval. They found five bugs that no
+hand-written scenario had reached.
+
+### Fixed
+
+- **An undo that succeeded could be stuck for good.** A server that applies an
+  inverse and then fails before answering (a crashed handler, a gateway timeout)
+  was read as having refused it. The next attempt found the resource already put
+  back, called that drift, and every attempt after that refused on it. Undo now
+  reads the resource when an inverse errors, and counts it as done when the
+  resource is where that inverse puts it.
+- **An undo killed at the wrong moment could block that action for ever.**
+  Claiming an action and recording which process holds it were two separate
+  writes, though the code's own comment said they were one transaction. A kill
+  between them left an action claimed by nobody, which no later undo could tell
+  from one still in progress. They are now one transaction.
+- **An undo killed while compensating stopped on its own success.** The delete
+  that undoes a create went through, and the resumed undo called the record's
+  absence drift. It now recognises it, but only when the owner is certainly
+  gone and the record is certainly gone. An edit a person made instead still
+  stops it.
+- **Running `install` from your home directory covered servers twice.** There,
+  a client's project config and its global one are the same file. It was listed
+  twice, and every server in it was drafted into the policy a second time under
+  another name.
+- **"Covered, nothing through it yet" about a server in daily use.** The connect
+  screen looked up the last use under the client entry's name, not the name the
+  policy gives the server, and those differ when two clients list a server with
+  the same name.
+- **A policy reading a field every object inherits** (`constructor`,
+  `toString`) resolved to nothing when the record lacked it, instead of saying
+  it was absent. The inverse then quietly left that field out of what it
+  restored.
+
+### Faster
+
+- **Servers start together.** Every path that starts more than one server
+  (a proxy serving several, `undo`, `check`, `pin`) waited for each before
+  starting the next. Three servers that take 800 ms each answered after 2.9 s;
+  now it is under 1.6 s, and the order they are reported in is unchanged.
+- **Each server's tools are listed once at start-up**, not three times.
+
+### Tests
+
+- `tests/stress-undo.test.ts`: random sessions with awkward values (unicode,
+  5,000-character strings, `__proto__`, text that looks like a template), undone
+  through injected crashes before and after writes, undone to random steps, and
+  with a person's edit that must survive.
+- `tests/kill-undo.test.ts`: `synartesis undo` killed with SIGKILL the moment a
+  random number of actions have been undone, again and again, with a real server
+  and store.
+- `tests/race-approval.test.ts`: eight separate agent processes retrying one
+  approved email in the same instant. Exactly one is sent.
+- Direct tests for the code only child processes reached before: which clients
+  are covered, the environment an undo starts a server with, and the Linux
+  notifier.
+- `pnpm stress` runs all three at full strength; `pnpm coverage` reports what
+  the suite reaches.
+
 ## 0.9.0 — 2026-09-24
 
 0.8.4 to 0.8.8 made Synartesis correct once you were using it. This release is

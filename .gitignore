@@ -10,3 +10,4 @@ prep/
 app/release
 app/build/icon.iconset
 app/dev/.sandbox
+coverage/

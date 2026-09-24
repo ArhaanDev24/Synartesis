@@ -28,10 +28,10 @@ import { mark } from "../style.js";
 import { desktopNotifier } from "../notify.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
-import { toolShapes, verifyAgainstServers, withoutMissingTools } from "../manifest/verify.js";
+import { listAll, verifyAgainstServers, withoutMissingTools } from "../manifest/verify.js";
 import { trustsMarks, ungoverned, untested, warnUntested } from "../manifest/standing.js";
 import { createProxyServer } from "./proxy.js";
-import { connectUpstream, type Upstream } from "./upstream.js";
+import { connectUpstream, startAll, type Upstream } from "./upstream.js";
 import { declaredNames, fingerprint, upstreamEnv } from "./environment.js";
 import { clientEnvFor } from "../install/entry-env.js";
 
@@ -187,8 +187,8 @@ async function main(): Promise<void> {
   // the same store the session wrote to. Recorded against each run below.
   const key = journal.fingerprintKey();
   const startedWith = new Map<string, { cwd: string; fingerprints: Record<string, string> }>();
+  upstreams.push(...(await startAll([...wanted], ([name, spec]) => connectUpstream(name, spec, { env: source }))));
   for (const [name, spec] of wanted) {
-    upstreams.push(await connectUpstream(name, spec, { env: source }));
     let client: Readonly<Record<string, string>> | undefined;
     try {
       client = source.kind === "inherit" ? clientEnvFor(argv.manifest, name)?.env : undefined;
@@ -214,7 +214,8 @@ async function main(): Promise<void> {
   // instead, and the proxy starts. See withoutMissingTools for why refusing
   // took whole servers down for people whose policies used to work. What is
   // served from here on is the degraded policy, never the original.
-  const { manifest: served, disabled } = await withoutMissingTools(upstreams, manifest);
+  const listed = await listAll(upstreams);
+  const { manifest: served, disabled } = await withoutMissingTools(upstreams, manifest, listed);
   for (const line of disabled) {
     log.warn(line);
   }
@@ -226,6 +227,7 @@ async function main(): Promise<void> {
           ...served,
           tools: served.tools.filter((rule) => rule.match.startsWith(`${String(argv.server)}.`)),
         },
+    listed,
   );
 
   // Named at startup for the same reason `check` names them: these are the
@@ -235,14 +237,14 @@ async function main(): Promise<void> {
   // interruption.
   const uncovered = ungoverned(
     served,
-    new Map(await Promise.all(upstreams.map(async (upstream) => [
+    new Map(upstreams.map((upstream) => [
       upstream.name,
-      (await toolShapes(upstream))
+      (listed.get(upstream.name) ?? [])
         // The ones the proxy will read as reads on the server's say-so are
         // not going to stop anybody, so they are not warned about.
         .filter((tool) => !(tool.readOnly === true && trustsMarks(served, upstream.name)))
         .map((tool) => tool.name),
-    ] as const))),
+    ] as const)),
   );
   for (const entry of uncovered) {
     log.warn(

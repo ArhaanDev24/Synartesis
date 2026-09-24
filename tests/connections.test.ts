@@ -8,12 +8,12 @@
  * because it reads as though the connection were new rather than busy.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openJournal, type Journal } from "../src/journal/journal.js";
-import { stateOf, type Connection } from "../src/install/connections.js";
+import { needsConnecting, scan, stateOf, type Connection } from "../src/install/connections.js";
 import type { ConfigSite } from "../src/install/clients.js";
 
 const dirs: string[] = [];
@@ -91,5 +91,81 @@ describe("when a server was last used", () => {
     const open = crowded();
     expect(open.lastSeenPerServer().get("never")).toBeUndefined();
     expect(stateOf(connection("never", undefined))).toContain("nothing through it yet");
+  });
+});
+
+describe("finding every client and what it is covered by", () => {
+  function inHome(body: (home: string) => void): void {
+    const home = mkdtempSync(join(tmpdir(), "synartesis-scan-"));
+    dirs.push(home);
+    const saved = process.env["HOME"];
+    process.env["HOME"] = home;
+    try {
+      body(home);
+    } finally {
+      process.env["HOME"] = saved;
+    }
+  }
+
+  const wrappedAs = (server: string): Record<string, unknown> => ({
+    command: "synartesis",
+    args: ["proxy", "--manifest", "/x/synartesis.yaml", "--server", server],
+  });
+
+  it("reports when a server was last used under the name the policy gives it", () => {
+    // Two clients both listing `github` is ordinary, and install names the
+    // second one `github-cursor` in the policy while the client's entry keeps
+    // calling it `github`. The journal records the policy's name. Looked up
+    // by the entry's, a server in daily use read "nothing through it yet".
+    inHome((home) => {
+      mkdirSync(join(home, ".cursor"), { recursive: true });
+      writeFileSync(join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { github: wrappedAs("github-cursor") } }));
+      const open = openJournal(join(home, "j.db"));
+      journal = open;
+      const run = open.beginRun("agent");
+      const action = open.recordPending({ runId: run, server: "github-cursor", tool: "issue_read", args: {}, class: "readonly" });
+      open.markApplied(action.actionId, { result: {} });
+
+      const found = scan(open, home).flatMap((group) => group.connections);
+      const github = found.find((one) => one.server === "github");
+      if (github === undefined) {
+        throw new Error("github was not found");
+      }
+      expect(github.covered).toBe(true);
+      expect(stateOf(github)).toBe("covered, active now");
+    });
+  });
+
+  it("says a config it cannot read is unreadable, rather than empty", () => {
+    inHome((home) => {
+      mkdirSync(join(home, ".cursor"), { recursive: true });
+      writeFileSync(join(home, ".cursor", "mcp.json"), "{ not json");
+      const group = scan(undefined, home).find((one) => one.path.endsWith(join(".cursor", "mcp.json")));
+      expect(group?.problem).toContain("not valid JSON");
+      expect(group?.connections).toEqual([]);
+    });
+  });
+
+  it("offers to connect only what is uncovered and could start", () => {
+    inHome((home) => {
+      mkdirSync(join(home, ".cursor"), { recursive: true });
+      writeFileSync(
+        join(home, ".cursor", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            done: wrappedAs("done"),
+            gone: { command: "/nowhere/at/all/server" },
+            todo: { command: "npx", args: ["-y", "some-server"] },
+          },
+        }),
+      );
+      const groups = scan(undefined, home);
+      expect(needsConnecting(groups).map((one) => one.server)).toEqual(["todo"]);
+      const gone = groups.flatMap((group) => group.connections).find((one) => one.server === "gone");
+      if (gone === undefined) {
+        throw new Error("gone was not found");
+      }
+      expect(stateOf(gone)).toBe("cannot start; the command is not there");
+    });
   });
 });

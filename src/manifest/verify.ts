@@ -5,6 +5,21 @@ import type { Upstream } from "../proxy/upstream.js";
 import { auditPins, explainPins, type ToolShape } from "./pin.js";
 import { splitQualified, type Manifest } from "./types.js";
 
+/**
+ * Each server's tools, listed once and handed to every check that needs them.
+ * The proxy's start-up asked each server for its whole tool list three times
+ * over -- once to degrade, once to verify, once to warn -- and a server with
+ * ninety tools answered all three before the client got its first reply.
+ */
+export type Listed = ReadonlyMap<string, readonly ToolShape[]>;
+
+/** Every server's tools, asked of all of them at once. */
+export async function listAll(upstreams: readonly Upstream[]): Promise<Listed> {
+  return new Map(
+    await Promise.all(upstreams.map(async (upstream) => [upstream.name, await toolShapes(upstream)] as const)),
+  );
+}
+
 const listSchema = z.looseObject({
   tools: z.array(
     z.looseObject({
@@ -50,11 +65,12 @@ async function toolShapes(upstream: Upstream): Promise<ToolShape[]> {
 export async function verifyAgainstServers(
   upstreams: readonly Upstream[],
   manifest: Manifest,
+  listed?: Listed,
 ): Promise<void> {
   const shapes = new Map<string, readonly ToolShape[]>();
   const available = new Map<string, Set<string>>();
   for (const upstream of upstreams) {
-    const advertised = await toolShapes(upstream);
+    const advertised = listed?.get(upstream.name) ?? (await toolShapes(upstream));
     shapes.set(upstream.name, advertised);
     available.set(upstream.name, new Set(advertised.map((tool) => tool.name)));
   }
@@ -134,10 +150,12 @@ export async function verifyAgainstServers(
 export async function withoutMissingTools(
   upstreams: readonly Upstream[],
   manifest: Manifest,
+  listed?: Listed,
 ): Promise<{ readonly manifest: Manifest; readonly disabled: readonly string[] }> {
   const available = new Map<string, Set<string>>();
   for (const upstream of upstreams) {
-    available.set(upstream.name, new Set((await toolShapes(upstream)).map((tool) => tool.name)));
+    const advertised = listed?.get(upstream.name) ?? (await toolShapes(upstream));
+    available.set(upstream.name, new Set(advertised.map((tool) => tool.name)));
   }
   const missing = (qualified: string): boolean => {
     const target = splitQualified(qualified);

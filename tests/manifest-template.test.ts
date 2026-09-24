@@ -137,3 +137,22 @@ describe("template resolution", () => {
     expect(resolveTemplate("$.maybe", { args: { maybe: null } })).toBe(null);
   });
 });
+
+describe("a field whose name every object inherits", () => {
+  it("is absent when the record does not have it, not silently empty", () => {
+    // `constructor`, `toString` and the rest are on every object's prototype.
+    // Found with `in`, a record lacking one resolved to undefined, and the
+    // inverse left that field out of what it restored without a word.
+    for (const name of ["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"]) {
+      expect(() => resolveTemplate({ v: `$snapshot.${name}` }, { args: {}, snapshot: { id: "c_001" } }), name).toThrow(
+        ManifestError,
+      );
+    }
+  });
+
+  it("is read when the record really has it", () => {
+    const snapshot: unknown = JSON.parse('{"constructor": "a field", "__proto__": {"x": 1}}');
+    expect(resolveTemplate({ v: "$snapshot.constructor" }, { args: {}, snapshot })).toEqual({ v: "a field" });
+    expect(resolveTemplate({ v: "$snapshot.__proto__.x" }, { args: {}, snapshot })).toEqual({ v: 1 });
+  });
+});

@@ -34,7 +34,7 @@ import {
   type RunStatus,
   type RunTally,
 } from "./journal/journal.js";
-import { verifyAgainstServers, toolShapes } from "./manifest/verify.js";
+import { listAll, verifyAgainstServers, toolShapes } from "./manifest/verify.js";
 import { allowAlways, PolicyEditError } from "./manifest/edit.js";
 import { fingerprint as pinFingerprint, pinBlock, type ToolShape } from "./manifest/pin.js";
 import { createPolicyResolver } from "./manifest/match.js";
@@ -49,7 +49,7 @@ import {
   warnUntested,
 } from "./manifest/standing.js";
 import { createRouter, type Router } from "./proxy/routing.js";
-import { connectUpstream, type Upstream } from "./proxy/upstream.js";
+import { connectUpstream, startAll, startTogether, type Upstream } from "./proxy/upstream.js";
 import { clientEnvFor } from "./install/entry-env.js";
 import { differing, fingerprint, upstreamEnv, type EnvSource } from "./proxy/environment.js";
 import { PROXY_FLAGS } from "./proxy/flags.js";
@@ -343,14 +343,15 @@ async function runPin(argv: readonly string[]): Promise<number> {
   const path = findManifest(flag(argv, "--manifest"));
   const manifest = loadManifest(path);
 
-  const shapes = new Map<string, readonly ToolShape[]>();
+  let shapes: ReadonlyMap<string, readonly ToolShape[]> = new Map();
   const upstreams: Upstream[] = [];
   try {
-    for (const [name, spec] of Object.entries(manifest.servers)) {
-      const upstream = await startAsTheClientWould(path, name, spec);
-      upstreams.push(upstream);
-      shapes.set(name, await toolShapes(upstream));
-    }
+    upstreams.push(
+      ...(await startAll(Object.entries(manifest.servers), ([name, spec]) =>
+        startAsTheClientWould(path, name, spec),
+      )),
+    );
+    shapes = await listAll(upstreams);
   } finally {
     for (const upstream of upstreams) {
       await upstream.close();
@@ -445,13 +446,16 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   // reads, not held, so not listed as held below.
   const trustedReads = new Map<string, readonly string[]>();
   try {
-    for (const [name, spec] of Object.entries(manifest.servers)) {
-      upstreams.push(await startAsTheClientWould(path, name, spec));
-    }
-    await verifyAgainstServers(upstreams, manifest);
+    upstreams.push(
+      ...(await startAll(Object.entries(manifest.servers), ([name, spec]) =>
+        startAsTheClientWould(path, name, spec),
+      )),
+    );
+    const listed = await listAll(upstreams);
+    await verifyAgainstServers(upstreams, manifest, listed);
     const resolver = createPolicyResolver(manifest);
     for (const upstream of upstreams) {
-      const shapes = await toolShapes(upstream);
+      const shapes = listed.get(upstream.name) ?? [];
       const trusted = shapes
         .filter(
           (tool) =>
@@ -2399,19 +2403,13 @@ async function withUpstreams<T>(
   session?: { readonly journal: Journal; readonly runId: string },
 ): Promise<T> {
   const manifest = loadManifest(manifestPath);
-  const upstreams: Upstream[] = [];
-  const missing: string[] = [];
+  const wanted = Object.entries(manifest.servers).filter(([name]) => only === undefined || only.has(name));
+  const { started, failed } = await startTogether(wanted, ([name, spec]) =>
+    startAsTheClientWould(manifestPath, name, spec, session),
+  );
+  const upstreams: Upstream[] = [...started];
+  const missing = failed.map(({ item: [name], error }) => `${name}: ${describe(error)}`);
   try {
-    for (const [name, spec] of Object.entries(manifest.servers)) {
-      if (only !== undefined && !only.has(name)) {
-        continue;
-      }
-      try {
-        upstreams.push(await startAsTheClientWould(manifestPath, name, spec, session));
-      } catch (error: unknown) {
-        missing.push(`${name}: ${describe(error)}`);
-      }
-    }
     if (upstreams.length === 0 && missing.length > 0) {
       throw new ManifestError(`no server could be started. ${missing.join("; ")}`);
     }

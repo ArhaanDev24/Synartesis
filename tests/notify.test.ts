@@ -100,7 +100,9 @@ describe.runIf(platform() === "darwin")("the macOS notifier", () => {
         actionId: "1a2b3c4d",
         approve: "synartesis approve 1a2b3c4d",
       });
-      for (let i = 0; i < 50 && !existsSync(log); i += 1) {
+      // Up to five seconds: the stand-in starts node, and on a loaded machine
+      // that alone took longer than the one second this used to allow.
+      for (let i = 0; i < 250 && !existsSync(log); i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       const argv = z.array(z.string()).parse(JSON.parse(readFileSync(log, "utf8")));
@@ -124,6 +126,49 @@ describe.runIf(platform() === "darwin")("the macOS notifier", () => {
         actionId: "1a2b3c4d",
         approve: "synartesis approve 1a2b3c4d",
       });
+    }).not.toThrow();
+  });
+});
+
+describe.runIf(platform() !== "win32")("the Linux notifier", () => {
+  it("puts every name after --, and escapes the markup notify-send would render", async () => {
+    // notify-send renders a subset of HTML in the body, so a tool named
+    // <a href=...> would become a link in the notification.
+    const bin = scratch();
+    const log = join(bin, "argv.json");
+    writeFileSync(
+      join(bin, "notify-send"),
+      `#!/bin/sh\nnode -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2)))' ${JSON.stringify(log)} "$@"\n`,
+    );
+    chmodSync(join(bin, "notify-send"), 0o755);
+    const saved = process.env["PATH"];
+    process.env["PATH"] = `${bin}:${saved ?? ""}`;
+    try {
+      desktopNotifier({}, "linux")({
+        server: "--help",
+        tool: '<a href="https://evil.example">click</a> & more',
+        actionId: "1a2b3c4d",
+        approve: "synartesis approve 1a2b3c4d",
+      });
+      for (let i = 0; i < 250 && !existsSync(log); i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const argv = z.array(z.string()).parse(JSON.parse(readFileSync(log, "utf8")));
+      const names = argv.slice(argv.indexOf("--") + 1);
+      // A server called --help is a name, not an option.
+      expect(argv.indexOf("--")).toBeGreaterThan(-1);
+      expect(argv.slice(0, argv.indexOf("--")).join(" ")).not.toContain("--help");
+      expect(names.join(" ")).not.toContain("<a ");
+      expect(names.join(" ")).toContain("&lt;a");
+      expect(names.join(" ")).toContain("&amp;");
+    } finally {
+      process.env["PATH"] = saved;
+    }
+  });
+
+  it("stays silent on a platform it has no notifier for", () => {
+    expect(() => {
+      desktopNotifier({}, "win32")({ server: "a", tool: "b", actionId: "c", approve: "d" });
     }).not.toThrow();
   });
 });

@@ -13,6 +13,7 @@ import {
   resolvedRead,
   toResolvedRead,
   type InversePlan,
+  type ResolvedRead,
   type StateObservation,
 } from "../proxy/snapshot.js";
 import { createPolicyResolver } from "../manifest/match.js";
@@ -407,7 +408,16 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
 
       if (sameState(current, recordedPost.data)) {
         verified = true;
-      } else if (sameState(current, intendedAfterInverse(action))) {
+      } else if (
+        sameState(current, intendedAfterInverse(action)) ||
+        // An inverse this undo sent before it was killed, whose owner is gone:
+        // the resource having reached the state it produces is the inverse
+        // having landed. Found by SIGKILLing undo mid-compensation: the delete
+        // had gone through, and every later attempt called its absence drift.
+        (action.status === "rolling_back" &&
+          journal.leaseFor(action.id)?.alive === false &&
+          looksUndone(current, action))
+      ) {
         // The inverse has already taken effect, whether by an interrupted
         // rollback or by someone doing it by hand.
         steps.push({
@@ -605,6 +615,30 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       continue;
     }
 
+    // An error is the server's account of the call, not the world's. A server
+    // can apply the inverse and then fail before answering -- a handler that
+    // crashes after its write, a gateway that times out -- and reading that
+    // as "nothing was applied" left the resource already put back, and every
+    // later attempt calling that drift: the undo had succeeded and could
+    // never say so. Found by the randomised undo test, not by any scenario
+    // anyone had written. So, where there is a read to ask, ask it.
+    const landed =
+      outcome.rejected && recordedPost.success && verifyRead.success
+        ? await landedAnyway(router, toResolvedRead(verifyRead.data), recordedPost.data, action, signal)
+        : undefined;
+    if (landed !== undefined) {
+      journal.markRolledBack(action.id);
+      steps[steps.length - 1] = {
+        ...describeStep(action),
+        kind: "revert",
+        reason: landed,
+        verified,
+        plan,
+        note: `the server reported an error (${truncated(outcome.message)}), but the resource had changed as this inverse changes it`,
+      };
+      continue;
+    }
+
     const halt = new RollbackHalted(action.seq, outcome.message);
     if (outcome.rejected) {
       // Nothing was applied, so the action still needs undoing. Retrying is
@@ -713,6 +747,58 @@ function overwriteText(current: StateObservation, action: ActionRow): string {
     return "";
   }
   return changedLines(current, intended);
+}
+
+/**
+ * Whether an inverse the server said failed took effect regardless, told by
+ * reading the resource straight after. A reason when it did; undefined when
+ * the resource is as the run left it (a real refusal, safe to retry) or has
+ * gone somewhere this inverse would not have put it (a question for a person).
+ *
+ * Where the inverse restores a captured value, only that value counts. A
+ * compensation has no captured value to compare with -- a delete that offsets
+ * a create -- so there, the resource having moved off the run's state in the
+ * moment after this undo's own call is taken as that call landing.
+ */
+async function landedAnyway(
+  router: Router,
+  read: ResolvedRead,
+  post: StateObservation,
+  action: ActionRow,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  let now: StateObservation;
+  try {
+    now = await observeState(router, read, signal);
+  } catch {
+    return undefined;
+  }
+  if (sameState(now, post)) {
+    return undefined;
+  }
+  return looksUndone(now, action) ? "done, despite the server reporting an error" : undefined;
+}
+
+/**
+ * Whether the resource is where this action's inverse would have put it.
+ *
+ * Exact where the inverse restores a captured value. A compensation has no
+ * captured value, so only one answer is accepted for it: the resource is
+ * gone, which is what a delete offsetting a create leaves and which nobody's
+ * edit produces. A compensation that leaves something behind -- a refund, a
+ * cancellation -- is not recognised, and halts for a person, which is the
+ * safe direction to be unsure in.
+ */
+function looksUndone(now: StateObservation, action: ActionRow): boolean {
+  const intended = intendedAfterInverse(action);
+  if (intended !== undefined) {
+    return sameState(now, intended);
+  }
+  return action.class === "compensable" && !now.present;
+}
+
+function truncated(text: string): string {
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
 function intendedAfterInverse(action: ActionRow): StateObservation | undefined {
