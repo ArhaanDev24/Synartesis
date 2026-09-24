@@ -289,7 +289,7 @@ describe("the preview a person sees", () => {
 
     const dry = await run(["undo", runId, "--dry-run", "--manifest", manifest, "--journal", journalPath]);
     expect(dry.code).toBe(0);
-    expect(dry.stdout).toContain("revert");
+    expect(dry.stdout).toContain("would put back");
     expect(dry.stdout).toContain("caveat");
     // Run together first: the caveat is wrapped to the column the rest of the
     // report uses, so asserting a phrase against the raw output would be

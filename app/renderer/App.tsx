@@ -519,10 +519,11 @@ export function App(): React.JSX.Element {
             <h2>No policy yet</h2>
             <p>
               Synartesis will not guess which of your tools are safe to let an agent use
-              unsupervised. Write that down once, in a terminal:
+              unsupervised. One command in a terminal covers the servers your other apps
+              already list, using the policies that ship for the ones it knows:
             </p>
             <p>
-              <code>synartesis init</code>
+              <code>synartesis install</code>
             </p>
             <p className="note">
               It will look for {startup.manifestPath}. Reopen this window afterwards.

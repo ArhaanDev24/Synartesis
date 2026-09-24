@@ -287,7 +287,7 @@ describe("a run stopped by drift is not a run that is finished", () => {
     ]);
     expect(dry.stdout).toContain("would write over");
     expect(dry.stdout).toContain("D R Y   R U N");
-    expect(dry.stdout).toContain("revert");
+    expect(dry.stdout).toContain("would put back");
     // And the whole point of the flag.
     expect(readFileSync(state, "utf8")).toBe(edited);
   });

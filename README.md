@@ -102,7 +102,8 @@ Then, from anywhere:
 synartesis install
 ```
 
-That finds what Claude Code, Claude Desktop, Cursor or Codex already list,
+That finds what Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Copilot
+CLI, Antigravity or Devin Desktop (Windsurf) already list,
 writes one policy covering all of it, and points each entry at the proxy.
 Servers it recognises get the policy that ships for them and work immediately;
 the rest are drafted with every tool held until you say how to undo it. Your
@@ -219,12 +220,15 @@ Every tool gets one of four classifications, written down in a manifest:
 | `readonly` | Changes nothing | `get_customer` | Recorded, forwarded |
 | `reversible` | Prior state can be restored exactly | `update_customer` | State captured before the write; written back on undo |
 | `compensable` | Cannot be reversed, but can be offset | `create_charge` | A different call neutralises it |
-| `irreversible` | Neither | `send_email` | **Suspended until a human approves it** |
+| `irreversible` | Neither | `send_email` | **Suspended until a human approves it**, or recorded without asking where the policy says `gate: never` |
 
 A tool your manifest does not mention is treated as `irreversible`. That is
 deliberate: silently forwarding an unknown destructive call is the one failure
-worth avoiding most. `synartesis check` names them, so you meet that decision
-before your agent does.
+worth avoiding most. The one exception is a tool its own server marks
+read-only: that is read as a read, and `check` lists every tool let through that
+way, so you can see exactly what was trusted. (`trust_annotations: false` on a
+server turns it off, and a pinned server never gets it.) `synartesis check`
+names the rest, so you meet that decision before your agent does.
 
 A few calls are reversible only when nothing is in the way — moving a file onto
 a free path is undone by moving it back, moving it onto an existing file
@@ -232,6 +236,65 @@ destroys what was there. For those, `expect: absent` on the pre-read swaps the
 two: finding nothing is the reversible case, finding something is held for a
 person and recorded with no inverse, so undo says it cannot be undone rather
 than putting half of it back and calling that success.
+
+---
+
+## Being asked less, and told when it matters
+
+**You hear about a held call when it happens.** On macOS and Linux a desktop
+notification names the server and the tool, never the arguments, since they can
+carry secrets and notification history is kept. `synartesis notify --test`
+checks it reaches you; `SYNARTESIS_NOTIFY=0` turns it off. Windows has none yet,
+and `watch` shows every held call on every platform.
+
+**Stop being asked, for a while or for good.**
+
+```bash
+synartesis allow crm.send_email --for 1h      # a row in the journal; next call on
+synartesis allow crm.send_email --always      # edits the policy; next client restart
+synartesis allow crm.send_email --stop        # held again from the next call
+synartesis allow                              # what is let through right now
+```
+
+`--for` goes up to a day and runs out by itself. `--always` changes only that
+tool's gate, in place, keeping every comment in the file. A tool that cannot be
+undone stays marked that way everywhere it shows up: it is recorded, just no
+longer held. For those you type the tool's name to confirm. In `watch` and the
+console, `A` approves the call in front of you and stops asking about that tool
+for an hour. The desktop card has the same button.
+
+**A no reaches the agent.** When you deny a call and the agent tries the same
+call again, it is told who said no, when, and why. It does not see a fresh
+"waiting for approval". `approve` on the denied call takes the denial back.
+
+**The agent is never handed the way to approve itself.** Nothing it reads
+contains an `approve` or `allow` command, and both refuse to run without a
+person at a terminal unless given `--unattended`, which is recorded as such.
+
+---
+
+## Hosted servers and browsers
+
+**Hosted servers.** A server your client reaches at a `url` with a token in its
+headers is covered directly. `install` moves the header values into the
+client entry's `env`, where the client already keeps secrets, and the policy
+names the variables rather than holding the token. The proxy speaks Streamable
+HTTP, falls back to SSE only where the server says it does not speak the newer
+one, and refuses redirects. A request the server refuses at the door (an
+expired token, say) is recorded as never sent, not as an outcome nobody knows.
+A server that signs you in through a browser instead is covered with
+`install --remote`, through [mcp-remote](https://www.npmjs.com/package/mcp-remote),
+which does the sign-in and keeps the token itself.
+
+**Browsers.** Nothing a browser does can be undone, and holding every click
+made Playwright and Chrome DevTools unusable behind this. Their shipped policies
+read reads as reads and record every interaction, arguments included, without
+holding it. Running code the agent wrote, and uploading files from your disk,
+are still held.
+
+**Policies that ship:** filesystem, memory, git, github, Playwright, Chrome
+DevTools, and a read-only set for fetch, Brave Search, Exa, Tavily and the AWS
+documentation server. Each was written from the server's real tool list.
 
 ---
 
@@ -407,6 +470,7 @@ get it if it is not installed.
 |---|---|
 | `synartesis` | The screen. Everything below can be done from it |
 | `install` / `uninstall` / `status` | Cover the clients on this machine, put them back, say what is covered |
+| `install --remote` | Also cover hosted servers that sign in through a browser, via mcp-remote |
 | `init <server> -- <cmd>` | Introspect a server and draft a manifest |
 | `check` | Load a manifest and verify it against the servers it names |
 | `pin` | Print the `pins:` block for the servers you have now |
@@ -415,6 +479,8 @@ get it if it is not installed.
 | `show <id> --live` | The same, plus what has changed in the world since |
 | `show <id> --full` | Every argument, snapshot and inverse, nothing elided |
 | `gates` / `approve <id>` / `deny <id>` | What is waiting, and answering it |
+| `allow <server.tool> --for 1h \| --always \| --stop` | Stop being asked about one tool, for a while or for good |
+| `notify --test` | Send one notification, to see whether they reach you |
 | `resolve <id> --applied\|--failed` | Settle a call whose outcome nothing established |
 | `undo <id>` | Reverse a session, newest action first |
 | `undo <id> --dry-run` | Plan it and change nothing |
@@ -514,6 +580,14 @@ deletes whole sessions and `VACUUM`s. It will not touch one still active, or one
 holding a call waiting on a person, or one whose undo halted on a conflict. A
 pruned session cannot be undone afterwards, which is the whole of the trade.
 Nothing prunes on a timer.
+
+**What needing a terminal protects against.** `approve` and `allow` refuse to
+run without a person at a terminal, and nothing an agent reads names them. That
+stops an agent following its instructions, or making a mistake, into approving
+its own calls. It does not stop a process working to defeat it while running as
+you: anything with your permissions can write the journal directly. For a
+boundary the agent cannot cross, deny it those commands in its own permission
+settings.
 
 **Durability.** The journal runs `synchronous = NORMAL`. A crash of the process
 or of the CLI mid-undo loses nothing; only the machine losing power can cost the

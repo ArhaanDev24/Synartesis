@@ -511,7 +511,8 @@ destroys the thing the product exists to give you.
 
 ## 18 · install, and status
 
-Finds what Claude Code, Claude Desktop, Cursor and Codex already list, writes a policy covering
+Finds what Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Copilot CLI, Antigravity and
+Devin Desktop (or Windsurf) already list, writes a policy covering
 all of it, and points each entry at the proxy. **This edits your real config files**, so look
 first.
 

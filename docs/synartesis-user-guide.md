@@ -2,8 +2,7 @@
 
 ## An undo layer for AI agents
 
-Every command, output and file path in this guide was run against Synartesis
-0.8.0 before it was written down.
+This guide describes Synartesis 0.9.0.
 
 ---
 
@@ -60,7 +59,7 @@ synartesis --version
 ```
 
 ```
-0.8.0
+0.9.0
 ```
 
 If your shell answers `command not found`, npm's global bin directory is not on
@@ -72,8 +71,10 @@ your `PATH`. Find it with `npm prefix -g`, then add `<that path>/bin` to your
 Two commands.
 
 - `synartesis` is the one you type. Everything in this guide uses it.
-- `synartesis-proxy` is the one your AI client starts. You will name it once, in
-  a config file, and then never think about it again.
+- `synartesis proxy` is what your AI client starts. `install` writes it into
+  your client's config for you; if you write it by hand, you name it once and
+  then never think about it again. (`synartesis-proxy` is the same thing under
+  its older name, and still works.)
 
 ---
 
@@ -155,7 +156,9 @@ edit. It is faster than finding out from a failed call.
 
 The last line is the one to read before you point an agent at a server. A tool
 that no policy mentions is treated as irreversible and **held for a person**
-the first time it is called. That is the safe end of the trade — a server that
+every time it is called — unless its server marks it read-only, in which case
+it is read as a read, and `check` lists it under "read as reads" so you can see
+exactly what was trusted. That is the safe end of the trade — a server that
 gains a tool in an update does not quietly get a free pass — but it stops your
 agent mid-task on a call you were not expecting. So `check` names them. Here is
 the same policy with the rules for two tools taken out:
@@ -165,8 +168,8 @@ the same policy with the rules for two tools taken out:
   guarded  0
 
   guarded by default 2 tools here have no policy, so they are treated as
-  irreversible and held for a person the first time an agent calls
-  one. Write a policy for any you would rather it got on with.
+  irreversible and held for a person every time an agent calls
+  one. Write a policy, or allow it, for any you would rather it got on with.
 
   fs       create_directory, move_file
 ```
@@ -215,7 +218,8 @@ returning the same results. Nothing about how you work changes.
 synartesis install
 ```
 
-It finds what Claude Code, Claude Desktop, Cursor and Codex already list,
+It finds what Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Copilot CLI,
+Antigravity and Devin Desktop (or Windsurf) already list,
 writes one policy covering all of them, and rewrites each client's config to
 point at the proxy — keeping a record of what it changed, so `synartesis
 uninstall` can put every file back exactly as it was.
@@ -246,22 +250,32 @@ On Windows:
 %APPDATA%\Claude\claude_desktop_config.json
 ```
 
-Open it. You will find a `mcpServers` block. Paste this inside it, replacing
-`/Users/you` with your own home directory:
+`synartesis install` does this for you, and is the way to prefer. By hand: open
+it, find the `mcpServers` block, and give each server in your policy its own
+entry, replacing `/Users/you` with your own home directory. This one is for a
+server the policy calls `fs`:
 
 ```json
 {
   "mcpServers": {
-    "synartesis": {
-      "command": "synartesis-proxy",
+    "fs": {
+      "command": "synartesis",
       "args": [
+        "proxy",
         "--manifest",
-        "/Users/you/.synartesis/synartesis.yaml"
+        "/Users/you/.synartesis/synartesis.yaml",
+        "--server",
+        "fs"
       ]
     }
   }
 }
 ```
+
+One entry per server, each with `--server`. One entry for the whole policy
+works too, but with more than one server in it every tool is renamed
+`server__tool`, and anything you or your agent had written against the old names
+stops matching.
 
 If an entry for the server you just wrapped is already in that file, **delete
 it**. Leaving it means your agent can still reach the server directly, going
@@ -278,8 +292,11 @@ Quit Claude Desktop completely and reopen it. It reads this file only at start.
 One command, from your project directory:
 
 ```
-claude mcp add synartesis synartesis-proxy --manifest /Users/you/.synartesis/synartesis.yaml
+claude mcp add fs -- synartesis proxy --manifest /Users/you/.synartesis/synartesis.yaml --server fs
 ```
+
+The `--` matters: without it, Claude Code reads `--manifest` as one of its own
+flags and refuses the command.
 
 Or write `.mcp.json` in the project root by hand, using the same JSON shape as
 the Claude Desktop example above.
@@ -289,8 +306,9 @@ the Claude Desktop example above.
 Every client has somewhere it lists MCP servers, and almost all of them use the
 same `mcpServers` shape shown above. Two things matter wherever you put it:
 
-- the command is `synartesis-proxy`
-- `--manifest` takes the absolute path that `init` printed
+- the command is `synartesis` with `proxy` as its first argument
+- `--manifest` takes the absolute path that `init` printed, and `--server` the
+  name the policy gives that server
 
 ## Check that it worked
 
@@ -343,8 +361,15 @@ Typing `synartesis` with no arguments opens the same screen.
 # Step 6. When a call is held
 
 Your agent tries something irreversible. The call does not go through. It is
-refused straight away with the command that approves it, rather than left
-hanging, because every window a person needs is longer than a client will wait.
+refused straight away rather than left hanging, because every window a person
+needs is longer than a client will wait. The agent is told a person has been
+asked, and to try again once you say so. It is never told how to approve the
+call itself.
+
+On macOS and Linux you get a desktop notification naming the server and the
+tool, never the arguments. `synartesis notify --test` checks that one reaches
+you; `SYNARTESIS_NOTIFY=0` turns them off. `watch` shows every held call either
+way.
 
 See what is waiting:
 
@@ -375,6 +400,35 @@ synartesis approve 08f8d6fd --by arhaan
 Approving does not perform the call. It permits it. Your agent makes the same
 call again and this time it goes through.
 
+`approve` needs you at a terminal. Run from a script, or by an agent with a
+shell, it refuses unless given `--unattended`, and an approval given that way is
+recorded as unattended.
+
+## Not being asked about it again
+
+```
+synartesis allow files.create_directory --for 1h
+```
+
+Calls to that tool go out without asking until the time runs out (at most a
+day), and are still recorded. It takes effect on the next call, with nothing
+restarted. `--stop` ends it early; `synartesis allow` on its own lists what is
+let through. In `watch` and the console, `A` approves the call in front of you
+and does this for an hour.
+
+For good:
+
+```
+synartesis allow files.create_directory --always
+```
+
+This edits the policy: that one tool's gate becomes `never`, in place, with
+every comment in the file kept. A tool that cannot be undone is still marked
+irreversible, and is recorded rather than held. For those you type the tool's
+name to confirm. The running proxy keeps the policy it started with, so the
+change applies the next time your client starts the server; until then,
+`--for 1h` covers the gap.
+
 ## Refusing it
 
 ```
@@ -385,7 +439,10 @@ synartesis deny --all --by arhaan --reason "not needed"
   denied files.create_directory 08f8d6fd-8123-4dae-9b35-abb0ce66553a
 ```
 
-The reason stays on the record.
+The reason stays on the record, and it reaches the agent: if it tries the same
+call again, it is told you said no, when, and why, instead of being asked to
+wait for an approval that is not coming. Changed your mind? `synartesis approve`
+on the denied call takes the denial back.
 
 `--by` is who is deciding. It defaults to the logged-in user; give it explicitly
 when more than one person can answer.
@@ -592,36 +649,49 @@ through those TODOs is the job.
 A rule needs three things:
 
 ```yaml
+version: 1
+
 servers:
   crm:
     command: node
     args: ["server.js"]
 
 tools:
-  crm.update_customer:
+  - match: "crm.update_customer"
     class: reversible
     snapshot:
-      tool: get_customer
-      args: { id: "${args.id}" }
+      tool: "crm.get_customer"
+      args: { id: "$.id" }
+      absent_when: "no customer with id"
     inverse:
-      tool: update_customer
+      tool: "crm.update_customer"
       args:
-        id: "${args.id}"
-        plan: "${snapshot.plan}"
-        notes: "${snapshot.notes}"
+        id: "$.id"
+        plan: "$snapshot.plan"
+        notes: "$snapshot.notes"
 ```
 
+- **`match`** names the tool as `server.tool`. `*` stands for any run of
+  characters, so `crm.get_*` covers every read at once.
 - **`snapshot`** is the read that captures the old state, before the write goes
   out. If this read fails, the write does not happen. A reversible action without
-  a snapshot is only silently irreversible.
+  a snapshot is only silently irreversible. `absent_when` is the server's words
+  for "there is nothing here", so a missing record is not mistaken for one that
+  could not be read.
 - **`inverse`** is the call that puts it back, built from what the snapshot
   returned.
 
+Values are filled in from three places: `$.` is the call's own arguments,
+`$snapshot.` what the pre-read returned, and `$result.` what the call answered.
+`{{args.id}}` and `${args.id}` are the spellings other tools use; a policy that
+uses them is refused, with the line and the spelling that works.
+
 Run `synartesis check` after every edit.
 
-Four finished policies ship with Synartesis, for filesystem, memory, git and
-github. `init` uses them automatically when it recognises the server. They are
-worth reading as worked examples.
+Finished policies ship with Synartesis for filesystem, memory, git, github,
+Playwright, Chrome DevTools, fetch, Brave, Exa, Tavily and AWS docs. `install`
+and `init` use them automatically when they recognise the server. They are worth
+reading as worked examples.
 
 ## Saying what your policy has been tested against
 
@@ -863,6 +933,7 @@ approve it each time.
 | --- | --- |
 | `synartesis` | The screen, driven with arrow keys |
 | `synartesis install` | Cover the servers your MCP client already lists |
+| `synartesis install --remote` | Also cover hosted servers that sign in through a browser |
 | `synartesis uninstall` | Put every client config back as it was |
 | `synartesis status` | Which clients were found, and what is covered |
 | `synartesis init <name> -- <command>` | Ask a server what it can do, draft a policy |
@@ -875,6 +946,10 @@ approve it each time.
 | `synartesis watch` | The live screen, for a second terminal |
 | `synartesis approve [id\|--all]` | Let a held call through |
 | `synartesis deny [id\|--all]` | Refuse it, with a reason |
+| `synartesis allow <server.tool> --for 1h` | Stop holding that tool for a while |
+| `synartesis allow <server.tool> --always` | Stop holding it for good, by editing the policy |
+| `synartesis allow <server.tool> --stop` | Hold it again |
+| `synartesis notify --test` | Check that notifications reach you |
 | `synartesis undo [run]` | Walk a run backwards, newest first |
 | `synartesis close [run]` | End a run left open by a killed proxy |
 | `synartesis prune` | Delete old runs and reclaim the space |

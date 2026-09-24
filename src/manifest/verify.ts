@@ -6,7 +6,13 @@ import { auditPins, explainPins, type ToolShape } from "./pin.js";
 import { splitQualified, type Manifest } from "./types.js";
 
 const listSchema = z.looseObject({
-  tools: z.array(z.looseObject({ name: z.string(), inputSchema: z.unknown() })),
+  tools: z.array(
+    z.looseObject({
+      name: z.string(),
+      inputSchema: z.unknown(),
+      annotations: z.looseObject({ readOnlyHint: z.unknown().optional() }).optional().catch(undefined),
+    }),
+  ),
   nextCursor: z.string().optional(),
 });
 
@@ -21,7 +27,11 @@ async function toolShapes(upstream: Upstream): Promise<ToolShape[]> {
       ),
     );
     for (const tool of page.tools) {
-      shapes.push({ name: tool.name, inputSchema: tool.inputSchema });
+      shapes.push({
+        name: tool.name,
+        inputSchema: tool.inputSchema,
+        ...(tool.annotations?.readOnlyHint === true ? { readOnly: true } : {}),
+      });
     }
     cursor = page.nextCursor;
   } while (cursor !== undefined);

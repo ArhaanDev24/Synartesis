@@ -51,7 +51,7 @@ export type Startup =
   | { readonly kind: "no-policy"; readonly manifestPath: string };
 
 const NO_POLICY =
-  "There is no policy yet. Run `synartesis init` in a terminal, then reopen this window.";
+  "There is no policy yet. Run `synartesis install` in a terminal, then reopen this window.";
 
 /**
  * The desk, or a sentence a person can act on.

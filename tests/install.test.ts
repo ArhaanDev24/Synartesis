@@ -105,6 +105,43 @@ describe("planning an install", () => {
   });
 });
 
+describe("planning without starting anything", () => {
+  it("starts no server, since --print promises to change nothing", async () => {
+    // Starting a server to draft its policy meant a download for every npx
+    // server and a browser window for every sign-in, from the command that
+    // exists to look before doing anything.
+    const dir = scratch();
+    const marker = join(dir, "started");
+    const config = {
+      mcpServers: {
+        tripwire: { command: "node", args: ["-e", `require("fs").writeFileSync(${JSON.stringify(marker)}, "x")`] },
+        filesystem: { command: "node", args: [FS_SERVER, dir] },
+      },
+    };
+    const started: string[] = [];
+    const { plans } = await planInstall([siteIn(dir, config)], join(dir, "synartesis.yaml"), INVOKER, undefined, {
+      start: false,
+      starting: (name) => started.push(name),
+    });
+    expect(started).toEqual([]);
+    expect(() => readFileSync(marker)).toThrow();
+    const byName = new Map(plans[0]?.servers.map((server) => [server.name, server]));
+    expect(byName.get("tripwire")?.unstarted).toBe(true);
+    // What ships is still known without starting anything.
+    expect(byName.get("filesystem")?.adopted).toBe("filesystem");
+    expect(isWrapped(byName.get("tripwire")?.wrapped ?? {})).toBe(true);
+  });
+
+  it("says which server it is starting when it does start them", async () => {
+    const dir = scratch();
+    const started: string[] = [];
+    await planInstall([siteIn(dir)], join(dir, "synartesis.yaml"), INVOKER, undefined, {
+      starting: (name) => started.push(name),
+    });
+    expect(started).toEqual(["filesystem", "notes"]);
+  });
+});
+
 describe("a hosted server", () => {
   it("says how to cover it, rather than only that it cannot be", async () => {
     const dir = scratch();

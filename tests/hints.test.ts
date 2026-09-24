@@ -273,9 +273,10 @@ describe("a dry run is not a result", () => {
     await session(journal, call(2, "update_customer", { id: "c_001", notes: "changed" }));
 
     const planned = await run(["undo", "--dry-run", "--manifest", POLICY, "--journal", journal]);
-    // The result line says `rolled_back`, which is the one thing in this
-    // output that reads as the undo having happened.
-    expect(planned.stdout).toContain("rolled_back");
+    // The result line of a dry run once said `rolled_back`, the one thing in
+    // this output that read as the undo having happened. It says "would" now.
+    expect(planned.stdout).toContain("would all be undone");
+    expect(planned.stdout).not.toContain("rolled_back");
     expect(planned.stdout).toContain("nothing was written");
     expect(planned.stdout).toMatch(/synartesis undo [0-9a-f]{8}/);
   });

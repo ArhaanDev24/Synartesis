@@ -34,6 +34,7 @@ import {
   type PolicyResolver,
 } from "../manifest/match.js";
 import { withIdempotencyKey } from "../idempotency.js";
+import { trustsMarks } from "../manifest/standing.js";
 import { qualify, type Manifest, type ToolPolicy } from "../manifest/types.js";
 import { createRouter, type Router } from "./routing.js";
 import {
@@ -401,13 +402,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
    * a pinned server is one whose every tool somebody has vouched for by hand.
    */
   const trusting = (found: PolicyMatch, server: string, tool: string): PolicyMatch => {
-    const spec = manifest.servers[server];
-    if (
-      found.matched ||
-      spec?.trustAnnotations === false ||
-      manifest.pins?.[server] !== undefined ||
-      !markedReadOnly.has(qualify(server, tool))
-    ) {
+    if (found.matched || !trustsMarks(manifest, server) || !markedReadOnly.has(qualify(server, tool))) {
       return found;
     }
     return {

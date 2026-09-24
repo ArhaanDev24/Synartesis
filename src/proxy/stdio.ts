@@ -29,7 +29,7 @@ import { desktopNotifier } from "../notify.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
 import { toolShapes, verifyAgainstServers, withoutMissingTools } from "../manifest/verify.js";
-import { ungoverned, untested, warnUntested } from "../manifest/standing.js";
+import { trustsMarks, ungoverned, untested, warnUntested } from "../manifest/standing.js";
 import { createProxyServer } from "./proxy.js";
 import { connectUpstream, type Upstream } from "./upstream.js";
 import { declaredNames, fingerprint, upstreamEnv } from "./environment.js";
@@ -237,7 +237,11 @@ async function main(): Promise<void> {
     served,
     new Map(await Promise.all(upstreams.map(async (upstream) => [
       upstream.name,
-      (await toolShapes(upstream)).map((tool) => tool.name),
+      (await toolShapes(upstream))
+        // The ones the proxy will read as reads on the server's say-so are
+        // not going to stop anybody, so they are not warned about.
+        .filter((tool) => !(tool.readOnly === true && trustsMarks(served, upstream.name)))
+        .map((tool) => tool.name),
     ] as const))),
   );
   for (const entry of uncovered) {

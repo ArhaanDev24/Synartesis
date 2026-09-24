@@ -104,6 +104,18 @@ export interface Ungoverned {
  *
  * Named here so that gate is chosen rather than discovered.
  */
+/**
+ * Whether the proxy takes this server's word that a tool is read-only, for a
+ * tool no rule mentions. One answer, used by the proxy and by everything that
+ * predicts what the proxy will do, so the two cannot disagree.
+ *
+ * Not on a pinned server: pinning is a person vouching for each tool by hand,
+ * and a server's own mark is exactly what they chose not to rely on.
+ */
+export function trustsMarks(manifest: Manifest, server: string): boolean {
+  return manifest.servers[server]?.trustAnnotations !== false && manifest.pins?.[server] === undefined;
+}
+
 export function ungoverned(
   manifest: Manifest,
   advertised: ReadonlyMap<string, readonly string[]>,

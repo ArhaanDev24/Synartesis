@@ -170,7 +170,7 @@ describe("a server that needs its token, wrapped", () => {
     const undone = await run(["undo", "--manifest", manifest, "--journal", journal], { HOME: home });
 
     expect(undone.stderr).not.toContain("Please set CRM_TOKEN");
-    expect(undone.stdout).toContain("rolled_back");
+    expect(undone.stdout).toContain("all undone");
     expect(notesOf(state, "c_001")).not.toBe("the agent's edit");
   });
 

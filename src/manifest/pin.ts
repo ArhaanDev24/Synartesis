@@ -18,6 +18,8 @@ export function fingerprint(inputSchema: unknown): string {
 export interface ToolShape {
   readonly name: string;
   readonly inputSchema: unknown;
+  /** The server marks it read-only. Not part of the pin fingerprint. */
+  readonly readOnly?: boolean;
 }
 
 export type PinFault =

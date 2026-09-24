@@ -2,7 +2,7 @@
  * Which tools have no policy, said before an agent finds out.
  *
  * An unmatched tool has always been fail-closed: irreversible, and held for a
- * person the first time it is called (D4). That is the safe end of the trade
+ * person every time it is called (D4). That is the safe end of the trade
  * and is not in question here. What was missing is that nobody said which
  * tools those were. `check` connects to every server and reads its entire
  * tool list in order to verify the policies -- so the answer was in hand, and

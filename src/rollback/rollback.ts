@@ -515,7 +515,7 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       ...describeStep(action),
       kind: "revert",
       reason: verified
-        ? "state matches; applying inverse"
+        ? "unchanged since, so safe to put back"
         : (forcedOver ?? unverifiedBecause(action)),
       verified,
       plan,

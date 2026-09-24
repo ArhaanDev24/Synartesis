@@ -225,7 +225,9 @@ describe("the cli", () => {
       CLI, "undo", runId, "--manifest", space.manifest, "--journal", space.journal,
     ]);
     expect(undone.code).toBe(0);
-    expect(undone.stdout).toContain("rolled_back");
+    expect(undone.stdout).toContain("all undone");
+    // The journal's words stay in the journal.
+    expect(undone.stdout).not.toContain("rolled_back");
 
     const restored = readState(space.state);
     expect(restored.customers["c_001"]).toMatchObject({
@@ -289,7 +291,7 @@ describe("the cli", () => {
       CLI, "undo", runId, "--force", "--yes", "--manifest", space.manifest, "--journal", space.journal,
     ]);
     expect(done.code).toBe(0);
-    expect(done.stdout).toContain("rolled_back");
+    expect(done.stdout).toContain("all undone");
     expect(readState(space.state).customers["c_001"]?.notes).toBe("founding customer");
   });
 
@@ -353,7 +355,7 @@ describe("the cli", () => {
       CLI, "undo", await onlyRunId(space.journal), "--manifest", space.manifest, "--journal", space.journal,
     ]);
     expect(undone.code).toBe(0);
-    expect(undone.stdout).toContain("rolled_back");
+    expect(undone.stdout).toContain("all undone");
     expect(readState(space.state).customers["c_001"]?.notes).toBe("founding customer");
   });
 

@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+import { knownPolicyFor } from "../init/known.js";
 import { draftManifest } from "../init/draft.js";
 import { parseManifest } from "../manifest/load.js";
 import { pathBinaryMatches } from "../invocation.js";
@@ -183,6 +184,8 @@ export interface PlannedServer {
   readonly bridged?: string;
   /** A hosted server the proxy reaches itself, with the client's headers. */
   readonly direct?: string;
+  /** Planned without starting it, so nothing is known yet about its tools. */
+  readonly unstarted?: boolean;
 }
 
 export interface SitePlan {
@@ -298,6 +301,15 @@ export async function planInstall(
     readonly remote?: boolean;
     /** What starts the bridge; replaced only by tests, which have no network. */
     readonly bridge?: (url: string) => ServerEntry;
+    /**
+     * False to plan without starting anything. `--print` promises to write
+     * nothing, and starting every server to draft a policy it then discards
+     * meant a download for each npx server and a browser window for each
+     * sign-in -- for a command meant to be the cautious look first.
+     */
+    readonly start?: boolean;
+    /** Told as each server is started, so a slow one is not a silent wait. */
+    readonly starting?: (name: string) => void;
   } = {},
 ): Promise<{ readonly plans: readonly SitePlan[]; readonly yaml: string }> {
   let yaml = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : undefined;
@@ -441,10 +453,26 @@ export async function planInstall(
         continue;
       }
 
+      if (options.start === false) {
+        claimed.add(key);
+        const known = native === undefined ? knownPolicyFor(entry.command ?? "", entry.args ?? []) : undefined;
+        planned.push({
+          name,
+          original,
+          wrapped: proxyEntry(manifestPath, key, entry, invoker),
+          unstarted: true,
+          ...(hosted && native === undefined ? { bridged: address } : {}),
+          ...(native === undefined ? {} : { direct: native.url }),
+          ...(known === undefined ? {} : { adopted: known.name }),
+        });
+        continue;
+      }
+
       // Drafting starts the server to ask what tools it has, and a server
       // that will not start is a fact about that entry, not a reason to
       // abandon every other one. One unusable command aborted the whole
       // install before this.
+      options.starting?.(name);
       let draft;
       try {
         draft = await draftManifest({

@@ -946,11 +946,20 @@ html.js.settled .reveal,html.js.settled .reveal-head {opacity:1!important;transf
       <pre><code>synartesis install</code></pre>
     </div>
     <p class="helper">
-      It finds what Claude Code, Claude Desktop, Cursor and Codex already list, writes
-      one policy covering all of them, and points each client at the proxy — keeping a
-      record of what it changed, so <code>synartesis uninstall</code> puts every file
-      back exactly as it was. Add <code>--dry-run</code> to see what it would do first,
-      then <code>synartesis status</code> to check what is covered.
+      It finds what Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Copilot CLI,
+      Antigravity and Devin Desktop (or Windsurf) already list, writes one policy covering
+      all of them, and points each client at the proxy — keeping a record of what it
+      changed, so <code>synartesis uninstall</code> puts every file back exactly as it was.
+      Add <code>--dry-run</code> to see what it would do first, then
+      <code>synartesis status</code> to check what is covered. A hosted server with a
+      token in its headers is covered directly; one that signs you in through a browser
+      is covered with <code>--remote</code>.
+    </p>
+    <p class="helper">
+      The entries below are for one server, as <code>init</code> sets up. For several,
+      give each its own entry with <code>--server &lt;name&gt;</code> &mdash; which is
+      what <code>install</code> writes &mdash; or every tool is renamed
+      <code>server__tool</code>.
     </p>
 
     <div class="client-options">

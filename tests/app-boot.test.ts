@@ -100,7 +100,9 @@ describe("starting with no policy", () => {
     boot(fake, undefined, NOWHERE);
     const answered = await fake.ask("settings:get");
     expect(answered).toMatchObject({ ok: false });
-    expect(JSON.stringify(answered)).toContain("synartesis init");
+    // install, not init: bare `init` is a usage error, so the one sentence
+    // this window had to offer sent people to a command that refused them.
+    expect(JSON.stringify(answered)).toContain("synartesis install");
   });
 
   it("can still be quit", () => {

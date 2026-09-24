@@ -2,6 +2,122 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.9.0 — 2026-09-24
+
+0.8.4 to 0.8.8 made Synartesis correct once you were using it. This release is
+about the part before and around that: connecting what you already have without
+breaking it, and being asked less once you have. Several bugs made someone who
+followed the instructions worse off than someone who never installed it. Those
+come first.
+
+### Fixed: wrapping a server no longer breaks it
+
+- **Wrapping a server dropped its API keys.** `install` copied the client
+  entry's `env` onto the proxy's entry, and the proxy then started the real
+  server with almost none of it. Every server now starts through one path,
+  with the environment it was given. Existing installs are fixed without
+  re-running anything.
+- **`undo` could not authenticate, and in one case undid the wrong store.** It
+  started servers with only what the policy declared, so a token held in the
+  client config was missing. For the memory server that was silent: without
+  `MEMORY_FILE_PATH` it opened its default file, sent the inverse there, and
+  reported success. `undo` now reads the environment and working directory from
+  the client entry that wraps the server. Each session records a keyed
+  fingerprint of every declared variable, never the value, and an undo whose
+  variables differ refuses and names them.
+- **One server's missing token was everybody's problem.** `${VAR}` in a policy
+  was expanded for every server when the file was read, so undoing a filesystem
+  session failed unless the GitHub token was exported. It is expanded per
+  server, when that server starts.
+- **A server update took GitHub down.** github-mcp-server 1.12.2 renamed the
+  tools the shipped policy read from, and the proxy refused to start. A rule
+  whose snapshot, inverse or verify tool has gone now falls back to being held,
+  and the proxy starts and says which rules it disabled. `check` still fails
+  hard. `github.yaml` is rewritten for 1.12.
+- **`install` covers what it says.** It reads every Claude Code project, not
+  only the one it was run from (Claude Code's default scope is per project).
+  Running it again after `uninstall` covers the same server again instead of
+  duplicating it and then dropping it. Skip reasons are printed whole, where
+  "Please set SLACK_BOT_TOKEN" used to be cut off. It will not rewrite a Codex
+  table it could not fully read. `installed.json`, which holds the original
+  entries and their tokens, is now owner-only.
+- **Bare `undo` and `show` skip empty sessions.** Most sessions record nothing;
+  bare `undo` refused on the empty one instead of finding the one with work.
+
+### Added: cover more of what people connect
+
+- **Browsers.** Policies for Playwright MCP and Chrome DevTools MCP, written
+  from each server's real tool list. Reads are reads. Every interaction is
+  recorded, arguments included, and not held: nothing a browser does can be
+  undone, and holding every click made both unusable. Running agent-written
+  code and uploading files are still held.
+- **A tool its server marks read-only is read as a read** when no rule mentions
+  it, instead of held. The MCP specification calls annotations untrusted unless
+  they come from a trusted server; the trust relied on is that you chose to
+  connect this one. It only ever loosens a hold on a read. It never applies on a
+  pinned server, `trust_annotations: false` turns it off, and `check` lists
+  every tool let through this way.
+- **Hosted servers.** A server with a token in its headers is reached directly:
+  Streamable HTTP, falling back to SSE only where the server says it does not
+  speak the newer one, with redirects refused. `install` moves the header values
+  into the client entry's `env`, and the policy names the variables. A request
+  refused at the door, such as an expired token, is recorded as never sent. A
+  server that signs in through a browser is covered with `install --remote`,
+  through mcp-remote, which keeps the sign-in itself.
+- **Four more clients:** Gemini CLI, GitHub Copilot CLI, Antigravity, and
+  Devin Desktop (what Windsurf became) plus the older Windsurf path. Every path
+  and variable syntax was checked against the vendor's own documentation.
+- **Read-only policies** for fetch, Brave Search, Exa, Tavily and the AWS
+  documentation server. Each server was started and its tool list read first.
+
+### Added: ask less, tell the person
+
+- **A desktop notification when a call is held**, on macOS and Linux. It names
+  the server and the tool, never the arguments. `synartesis notify --test`
+  checks it reaches you; `SYNARTESIS_NOTIFY=0` turns it off.
+- **`synartesis allow <server.tool>`.** `--for 1h` stops holding that tool until
+  the time runs out, with no restart. `--always` edits the policy in place,
+  keeping its comments, and a tool that cannot be undone stays marked that way
+  (you type its name to confirm). `--stop` holds it again. `A` in `watch` and
+  the console, and a button on the desktop card, approve the call in front of
+  you and allow the tool for an hour.
+- **A person's no reaches the agent.** A retry of a denied call is told who
+  said no, when and why, instead of opening a fresh hold. `approve` on the
+  denied call takes the denial back. Denials live in their own table, so a
+  spent approval, which is also stored as denied, is never reported as a refusal.
+- **Why a call is held.** A tool with no rule says so, rather than "this action
+  cannot be undone".
+
+### Changed
+
+- **The agent is never handed the command to approve its own call.** It used
+  to be in the refusal text and in the instructions every agent receives, and
+  an agent with a shell could run it, recorded under your name. `approve` and
+  `allow` now need a person at a terminal unless given `--unattended`, which is
+  recorded. This stops an agent following instructions or making a mistake. It
+  does not stop a process working to defeat it while running as you, which can
+  write the journal directly.
+- **`show` and `undo` speak the same words as everything else.** No more
+  `reversible applied` or `result rolled_back` at the end of a dry run that
+  wrote nothing. A read-heavy session's reads fold into one line.
+- **`install --print` starts nothing.** It promised to write nothing and then
+  started every server, which meant a download for each npx server and a
+  browser window for each sign-in. `install` also says which server it is
+  starting, instead of going quiet until the last one answers.
+- `check` offers `pin` only once the policy has been used. The desktop window
+  points at `install`, not bare `init`. The `--http` server answers an ended
+  session with 404, as the MCP specification asks.
+- A policy using `{{args.id}}` (loaded, then sent as those characters) or
+  `${args.id}` (failed with no line number) is refused with the line and the
+  spelling that works.
+
+### Docs
+
+- The user guide's only complete policy example did not parse. It does now,
+  and a test loads every policy shown in the README, the guide and the install
+  page. The manual setup snippets give each server its own entry with
+  `--server`, and the Claude Code command has its `--`.
+
 ## 0.8.8 — 2026-09-22
 
 ### Fixed

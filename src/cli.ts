@@ -31,6 +31,7 @@ import {
   type ActionRow,
   type Journal,
   type RunRow,
+  type RunStatus,
   type RunTally,
 } from "./journal/journal.js";
 import { verifyAgainstServers, toolShapes } from "./manifest/verify.js";
@@ -42,6 +43,7 @@ import {
   describeStanding,
   LIVE_IS_NOT_RECOVERY,
   standing,
+  trustsMarks,
   ungoverned,
   untested,
   warnUntested,
@@ -51,7 +53,7 @@ import { connectUpstream, type Upstream } from "./proxy/upstream.js";
 import { clientEnvFor } from "./install/entry-env.js";
 import { differing, fingerprint, upstreamEnv, type EnvSource } from "./proxy/environment.js";
 import { PROXY_FLAGS } from "./proxy/flags.js";
-import { rollback, type RollbackReport } from "./rollback/rollback.js";
+import { rollback, type RollbackReport, type StepKind } from "./rollback/rollback.js";
 import { inspect, verdict, type Resource } from "./rollback/inspect.js";
 import { banner, counted, NOTHING_RECORDED_YET, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
@@ -439,13 +441,32 @@ async function runCheck(argv: readonly string[]): Promise<number> {
   // the same list to check the policies against the servers; reading it twice
   // would mean two round trips for one answer.
   const offered = new Map<string, readonly string[]>();
+  // No rule, but marked read-only by a server whose marks are trusted: read as
+  // reads, not held, so not listed as held below.
+  const trustedReads = new Map<string, readonly string[]>();
   try {
     for (const [name, spec] of Object.entries(manifest.servers)) {
       upstreams.push(await startAsTheClientWould(path, name, spec));
     }
     await verifyAgainstServers(upstreams, manifest);
+    const resolver = createPolicyResolver(manifest);
     for (const upstream of upstreams) {
-      offered.set(upstream.name, (await toolShapes(upstream)).map((tool) => tool.name));
+      const shapes = await toolShapes(upstream);
+      const trusted = shapes
+        .filter(
+          (tool) =>
+            tool.readOnly === true &&
+            trustsMarks(manifest, upstream.name) &&
+            !resolver.resolve(`${upstream.name}.${tool.name}`).matched,
+        )
+        .map((tool) => tool.name);
+      offered.set(
+        upstream.name,
+        shapes.map((tool) => tool.name).filter((tool) => !trusted.includes(tool)),
+      );
+      if (trusted.length > 0) {
+        trustedReads.set(upstream.name, trusted);
+      }
     }
   } finally {
     for (const upstream of upstreams) {
@@ -511,8 +532,8 @@ async function runCheck(argv: readonly string[]): Promise<number> {
         `${String(total)} tool${total === 1 ? "" : "s"} here ${total === 1 ? "has" : "have"} no policy, so ${total === 1 ? "it is" : "they are"} treated as`,
       )}`,
     );
-    out(`  ${style.quiet("irreversible and held for a person the first time an agent calls")}`);
-    out(`  ${style.quiet(`${total === 1 ? "it" : "one"}. Write a policy for any you would rather it got on with.`)}`);
+    out(`  ${style.quiet("irreversible and held for a person every time an agent calls")}`);
+    out(`  ${style.quiet(`${total === 1 ? "it" : "one"}. Write a policy, or allow it, for any you would rather it got on with.`)}`);
     out("");
     for (const entry of uncovered) {
       for (const line of wrapped(entry.tools.join(", "), 60)) {
@@ -520,13 +541,33 @@ async function runCheck(argv: readonly string[]): Promise<number> {
       }
     }
   }
+  // Said, because it is trust extended to the server: a person should be able
+  // to see exactly which tools are let through on the server's own say-so.
+  if (trustedReads.size > 0) {
+    out("");
+    out(
+      `  ${style.label("read as reads")} ${style.quiet("no rule, but the server marks these read-only, so they are not held:")}`,
+    );
+    for (const [server, tools] of trustedReads) {
+      for (const line of wrapped(tools.join(", "), 60)) {
+        out(`  ${style.quiet(server.padEnd(8))} ${line}`);
+      }
+    }
+    out(`  ${style.quiet("trust_annotations: false on a server turns this off for it.")}`);
+  }
   out("");
   // A policy that loads is not a policy anything is running through yet, and
   // the gap between those two is where somebody stalls: check says everything
   // is fine and nothing says what fine leads to.
+  //
+  // Pinning comes after something has run through it. It guards a policy you
+  // have come to rely on against a server changing under it; offered first,
+  // it sent people to vouch for tool shapes before they had seen a single
+  // undo, which is the wrong way round.
+  const used = existsSync(findJournal(flag(argv, "--journal"), path));
   hint(
     firstOf(
-      () => notPinned(manifest),
+      () => (used ? notPinned(manifest) : undefined),
       () => ({
         why: "this is sound; to see which clients it covers",
         run: "status",
@@ -563,8 +604,15 @@ async function runInstall(argv: readonly string[]): Promise<number> {
   }
 
   const invoker = invokerFor(version(), fileURLToPath(import.meta.url));
+  // Starting a server can take a while -- npx may be downloading it -- and a
+  // command that said nothing until the last one answered looked hung. Said
+  // on stderr, so --print's output stays only what it printed.
   const { plans, yaml } = await planInstall(sites, manifestPath, invoker, undefined, {
     remote: argv.includes("--remote"),
+    start: !printOnly,
+    starting: (name) => {
+      process.stderr.write(`  ${style.quiet(`starting ${name} to see what it offers...`)}\n`);
+    },
   });
   const total = plans.reduce((sum, plan) => sum + plan.servers.length, 0);
 
@@ -582,6 +630,12 @@ async function runInstall(argv: readonly string[]): Promise<number> {
       const note =
         server.again === true
           ? style.quiet("already in your policy from an earlier install; covered again")
+          : server.unstarted === true
+            ? style.quiet(
+                server.adopted === undefined
+                  ? "not started here; a policy is drafted when you install"
+                  : `not started here; the policy that ships for ${server.adopted} would be used`,
+              )
           : server.adopted === undefined
             ? style.accent("drafted, every tool held until you say how to undo it")
             : style.quiet(`the policy that ships for ${server.adopted} (${String(server.tools ?? 0)} tools)`);
@@ -1272,7 +1326,7 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
   out(`  ${style.quiet("agent  ")} ${run.label ?? "-"}`);
   out(`  ${style.quiet("started")} ${fullTime(run.startedAt)}  ${style.quiet(ago(run.startedAt))}`);
   out(
-    `  ${style.quiet("status ")} ${run.status}` +
+    `  ${style.quiet("status ")} ${RUN_STATUS[run.status]}` +
       (run.endedAt === undefined ? "" : style.quiet(`  ended ${fullTime(run.endedAt)}`)),
   );
 
@@ -1428,6 +1482,14 @@ const BADGE_WIDTH = "irreversible".length + 2;
  * finished line could not reach them. A default of true would be the wrong
  * answer more often than the right one, and one no call site asks for.
  */
+/** A session's status in the words the rest of the screen uses. */
+const RUN_STATUS: Readonly<Record<RunStatus, string>> = {
+  active: "still running",
+  complete: "finished",
+  rolled_back: "undone",
+  partial: "partly undone",
+};
+
 function badgeOf(action: ActionRow, pad: boolean): string {
   const name = `${CLASS_MARK[action.class]} ${action.class}`;
   const plain = pad ? name.padEnd(BADGE_WIDTH) : name;
@@ -1435,8 +1497,12 @@ function badgeOf(action: ActionRow, pad: boolean): string {
 }
 
 function statusOf(action: ActionRow, pad: boolean): string {
-  const label = labelFor(action);
-  const text = pad ? label.padEnd(13) : label;
+  // The words list, watch and the console already use. This printed the
+  // stored status -- "applied", "unrecoverable" -- which is the journal's
+  // vocabulary, not the reader's, and the one screen people open to find out
+  // what happened was the one that made them translate it.
+  const label = plainly(action).text;
+  const text = pad ? label.padEnd(22) : label;
   if (wasRefused(action)) {
     return style.accent(text);
   }
@@ -2129,13 +2195,59 @@ async function ask(question: string): Promise<string> {
  * what happened and not what it was asked for: a plan rebuilt from the current
  * manifest looks exactly like one taken from the recorded inverses.
  */
+/** What each step is, in words, and in the conditional for a dry run. */
+function stepWords(kind: StepKind, dryRun: boolean): string {
+  switch (kind) {
+    case "revert":
+      return dryRun ? "would put back" : "put back";
+    case "skip":
+      return "nothing to undo";
+    case "already-reverted":
+      return "already undone";
+    case "permanent":
+      return "cannot undo";
+    case "kept":
+      return "left alone";
+    case "halt":
+      return "stopped";
+  }
+}
+
+/**
+ * The result line. A dry run that ended `rolled_back` was the one line in the
+ * output that read as the thing having happened.
+ */
+function resultWords(status: RollbackReport["status"], dryRun: boolean): string {
+  switch (status) {
+    case "rolled_back":
+      return dryRun ? "would all be undone (nothing was written)" : "all undone";
+    case "partial":
+      return dryRun ? "would be partly undone (nothing was written)" : "partly undone";
+  }
+}
+
 function report(result: RollbackReport, alreadyForcing = false, as = ""): number {
   out("");
   out(`  ${style.label(result.dryRun ? "dry run" : "undo")}  ${style.strong(result.runId)}`);
   out(`  ${rule(72)}`);
   out("");
   let separated = false;
+  // A session that mostly read printed a line per read, each saying there was
+  // nothing to undo, and buried the two lines that were the undo. Consecutive
+  // reads are one line with a count.
+  let reads = 0;
+  const flushReads = (): void => {
+    if (reads > 0) {
+      out(`       ${style.quiet(`${String(reads)} read${reads === 1 ? "" : "s"}, nothing to undo`)}`);
+      reads = 0;
+    }
+  };
   for (const step of result.steps) {
+    if (step.kind === "skip" && step.reason === "readonly") {
+      reads += 1;
+      continue;
+    }
+    flushReads();
     // Set apart by a rule rather than mixed in: these are the ones --to is
     // leaving alone, and reading them as part of the plan would invert what
     // they mean.
@@ -2146,10 +2258,11 @@ function report(result: RollbackReport, alreadyForcing = false, as = ""): number
     }
     const unverified =
       step.kind === "revert" && !step.verified ? `  ${style.accent("[unverified]")}` : "";
+    const said = stepWords(step.kind, result.dryRun);
     const kind =
       step.kind === "halt" || step.kind === "permanent"
-        ? style.accent(step.kind.padEnd(16))
-        : step.kind.padEnd(16);
+        ? style.accent(said.padEnd(16))
+        : said.padEnd(16);
     out(
       `  ${style.quiet(String(step.seq).padStart(3))}  ${kind} ` +
         `${style.strong(`${step.server}.${step.tool}`)}  ${style.quiet(step.reason)}${unverified}`,
@@ -2177,6 +2290,7 @@ function report(result: RollbackReport, alreadyForcing = false, as = ""): number
       );
     }
   }
+  flushReads();
   if (result.halted !== undefined) {
     const halt = result.halted;
     out("");
@@ -2233,8 +2347,9 @@ function report(result: RollbackReport, alreadyForcing = false, as = ""): number
     );
   }
   out("");
+  const outcome = resultWords(result.status, result.dryRun);
   out(
-    `  ${style.label("result")}  ${result.status === "rolled_back" ? result.status : style.accent(result.status)}`,
+    `  ${style.label("result")}  ${result.status === "rolled_back" ? outcome : style.accent(outcome)}`,
   );
   out("");
   // A dry run that says `rolled_back` is the one line in this output that can
