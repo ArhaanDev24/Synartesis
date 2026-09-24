@@ -439,18 +439,6 @@ describe("the gate, driven from a second process", () => {
     arguments: { to: "ada@example.com", subject: "Hi", body: "Automated" },
   };
 
-  /** The send_email row, whatever state the decision left it in. */
-  function gatedOrApproved(journal: ReturnType<typeof openJournal>): string {
-    const id = journal
-      .listRuns()
-      .flatMap((entry) => journal.getActions(entry.id))
-      .find((action) => action.tool === "send_email")?.id;
-    if (id === undefined) {
-      throw new Error("no send_email action was journalled");
-    }
-    return id;
-  }
-
   function gatedAction(journalPath: string): string {
     const journal = openJournal(journalPath);
     const id = journal.listGated()[0]?.id;
@@ -779,23 +767,23 @@ describe("the gate, driven from a second process", () => {
 
       const argv = z.array(z.string()).parse(JSON.parse(readFileSync(said, "utf8")));
       const body = (argv[argv.length - 1] ?? "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-      const suggested = body.slice(body.indexOf(" -- ") + 4);
-      expect(suggested).toContain("approve");
+      // One command to type, not an approve line with an id and a path in it:
+      // opening Synartesis lands on the waiting call.
+      const suggested = body.slice(body.indexOf("run: ") + 5);
+      expect(suggested).not.toContain("approve");
       expect(suggested).toContain(space.journal);
 
-      // Run from somewhere else entirely. --unattended because this is a
-      // script standing in for a person at a terminal.
-      const ran = await new Promise<number>((resolveRun) => {
-        const child = spawn(`${suggested} --unattended`, { shell: true, stdio: "ignore", cwd: tmpdir() });
-        child.on("close", (code) => {
-          resolveRun(code ?? -1);
+      // Run from somewhere else entirely, it reaches the journal the call is
+      // waiting in. `gates` stands in for the screen, which needs a terminal.
+      const listed = await new Promise<string>((resolveRun) => {
+        const child = spawn(`${suggested} gates`, { shell: true, stdio: ["ignore", "pipe", "ignore"], cwd: tmpdir() });
+        let text = "";
+        child.stdout.on("data", (chunk: Buffer) => (text += chunk.toString()));
+        child.on("close", () => {
+          resolveRun(text);
         });
       });
-      expect(ran).toBe(0);
-
-      const journal = openJournal(space.journal);
-      expect(journal.getAction(gatedOrApproved(journal))?.approvedBy).toBeTruthy();
-      journal.close();
+      expect(listed).toContain("send_email");
     },
   );
 

@@ -12,7 +12,7 @@ if (NODE_MAJOR < 22) {
   process.exit(2);
 }
 
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
@@ -22,7 +22,7 @@ import { serveHttp } from "./http.js";
 import { describe } from "../errors.js";
 import { DEFAULT_GATE_TIMEOUT_MS } from "../gate/gate.js";
 import { cliCommandFrom } from "../invocation.js";
-import { findJournal, findManifest } from "../locate.js";
+import { findJournal, findManifest, home, JOURNAL_NAME } from "../locate.js";
 import { createLogger, isLogLevel, LOG_LEVELS, type LogLevel } from "../logging.js";
 import { mark } from "../style.js";
 import { desktopNotifier } from "../notify.js";
@@ -274,7 +274,15 @@ async function main(): Promise<void> {
       // Absolute, because whoever approves may be in any directory at all.
       approveHint: (actionId: string): string =>
         `${cliCommandFrom(import.meta.url)} approve ${actionId.slice(0, 8)} --journal ${resolve(argv.journal)}`,
-      notify: desktopNotifier(),
+      // Plain `synartesis` when this is the journal it finds by itself, which
+      // is the usual case; otherwise told where to look.
+      notify: desktopNotifier(
+        process.env,
+        undefined,
+        resolve(argv.journal) === resolve(join(home(), JOURNAL_NAME))
+          ? cliCommandFrom(import.meta.url)
+          : `${cliCommandFrom(import.meta.url)} --journal ${resolve(argv.journal)}`,
+      ),
     });
     // Best effort, and never at the session's expense: without this row an
     // undo simply has nothing to compare against, which is how it was before.

@@ -92,23 +92,48 @@ and `--replan`, or `--force` to overwrite deliberately.
 ---
 ## Install
 
-```bash
-npm install -g synartesis
-```
+**Three steps, if you have never used a terminal.** Open the Terminal app
+(on a Mac: press ⌘ Space, type *Terminal*, press Return), then:
 
-Then, from anywhere:
+1. If `npm --version` says *command not found*, install Node.js from
+   [nodejs.org](https://nodejs.org) first (the LTS button), and open a new
+   Terminal window.
+2. Install Synartesis:
 
-```bash
-synartesis install
-```
+   ```bash
+   npm install -g synartesis
+   ```
 
-That finds what Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Copilot
-CLI, Antigravity or Devin Desktop (Windsurf) already list,
-writes one policy covering all of it, and points each entry at the proxy.
-Servers it recognises get the policy that ships for them and work immediately;
-the rest are drafted with every tool held until you say how to undo it. Your
-config is copied aside first, `synartesis uninstall` puts it back, and
-`synartesis status` says what is covered.
+3. Start it:
+
+   ```bash
+   synartesis
+   ```
+
+   It lists the AI apps on your computer and the tools they use. Press **a** to
+   cover all of them, then **quit and reopen** those apps (it names them).
+
+That is the whole setup. From then on:
+
+- **Something needs your OK.** A notification says a call is waiting. Open
+  Terminal, type `synartesis`: it opens on that call. **a** approves, **d**
+  denies, **A** approves and stops asking about that tool for an hour.
+- **Undo what an agent did.** Type `synartesis`, press **r** if it is showing
+  waiting calls, move to the session with the arrow keys, press **u**, then
+  **y**. Press **p** first to see what it would do without changing anything.
+- **Too many old sessions.** `synartesis clean` clears the finished ones and
+  keeps anything you could still undo or still need to decide.
+- **Take it all back out.** `synartesis uninstall` restores every app's
+  settings exactly as they were.
+
+The same thing without the screen: `synartesis install`. It finds what Claude
+Code, Claude Desktop, Cursor, Codex, Gemini CLI, Copilot CLI, Antigravity or
+Devin Desktop (Windsurf) already list, writes one policy covering all of it,
+and points each entry at the proxy. Servers it recognises get the policy that
+ships for them and work immediately; the rest are drafted with every tool held
+until you say how to undo it. Your config is copied aside first,
+`synartesis uninstall` puts it back, and `synartesis status` says what is
+covered.
 
 Each server keeps its own entry and its own proxy, so **no tool is renamed** —
 the agent sees exactly the names it saw before. **Your agent needs nothing
@@ -487,6 +512,7 @@ get it if it is not installed.
 | `undo <id> --replan` | Rebuild each undo from the current manifest |
 | `undo <id> --force [--yes]` | Print what it would write over; `--yes` goes ahead |
 | `watch` | Live activity, with approvals answerable in place |
+| `clean` | Clear finished sessions; keep anything you could undo or still need to decide |
 | `prune` | Delete sessions older than 30 days and reclaim the space |
 | `close [id]` | End a session a killed proxy left open |
 

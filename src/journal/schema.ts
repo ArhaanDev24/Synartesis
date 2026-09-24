@@ -161,6 +161,19 @@ CREATE TABLE IF NOT EXISTS allows (
 );
 CREATE INDEX IF NOT EXISTS allows_current ON allows(server, tool, until);
 
+-- Which process opened each session, so a session left open by an app that
+-- has since exited can be told from one still in use. Without it, closing an
+-- abandoned session was a person's guess (synartesis close), and every
+-- session a crashed or force-quit app left behind stayed "still open" in the
+-- list for ever. host and pid for the reason leases have both.
+--
+-- Not a schema version bump, for the reason the tables above are not.
+CREATE TABLE IF NOT EXISTS run_owners (
+  run_id  TEXT PRIMARY KEY REFERENCES runs(id),
+  host    TEXT NOT NULL,
+  pid     INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS actions_by_run ON actions(run_id, seq);
 
 -- Deliberately not a schema version bump. Adding an index changes no row and

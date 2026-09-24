@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { openJournal, type Journal } from "../src/journal/journal.js";
 import { openConsole as runConsole } from "../src/console.js";
 import type { RollbackReport } from "../src/rollback/rollback.js";
+import type { ConfigSite } from "../src/install/clients.js";
+import type { ClientGroup } from "../src/install/connections.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -151,9 +153,10 @@ async function drive(path: string, script: readonly string[]): Promise<Driven> {
 }
 
 describe("the console", () => {
-  it("opens on the runs, newest first, without being asked for a subcommand", async () => {
+  it("opens on the waiting call when one is held, and r shows the runs, newest first", async () => {
     const { path } = fixture();
-    const { text } = await drive(path, []);
+    const { text } = await drive(path, ["r"]);
+    expect(text).toContain("held until a person decides");
     expect(text).toContain("second-agent");
     expect(text).toContain("first-agent");
     expect(text.indexOf("second-agent")).toBeLessThan(text.indexOf("first-agent"));
@@ -185,13 +188,13 @@ describe("the console", () => {
     const { path, runs } = fixture();
     // Down one first: the newest run here only ever held a call for approval,
     // and there is nothing in it to put back.
-    const { undone } = await drive(path, ["j", "u", "y"]);
+    const { undone } = await drive(path, ["r", "j", "u", "y"]);
     expect(undone).toEqual([{ runId: runs[0], dryRun: false, force: false }]);
   });
 
   it("says so rather than confirming an undo that would revert nothing", async () => {
     const { path, runs } = fixture();
-    const { text, undone } = await drive(path, ["u", "y"]);
+    const { text, undone } = await drive(path, ["r", "u", "y"]);
     expect(undone).toEqual([]);
     expect(text).toContain("nothing in this session can be undone");
     // And points at the one that does have something, by id.
@@ -200,7 +203,7 @@ describe("the console", () => {
 
   it("prints the command for the session under the cursor", async () => {
     const { path, runs } = fixture();
-    const { text } = await drive(path, ["j"]);
+    const { text } = await drive(path, ["r", "j"]);
     expect(text).toContain(`undo ${(runs[0] ?? "").slice(0, 8)}`);
   });
 
@@ -212,7 +215,7 @@ describe("the console", () => {
 
   it("offers a dry run, which needs no confirming because it changes nothing", async () => {
     const { path, runs } = fixture();
-    const { undone } = await drive(path, ["j", "p"]);
+    const { undone } = await drive(path, ["r", "j", "p"]);
     expect(undone).toEqual([{ runId: runs[0], dryRun: true, force: false }]);
   });
 
@@ -281,7 +284,7 @@ describe("the console under a heavy hand", () => {
 
     // Confirm one, then lean on the keys while it is still in flight. Two
     // rollbacks of the same run at once would send every inverse twice.
-    for (const key of ["j", "u", "y", "u", "y", "p"]) {
+    for (const key of ["r", "j", "u", "y", "u", "y", "p"]) {
       board.press(key);
       await new Promise((resolve) => setTimeout(resolve, 12));
     }
@@ -391,5 +394,79 @@ describe("keys that act on a session, pressed somewhere else", () => {
     const { undone } = await drive(path, ["g", "j", "u", "y"]);
     expect(undone).toEqual([]);
     expect(runs).toHaveLength(2);
+  });
+});
+
+describe("the first screen somebody sees", () => {
+  function lastFrame(text: string): string {
+    return text.split("S Y N A R T E S I S").at(-1) ?? "";
+  }
+
+  it("opens on what can be covered when nothing has run yet, and covers it on one key", async () => {
+    // It used to say "point your client at it" and accept no keys at all.
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-welcome-"));
+    const path = join(dir, "journal.db");
+    const site: ConfigSite = { client: "cursor", label: "Cursor", format: "json", path: join(dir, "mcp.json"), scope: "global", at: ["mcpServers"] };
+    let covered = false;
+    const groups = (): readonly ClientGroup[] => [
+      {
+        label: "Cursor",
+        scope: "global",
+        path: site.path,
+        connections: [{ client: "cursor", scope: "global", path: site.path, server: "fs", covered, missing: false, site }],
+      },
+    ];
+    const connected: string[] = [];
+    const board = keyboard();
+    let text = "";
+    const running = runConsole({
+      journalPath: path,
+      write: (chunk) => (text += chunk),
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+      scan: groups,
+      connect: (targets) => {
+        connected.push(...targets.map((one) => one.server));
+        covered = true;
+        return Promise.resolve("covered 1 server · quit and reopen Cursor to start using it");
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(lastFrame(text)).toContain("Welcome");
+    expect(lastFrame(text)).toContain("[a] cover all");
+    board.press("a");
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(connected).toEqual(["fs"]);
+    // Said once when it happens, and the screen then stays on what to do next.
+    expect(text).toContain("quit and reopen Cursor");
+    expect(lastFrame(text)).toContain("Restart those apps");
+    board.press("q");
+    board.done();
+    await running;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("opens on the waiting call, where a answers it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-held-"));
+    const path = join(dir, "journal.db");
+    const journal = openJournal(path);
+    const runId = journal.beginRun("agent");
+    const held = journal.recordPending({ runId, server: "crm", tool: "send_email", args: {}, class: "irreversible" });
+    journal.markGated(held.actionId);
+    journal.close();
+    const { text } = await drive(path, ["a"]);
+    expect(text).toContain("approved crm.send_email");
+    const after = openJournal(path);
+    expect(after.getAction(held.actionId)?.status).toBe("approved");
+    after.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("answers a key that does nothing, rather than ignoring it", async () => {
+    const { path } = conflicted();
+    const { text } = await drive(path, ["b"]);
+    expect(text).toContain("b does nothing here");
   });
 });

@@ -106,6 +106,11 @@ interface Screen {
   busy: string | undefined;
   notice: string;
   noticeUntil: number;
+  /**
+   * Opened before anything had run, so it opened on the connect list. Once a
+   * first session is recorded it moves to the sessions by itself.
+   */
+  welcome: boolean;
 }
 
 /**
@@ -388,12 +393,16 @@ function gatesView(journal: Journal, screen: Screen, options: ConsoleOptions): s
     return [`  ${style.quiet("Nothing is waiting for a decision.")}`];
   }
   const at = Math.min(screen.cursor, waiting.length - 1);
-  return waiting.map((action, index) => {
+  return waiting.flatMap((action, index) => {
     const here = index === at && canPress(options);
     const name = `${action.server}.${action.tool}`;
     const shown = here ? style.accent(name) : style.quiet(name);
     const args = style.quiet(truncate(JSON.stringify(action.args), 54));
-    return `  ${here ? style.accent(CURSOR) : " "} ${shown}  ${args}`;
+    // Why it is held, under the one being decided: the tool and its
+    // arguments say what would happen, and this says what cannot be taken
+    // back about it, which is the whole of the question being asked.
+    const why = here && action.error !== undefined ? [`      ${style.quiet(truncate(action.error, 90))}`] : [];
+    return [`  ${here ? style.accent(CURSOR) : " "} ${shown}  ${args}`, ...why];
   });
 }
 
@@ -414,7 +423,7 @@ function footer(screen: Screen, options: ConsoleOptions): string[] {
     screen.mode === "connections"
       ? [keyHint("enter", "connect"), keyHint("a", "connect all"), keyHint("r", "rescan"), keyHint("j/k", "move"), keyHint("h", "back")]
       : screen.mode === "gates"
-      ? [keyHint("a", "approve"), keyHint("A", "and for an hour"), keyHint("d", "deny"), keyHint("j/k", "move"), keyHint("r", "runs")]
+      ? [keyHint("a", "approve"), keyHint("A", "approve for an hour"), keyHint("d", "deny"), keyHint("j/k", "move"), keyHint("r", "runs")]
       : screen.mode === "run"
         ? [
             keyHint("l", "check now"),
@@ -428,9 +437,45 @@ function footer(screen: Screen, options: ConsoleOptions): string[] {
             keyHint("l", "check now"),
             keyHint("u", "undo"),
             keyHint("j/k", "move"),
-            keyHint("g", "held"),
+            keyHint("g", "waiting calls"),
           ];
   return ["", `  ${keys.join("   ")}   ${keyHint("q", "quit")}`];
+}
+
+/** Before anything has run: what was found, and one key to cover it. */
+function welcomeFrame(screen: Screen, options: ConsoleOptions, tick: number): string {
+  const spinner = options.live ? `${style.accent(FRAMES[tick % FRAMES.length] ?? "")} ` : "";
+  const waiting = needsConnecting(screen.groups).length;
+  const lead =
+    screen.groups.length === 0
+      ? []
+      : waiting === 0
+        ? [
+            `  ${style.strong("Everything below is covered.")} ${style.quiet("Restart those apps if you have not,")}`,
+            `  ${style.quiet("then use your agent as usual. Its sessions will appear here.")}`,
+          ]
+        : [
+            `  ${style.strong("Welcome.")} ${style.quiet("These are the AI apps on this machine and the tools they use.")}`,
+            `  ${style.quiet("Press")} ${style.strong("a")} ${style.quiet("to cover all of them, or move to one and press")} ${style.strong("enter")}${style.quiet(".")}`,
+            `  ${style.quiet("Nothing else on your machine is changed, and")} ${style.strong("synartesis uninstall")} ${style.quiet("puts it all back.")}`,
+          ];
+  const notice =
+    screen.notice === "" ? [] : ["", ...screen.notice.split("\n").map((line) => `  ${style.accent(line)}`)];
+  return [
+    "",
+    `  ${style.plate(WORDMARK)}`,
+    `  ${rule(70)}`,
+    "",
+    `  ${spinner}${style.quiet(screen.busy ?? "nothing has run through Synartesis yet")}`,
+    "",
+    ...lead,
+    ...(lead.length === 0 ? [] : [""]),
+    ...windowed(connectionsView(screen, options), screen.cursor, roomFor(options)),
+    ...notice,
+    "",
+    `  ${[keyHint("a", "cover all"), keyHint("enter", "cover this one"), keyHint("j/k", "move"), keyHint("r", "look again"), keyHint("q", "quit")].join("   ")}`,
+    "",
+  ].join("\n");
 }
 
 function waitingForJournal(options: ConsoleOptions, tick: number): string {
@@ -500,6 +545,7 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     busy: undefined,
     notice: "",
     noticeUntil: 0,
+    welcome: false,
   };
   let tick = 0;
   // Read through a call rather than touched directly: the compiler narrows a
@@ -515,7 +561,20 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
   const frame = (): string => {
     const ready = open();
     if (ready === undefined) {
+      // The first thing somebody who has just installed this sees. It used to
+      // say "point your client at it" and accept no keys at all, which asked
+      // a person who may never have used a terminal to go and find out how.
+      // The connect list is the answer to that sentence, so it is the screen.
+      if (options.scan !== undefined && canPress(options)) {
+        return welcomeFrame(screen, options, tick);
+      }
       return waitingForJournal(options, tick);
+    }
+    if (screen.welcome) {
+      screen.welcome = false;
+      screen.mode = "runs";
+      screen.cursor = 0;
+      say("the first session has arrived");
     }
     // The command line is part of the chrome, so the list gets what is left
     // after it rather than pushing the top of the frame off the terminal.
@@ -536,8 +595,18 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
       screen.notice === ""
         ? []
         : ["", ...screen.notice.split("\n").map((line) => `  ${style.accent(line)}`)];
+    // Wherever you are, a held call is the one thing that cannot wait.
+    const held = screen.mode === "gates" || screen.mode === "connections" ? 0 : ready.listGated().length;
+    const alert =
+      held === 0
+        ? []
+        : [
+            `  ${style.accent(`${String(held)} ${held === 1 ? "call is" : "calls are"} waiting for you`)}  ${style.quiet("press")} ${style.strong("g")} ${style.quiet("to answer")}`,
+            "",
+          ];
     return [
       ...header(options, screen, tick),
+      ...alert,
       ...body,
       ...notice,
       ...tail,
@@ -735,6 +804,17 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
   const rescan = (): void => {
     screen.groups = options.scan?.() ?? [];
   };
+  if (!existsSync(options.journalPath) && options.scan !== undefined) {
+    screen.welcome = true;
+    screen.mode = "connections";
+    rescan();
+  } else if (canPress(options) && (open()?.listGated().length ?? 0) > 0) {
+    // Opened because a notification said something is waiting, most likely.
+    // Landing on the list of sessions, with approving one key away on a
+    // screen labelled "held", sent people pressing a on a screen where it
+    // does nothing.
+    screen.mode = "gates";
+  }
 
   const connect = async (targets: readonly Connection[]): Promise<void> => {
     if (options.connect === undefined) {
@@ -940,6 +1020,11 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         return;
       }
       default:
+        // Every key answers: silence reads as a screen that is broken. The
+        // keys that do work are the ones on the bottom line.
+        if (key.length === 1 && key >= " ") {
+          say(`${key} does nothing here; the keys that work are listed on the bottom line`);
+        }
         return;
     }
   };
@@ -965,6 +1050,11 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
               return;
             }
             press(next.value);
+            // Before anything has run there is only the connect list to be
+            // on; a key that would move to a list of sessions has none to show.
+            if (screen.welcome && open() === undefined) {
+              screen.mode = "connections";
+            }
             if (stopped()) {
               return;
             }

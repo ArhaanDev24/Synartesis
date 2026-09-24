@@ -91,11 +91,12 @@ import { applyInstall, applyUninstall, invokerFor, planInstall } from "./install
 import { findDesktop, whereToGetIt } from "./desktop.js";
 
 const COMMANDS = `
-  synartesis                                      start here. Live activity,
-                                                  what is waiting for you, and
-                                                  undo -- all in one place, with
-                                                  the arrow keys. Everything
-                                                  below can be done from it.
+  synartesis                                      start here. The first time,
+                                                  it lists your AI apps: press a
+                                                  to cover them. After that it
+                                                  opens on anything waiting for
+                                                  you, and on what agents did,
+                                                  with undo on the arrow keys.
   synartesis install [--client <name>] [--remote] [--dry-run] [--print]
   synartesis uninstall [--client <name>]
   synartesis status
@@ -106,6 +107,8 @@ const COMMANDS = `
   synartesis show <runId> [--full] [--live] [--journal <path>]
   synartesis gates [--journal <path>]
   synartesis close [runId] [--journal <path>]
+  synartesis clean [--dry-run] [--yes]              clear finished sessions,
+                                                  keep what still matters
   synartesis prune [--older-than <days>] [--dry-run] [--journal <path>]
   synartesis proxy --manifest <path> [--server <name>]    what your agent runs
                   [--journal <path>]
@@ -809,10 +812,20 @@ async function connectThese(
   );
   const applied = applyInstall(plans, manifestPath, yaml);
   const count = applied.reduce((sum, entry) => sum + entry.servers.length, 0);
+  // Said here, because in the console there is no "above": the reasons were
+  // printed nowhere, and "see the reasons above" pointed at an empty screen.
+  const skipped = plans.flatMap((plan) => plan.skipped.map((skip) => `${skip.name}: ${skip.why}`));
   if (count === 0) {
-    return "nothing was connected; see the reasons above";
+    return skipped.length === 0 ? "nothing needed connecting" : `not connected -- ${skipped.join("; ")}`;
   }
-  return `connected ${String(count)}${count === 1 ? " server" : " servers"} \u00b7 restart the client to pick it up`;
+  // Which apps, by name: "the client" left a person with three open wondering
+  // which one to restart.
+  const apps = [...new Set(applied.map((entry) => entry.site.label))];
+  const restart = `quit and reopen ${apps.join(" and ")} to start using it`;
+  return [
+    `covered ${String(count)}${count === 1 ? " server" : " servers"} \u00b7 ${restart}`,
+    ...(skipped.length === 0 ? [] : [`not covered -- ${skipped.join("; ")}`]),
+  ].join("\n");
 }
 
 /** What is covered, what is not, and how big the journal has grown. */
@@ -1272,10 +1285,20 @@ function runList(journal: Journal, asJson: boolean, journalPath: string): number
   // them to pick one out of forty by eye.
   hint(firstOf(
     () => heldCalls(journal),
+    () => {
+      // Clutter is worth one line once there is enough of it to hide things.
+      const clearable = journal.cleanable(new Date(Date.now() - CLEAN_IDLE_MS).toISOString()).finished.length;
+      return clearable >= CLEAN_NAG_SESSIONS
+        ? { why: `${String(clearable)} of these are finished with nothing left to undo; to clear them`, run: "clean", needs: ["journal"] }
+        : undefined;
+    },
     () => whatChanged(journal),
   ));
   return 0;
 }
+
+/** How many clearable sessions before `list` mentions `clean`. */
+const CLEAN_NAG_SESSIONS = 10;
 
 async function runShow(argv: readonly string[], journal: Journal, asJson: boolean): Promise<number> {
   const full = argv.includes("--full");
@@ -1693,6 +1716,88 @@ function runPrune(argv: readonly string[], journal: Journal, journalPath: string
     `  ${style.accent(counted(removed.runs, "run"))} ${style.quiet(`and ${counted(removed.actions, "action")} removed.`)}`,
   );
   out(`  ${style.quiet(`Journal ${sizeBefore} \u2192 ${sizeOf(journalPath)}.`)}`);
+  out("");
+  return 0;
+}
+
+/** An open session with nothing happening for this long, from before owners were recorded, counts as abandoned. */
+const CLEAN_IDLE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * One command to clear what is finished and keep what is not.
+ *
+ * `list` had grown to a hundred sessions with nothing in them, and the ways
+ * to clear them each asked a person to know something first: prune, how many
+ * days; close, which session was abandoned. This asks nothing. It clears every
+ * finished session with nothing left to undo, closes the ones left open by an
+ * app that has since exited, and keeps everything that is still working or
+ * still needs you -- anything you could undo, anything waiting, anything
+ * whose outcome nobody knows. Your connections and your policy are not
+ * touched.
+ */
+async function runClean(argv: readonly string[], journal: Journal, journalPath: string): Promise<number> {
+  const idleBefore = new Date(Date.now() - CLEAN_IDLE_MS).toISOString();
+  const { abandoned, finished } = journal.cleanable(idleBefore);
+  const total = journal.listRuns().length;
+  const empty = finished.filter((run) => run.actions === 0).length;
+  const kept = total - finished.length;
+  const sizeBefore = sizeOf(journalPath);
+
+  out("");
+  out(`  ${style.label("clean")}  ${style.quiet(journalPath)}`);
+  out(`  ${rule(54)}`);
+  out("");
+  if (finished.length === 0 && abandoned.length === 0) {
+    out(`  ${style.quiet("Nothing to clear: every session here is still in use, or still has")}`);
+    out(`  ${style.quiet("something you could undo or decide.")}`);
+    out("");
+    return 0;
+  }
+  out(
+    `  ${style.strong("clears")}  ${counted(finished.length, "finished session")} with nothing left to undo` +
+      (empty > 0 ? style.quiet(` (${String(empty)} of them empty)`) : ""),
+  );
+  if (abandoned.length > 0) {
+    out(`  ${style.strong("closes")}  ${counted(abandoned.length, "session")} left open by an app that is no longer running`);
+  }
+  out(
+    `  ${style.strong("keeps ")}  ${counted(kept, "session")} ${style.quiet("still running, or with something to undo or decide")}`,
+  );
+  out(`  ${style.quiet("        your connected apps and your policy are not touched")}`);
+  out("");
+
+  if (argv.includes("--dry-run")) {
+    out(`  ${style.quiet("Nothing was changed.")}`);
+    out("");
+    return 0;
+  }
+  if (!argv.includes("--yes")) {
+    if (!process.stdin.isTTY) {
+      out(`  ${style.quiet("Nothing was changed. Run it in a terminal to be asked, or add --yes.")}`);
+      out("");
+      return 1;
+    }
+    const answer = (await ask("  Go ahead? [y/N] ")).trim().toLowerCase();
+    if (answer !== "y" && answer !== "yes") {
+      out(`  ${style.quiet("Nothing was changed.")}`);
+      out("");
+      return 0;
+    }
+  }
+
+  for (const id of abandoned) {
+    journal.closeAbandonedRun(id);
+  }
+  // Asked again after closing, rather than trusting the preview: a session
+  // could have been used in the seconds spent answering.
+  const now = journal.cleanable(idleBefore).finished;
+  const removed = journal.deleteRuns(now.map((run) => run.id));
+  journal.vacuum();
+  out("");
+  out(
+    `  ${style.accent(`cleared ${counted(removed.runs, "session")}`)}` +
+      style.quiet(`${abandoned.length > 0 ? `, closed ${String(abandoned.length)}` : ""} \u00b7 journal ${sizeBefore} \u2192 ${sizeOf(journalPath)}`),
+  );
   out("");
   return 0;
 }
@@ -2746,7 +2851,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
  */
 const KNOWN_COMMANDS = [
   "install", "uninstall", "status", "init", "check", "pin", "list", "show",
-  "gates", "close", "prune", "proxy", "desktop", "watch", "approve", "deny", "allow", "resolve", "notify",
+  "gates", "close", "clean", "prune", "proxy", "desktop", "watch", "approve", "deny", "allow", "resolve", "notify",
   "undo", "help", "version",
 ];
 
@@ -3045,6 +3150,8 @@ async function main(argv: readonly string[]): Promise<number> {
         return runClose(argv, journal);
       case "prune":
         return runPrune(argv, journal, journalPath);
+      case "clean":
+        return await runClean(argv, journal, journalPath);
       case "gates":
         return runGates(journal, asJson);
       case "resolve":

@@ -2,6 +2,54 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.9.2 — 2026-09-24
+
+For someone who has never used a terminal. Every screen was walked through as a
+new user would meet it, in a real terminal, from a fresh machine. Each place
+they would have got stuck is fixed.
+
+### Added
+
+- **`synartesis clean`**: one command, no questions to answer first. It clears
+  every finished session with nothing left to undo, and closes sessions left
+  open by an app that has since exited. It keeps anything you could still undo,
+  anything waiting for you, and anything whose outcome is unknown. Your
+  connected apps and your policy are not touched. It shows what it will do and
+  asks once. On a journal three weeks old it cleared 119 of 126 sessions.
+  `list` suggests it once there is clutter worth clearing.
+- Sessions now record which process opened them, so one left open by an app
+  that crashed or was force-quit can be told apart from one still in use.
+
+### Fixed
+
+- **The first screen was a dead end.** `synartesis` on a fresh machine said
+  "point your client at it" and accepted no keys. It now opens on the AI apps
+  found and their tools: `a` covers all of them, `enter` covers one. When the
+  first session arrives it switches to the sessions by itself.
+- **`watch` ignored keys.** With nothing waiting it showed no keys at all, not
+  even how to quit, and silently swallowed every key pressed. It always shows
+  its keys now, says so when there is nothing to approve yet, and answers a key
+  that does nothing instead of ignoring it. The console does the same.
+- **Opening `synartesis` because of a notification landed on the wrong
+  screen.** Approving was a screen away, behind a key labelled "held", so `a`
+  did nothing. It opens on the waiting call now, shows why it was held, and
+  flags new ones from any other screen.
+- **The notification said to type an approve command** with an id and an
+  absolute path, cut off before its end. It now says to open a terminal and run
+  `synartesis`.
+- After covering apps from the screen, it names which apps to quit and reopen,
+  and says why any server was not covered. It used to say "see the reasons
+  above" on a screen with nothing above.
+- The proxy wrote a routine schema note into the client's log as a warning, once
+  per tool on every start (fourteen for the filesystem server). It is debug
+  level now.
+
+### Docs
+
+- The README's Install section is three steps for somebody who has never used a
+  terminal, then what to do when something needs your OK, how to undo, how to
+  clean up, and how to take it all out.
+
 ## 0.9.1 — 2026-09-24
 
 This release attacks undo instead of describing it. The new tests generate the

@@ -507,3 +507,37 @@ describe("when an action happened", () => {
     expect(text).not.toContain("Aug");
   });
 });
+
+describe("watch with nothing waiting", () => {
+  it("still shows its keys, and says what a key would do once something is held", async () => {
+    // With nothing waiting it showed no keys -- not even how to leave -- and
+    // swallowed every key, so somebody told to press a pressed it into a
+    // screen that did nothing and said nothing.
+    const path = journalWith((journal) => {
+      journal.beginRun("agent");
+    });
+    const board = keyboard();
+    let text = "";
+    const running = watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: (chunk) => (text += chunk),
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(text).toContain("[q] quit");
+    expect(text).toContain("A held call appears here");
+    board.press("a");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(text).toContain("Nothing is waiting right now");
+    board.press("b");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(text).toContain("b does nothing here");
+    board.press("q");
+    board.done();
+    await running;
+  });
+});

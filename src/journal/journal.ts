@@ -525,6 +525,14 @@ export interface Journal {
    * applied). Age is not a reason to throw away an unanswered question.
    */
   prunableRuns(before: string): readonly PrunableRun[];
+  /**
+   * What `clean` would do: sessions left open by a process that is gone, and
+   * finished sessions with nothing left in them for a person.
+   *
+   * Open sessions from before owners were recorded are counted abandoned once
+   * nothing has happened in them since `idleBefore`.
+   */
+  cleanable(idleBefore: string): { readonly abandoned: readonly string[]; readonly finished: readonly PrunableRun[] };
   /** Removes runs and their actions. Returns what actually went. */
   deleteRuns(runIds: readonly string[]): { runs: number; actions: number };
   /**
@@ -733,9 +741,14 @@ class SqliteJournal implements Journal {
   beginRun(label: string | undefined): string {
     const id = crypto.randomUUID();
     this.#run("beginRun", () => {
-      this.#db
-        .prepare("INSERT INTO runs (id, label, started_at, status) VALUES (?, ?, ?, 'active')")
-        .run(id, label ?? null, new Date().toISOString());
+      this.#db.transaction(() => {
+        this.#db
+          .prepare("INSERT INTO runs (id, label, started_at, status) VALUES (?, ?, ?, 'active')")
+          .run(id, label ?? null, new Date().toISOString());
+        this.#db
+          .prepare("INSERT INTO run_owners (run_id, host, pid) VALUES (?, ?, ?)")
+          .run(id, hostname(), process.pid);
+      })();
     });
     return id;
   }
@@ -1434,6 +1447,80 @@ class SqliteJournal implements Journal {
     this.#db.close();
   }
 
+  cleanable(idleBefore: string): { readonly abandoned: readonly string[]; readonly finished: readonly PrunableRun[] } {
+    return this.#run("cleanable", () => {
+      const here = hostname();
+      const open = z
+        .array(
+          z.object({
+            id: z.string(),
+            host: z.string().nullable(),
+            pid: z.number().nullable(),
+            last: z.string(),
+          }),
+        )
+        .parse(
+          this.#db
+            .prepare(
+              `SELECT r.id, o.host, o.pid,
+                      COALESCE((SELECT MAX(a.ts) FROM actions a WHERE a.run_id = r.id), r.started_at) AS last
+                 FROM runs r LEFT JOIN run_owners o ON o.run_id = r.id
+                WHERE r.status = 'active'`,
+            )
+            .all(),
+        );
+      const abandoned = open
+        .filter((run) =>
+          run.pid === null
+            ? run.last < idleBefore
+            : // Only a process on this machine can be asked about; one opened
+              // elsewhere on a shared journal is left alone.
+              run.host === here && !running(run.pid),
+        )
+        .map((run) => run.id);
+      // Finished -- or about to be, being abandoned -- with nothing waiting on
+      // a person and nothing left to undo: the protections prune keeps, plus
+      // the undoable ones, which are the whole reason to keep a session.
+      const closing = new Set(abandoned);
+      const finished = z
+        .array(
+          z.object({
+            id: z.string(),
+            label: z.string().nullable(),
+            status: z.enum(["active", "complete", "rolled_back", "partial"]),
+            at: z.string(),
+            actions: z.number(),
+          }),
+        )
+        .parse(
+          this.#db
+            .prepare(
+              `SELECT r.id, r.label, r.status, COALESCE(r.ended_at, r.started_at) AS at,
+                      (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS actions
+                 FROM runs r
+                WHERE NOT EXISTS (
+                        SELECT 1 FROM actions a
+                         WHERE a.run_id = r.id
+                           AND a.status IN ('pending','gated','approved','rolling_back','unrecoverable'))
+                  AND NOT EXISTS (
+                        SELECT 1 FROM actions a
+                         WHERE a.run_id = r.id AND a.status = 'applied' AND a.inverse_json IS NOT NULL)
+                ORDER BY at, r.rowid`,
+            )
+            .all(),
+        )
+        .filter((run) => run.status !== "active" || closing.has(run.id))
+        .map((run) => ({
+          id: run.id,
+          label: run.label ?? undefined,
+          at: run.at,
+          status: run.status === "active" ? ("complete" as const) : run.status,
+          actions: run.actions,
+        }));
+      return { abandoned, finished };
+    });
+  }
+
   prunableRuns(before: string): readonly PrunableRun[] {
     return this.#run("prunableRuns", () =>
       this.#db
@@ -1499,7 +1586,9 @@ class SqliteJournal implements Journal {
         const dropDenials = this.#db.prepare(
           "DELETE FROM denials WHERE action_id IN (SELECT id FROM actions WHERE run_id = ?)",
         );
+        const dropOwner = this.#db.prepare("DELETE FROM run_owners WHERE run_id = ?");
         for (const id of ids) {
+          dropOwner.run(id);
           dropServers.run(id);
           dropLeases.run(id);
           dropDenials.run(id);

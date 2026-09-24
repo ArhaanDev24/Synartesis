@@ -160,8 +160,17 @@ function render(journal: Journal, options: WatchOptions, tick: number, view: Vie
     out.push("");
     out.push(
       canDecide(options)
-        ? `  ${keyHint("a", "approve")}   ${keyHint("A", "and for an hour")}   ${keyHint("d", "deny")}   ${keyHint("j/k", "move")}   ${keyHint("q", "quit")}`
+        ? `  ${keyHint("a", "approve")}   ${keyHint("A", "approve for an hour")}   ${keyHint("d", "deny")}   ${keyHint("j/k", "move")}   ${keyHint("q", "quit")}`
         : `  ${style.quiet(`${options.approveWith} approve --all`)}`,
+    );
+  } else if (canDecide(options)) {
+    // The keys, even with nothing to press them on. With nothing waiting this
+    // showed none at all -- not even how to leave -- and swallowed every key,
+    // so somebody told to "press a" typed into a screen that did nothing and
+    // said nothing.
+    out.push("");
+    out.push(
+      `  ${keyHint("q", "quit")}   ${style.quiet("A held call appears here; answer it with")} ${style.strong("a")} ${style.quiet("approve,")} ${style.strong("A")} ${style.quiet("approve for an hour, or")} ${style.strong("d")} ${style.quiet("deny.")}`,
     );
   }
 
@@ -274,6 +283,8 @@ export async function watch(options: WatchOptions): Promise<number> {
     const waiting = ready.listGated();
     const action = waiting[Math.min(view.cursor, waiting.length - 1)];
     if (action === undefined) {
+      view.notice = "Nothing is waiting right now. When an agent's call is held, it appears above and this key answers it.";
+      view.noticeUntil = tick + NOTICE_TICKS;
       return;
     }
     const changed = approve
@@ -324,6 +335,11 @@ export async function watch(options: WatchOptions): Promise<number> {
         view.cursor = Math.max(0, view.cursor - 1);
         return;
       default:
+        // Every key answers. Silence reads as broken.
+        if (key.length === 1 && key >= " ") {
+          view.notice = `${key} does nothing here. Keys: a approve, A approve for an hour, d deny, j/k move, q quit`;
+          view.noticeUntil = tick + NOTICE_TICKS;
+        }
         return;
     }
   };

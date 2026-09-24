@@ -610,7 +610,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             }
             tools.push({
               ...compatible(tool, (dialect) => {
-                log?.warn(
+                // Debug, not warn: it is routine, it is handled, and at warn
+                // it wrote one line per tool into the client's log on every
+                // start -- fourteen for the filesystem server alone.
+                log?.debug(
                   `${upstream.name}.${tool.name} declares JSON Schema ${dialect}; ` +
                     `the dialect was dropped so clients that only accept 2020-12 can call it`,
                 );

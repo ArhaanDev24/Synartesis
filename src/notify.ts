@@ -59,10 +59,14 @@ function unmarked(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function words(notice: HeldNotice): { readonly title: string; readonly body: string } {
+function words(notice: HeldNotice, open: string | undefined): { readonly title: string; readonly body: string } {
+  // What to do, in the fewest words that work. This carried the whole approve
+  // command with an eight-character id and an absolute journal path: a line to
+  // retype exactly, cut off by the notification before its end. Opening
+  // Synartesis lands on the waiting call, where one key answers it.
   return {
     title: "Synartesis: a call is waiting for you",
-    body: `${shown(notice.server)}.${shown(notice.tool)} -- ${notice.approve}`,
+    body: `${shown(notice.server)}.${shown(notice.tool)} -- open a terminal and run: ${open ?? notice.approve}`,
   };
 }
 
@@ -92,13 +96,15 @@ export function desktopNotifier(
   env: NodeJS.ProcessEnv = process.env,
   /** Which platform's notifier; passed only by tests, which run on one. */
   os: NodeJS.Platform = platform(),
+  /** The command that opens Synartesis on the waiting call. */
+  open?: string,
 ): Notifier {
   if (env["SYNARTESIS_NOTIFY"] === "0") {
     return SILENT;
   }
   if (os === "darwin") {
     return (notice) => {
-      const { title, body } = words(notice);
+      const { title, body } = words(notice, open);
       launch("osascript", [
         "-e",
         "on run argv",
@@ -114,7 +120,7 @@ export function desktopNotifier(
   }
   if (os === "linux") {
     return (notice) => {
-      const { title, body } = words(notice);
+      const { title, body } = words(notice, open);
       launch("notify-send", ["--app-name=Synartesis", "--", title, unmarked(body)]);
     };
   }
