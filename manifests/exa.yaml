@@ -1,0 +1,20 @@
+# Policy for exa-mcp-server.
+#
+# Written against 3.4.1 from the server's own tools/list.
+#
+# Both tools are marked read-only by the server itself.
+#
+# A tool a later version adds is held until a rule says what it does.
+version: 1
+
+servers:
+  exa:
+    command: npx
+    args: ["-y", "exa-mcp-server"]
+    provenance: live
+
+tools:
+  - match: "exa.web_search_exa"
+    class: readonly
+  - match: "exa.web_fetch_exa"
+    class: readonly

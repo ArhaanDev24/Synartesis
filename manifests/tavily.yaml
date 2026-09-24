@@ -1,0 +1,27 @@
+# Policy for tavily-mcp.
+#
+# Written against 0.2.22 from the server's own tools/list.
+#
+# Search, extract, crawl, map and research all read the web and change
+# nothing. The server does not mark them read-only.
+#
+# A tool a later version adds is held until a rule says what it does.
+version: 1
+
+servers:
+  tavily:
+    command: npx
+    args: ["-y", "tavily-mcp"]
+    provenance: live
+
+tools:
+  - match: "tavily.tavily_search"
+    class: readonly
+  - match: "tavily.tavily_extract"
+    class: readonly
+  - match: "tavily.tavily_crawl"
+    class: readonly
+  - match: "tavily.tavily_map"
+    class: readonly
+  - match: "tavily.tavily_research"
+    class: readonly

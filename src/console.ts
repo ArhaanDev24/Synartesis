@@ -5,6 +5,7 @@ import type { RollbackReport } from "./rollback/rollback.js";
 import { verdict, type Inspection } from "./rollback/inspect.js";
 import { shortTime } from "./clock.js";
 import { plainly, subject, summariseArgs } from "./describe.js";
+import { LOOKED_FOR } from "./install/clients.js";
 import { needsConnecting, stateOf, type ClientGroup, type Connection } from "./install/connections.js";
 import { cliCommand } from "./invocation.js";
 import { keysIn } from "./keys.js";
@@ -344,7 +345,7 @@ function connectionsView(screen: Screen, options: ConsoleOptions): string[] {
     return [
       `  ${style.quiet("No MCP client config was found on this machine.")}`,
       "",
-      `  ${style.quiet("Looked for Claude Code, Claude Desktop, Cursor and Codex.")}`,
+      `  ${style.quiet(LOOKED_FOR)}`,
     ];
   }
   const rows = connectionRows(screen);

@@ -755,7 +755,10 @@ async function executeInverse(
       { signal },
     );
   } catch (error: unknown) {
-    return { ok: false, rejected: false, message: describe(error) };
+    // Refused at the door -- an expired token on a hosted server -- is known
+    // not to have been applied, which is what `rejected` means. Anything else
+    // stays unknown.
+    return { ok: false, rejected: upstream.classify?.(error) !== undefined, message: describe(error) };
   }
 
   const parsed = toolResult.safeParse(raw);

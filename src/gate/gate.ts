@@ -83,7 +83,7 @@ export function createRetryGate(
         // as the person. The command goes to the person instead: in the
         // notification, in `watch`, in the console and in `gates`.
         reason:
-          "it is waiting for a person to decide, and they have been told. " +
+          "It is waiting for a person to decide, and they have been told. " +
           "Let the user know it is waiting, then make this exact call again once they say it is approved.",
       });
     },

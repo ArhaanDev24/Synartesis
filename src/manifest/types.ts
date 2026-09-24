@@ -22,11 +22,43 @@ export type GateMode = "always" | "on_write" | "never";
  */
 export type Provenance = "live" | "documented";
 
-export interface ServerSpec {
-  readonly command: string;
-  readonly args: readonly string[];
+interface CommonServerSpec {
   readonly env?: Readonly<Record<string, string>>;
   readonly provenance?: Provenance;
+  /**
+   * Whether a tool no rule mentions may be treated as a read because the
+   * server marks it read-only. On unless set to false. Only ever loosens a
+   * hold on a read; nothing a server says makes a write go through unasked.
+   */
+  readonly trustAnnotations?: boolean;
+}
+
+/** A server this starts, and speaks to over its stdin and stdout. */
+export interface StdioServerSpec extends CommonServerSpec {
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly url?: undefined;
+}
+
+/**
+ * A hosted server, reached over HTTP with a token.
+ *
+ * `headers` values may hold `${VAR}` references, filled in when the server is
+ * reached, the same way `env` is -- so the policy names a variable and never
+ * holds the token itself.
+ */
+export interface RemoteServerSpec extends CommonServerSpec {
+  readonly url: string;
+  /** Streamable HTTP, the older SSE transport, or whichever answers. */
+  readonly transport: "auto" | "http" | "sse";
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly command?: undefined;
+}
+
+export type ServerSpec = StdioServerSpec | RemoteServerSpec;
+
+export function isRemote(spec: ServerSpec): spec is RemoteServerSpec {
+  return spec.url !== undefined;
 }
 
 export type TemplateValue =

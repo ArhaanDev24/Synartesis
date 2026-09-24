@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { hostedCrm } from "./helpers/hosted.js";
+import { parseManifest } from "../src/manifest/load.js";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import {
   ConfigError,
   discover,
+  expandForClient,
   readDocument,
   readServers,
   saveServers,
@@ -17,6 +20,8 @@ import {
 import {
   applyInstall,
   applyUninstall,
+  bridgeFor,
+  headerVariable,
   isWrapped,
   keyFor,
   planInstall,
@@ -97,6 +102,93 @@ describe("planning an install", () => {
     const { plans } = await planInstall([siteIn(dir)], join(dir, "synartesis.yaml"), INVOKER);
     expect(plans[0]?.servers.map((server) => server.name)).not.toContain("remote");
     expect(plans[0]?.skipped.map((skip) => skip.name)).toContain("remote");
+  });
+});
+
+describe("a hosted server", () => {
+  it("says how to cover it, rather than only that it cannot be", async () => {
+    const dir = scratch();
+    const { plans } = await planInstall([siteIn(dir)], join(dir, "synartesis.yaml"), INVOKER);
+    const why = plans[0]?.skipped.find((skip) => skip.name === "remote")?.why;
+    expect(why).toContain("install --remote");
+    expect(why).toContain("browser");
+  });
+
+  it("is covered through mcp-remote when asked, and put back as it was", async () => {
+    const dir = scratch();
+    const site = siteIn(dir);
+    const before = readFileSync(site.path, "utf8");
+    const manifest = join(dir, "synartesis.yaml");
+    const bridged: string[] = [];
+    const { plans, yaml } = await planInstall([site], manifest, INVOKER, (_, name) => name === "remote", {
+      remote: true,
+      // Standing in for mcp-remote, which would need the network and a
+      // sign-in. What is under test is what happens to the entry.
+      bridge: (url) => {
+        bridged.push(url);
+        return { command: "node", args: [FS_SERVER, dir] };
+      },
+    });
+    expect(bridged).toEqual(["https://example.com/mcp"]);
+    const planned = plans[0]?.servers.find((server) => server.name === "remote");
+    expect(planned?.bridged).toBe("https://example.com/mcp");
+    // The client must start the proxy, not go on addressing the url.
+    expect(planned?.wrapped).not.toHaveProperty("url");
+    expect(planned?.wrapped).not.toHaveProperty("type");
+    expect(isWrapped(planned?.wrapped ?? {})).toBe(true);
+
+    applyInstall(plans, manifest, yaml);
+    applyUninstall([site], manifest);
+    expect(JSON.parse(readFileSync(site.path, "utf8"))).toEqual(JSON.parse(before));
+  });
+
+  it("is started with npx mcp-remote and the url, nothing else", () => {
+    expect(bridgeFor("https://mcp.linear.app/mcp")).toEqual({
+      command: "npx",
+      args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"],
+    });
+  });
+
+  it("is reached directly when it carries a token, which moves into the entry's env", async () => {
+    // mcp-remote would take the header on its command line, where every
+    // process listing shows it. The proxy sends it itself instead.
+    const server = await hostedCrm("hosted-token");
+    try {
+      process.env["SYN_TEST_CRM_TOKEN"] = "hosted-token";
+      const dir = scratch();
+      const config = {
+        mcpServers: {
+          crm: { type: "http", url: server.url, headers: { Authorization: "Bearer ${SYN_TEST_CRM_TOKEN}" } },
+        },
+      };
+      const site: ConfigSite = { ...siteIn(dir, config), client: "claude-code", label: "Claude Code" };
+      const manifest = join(dir, "synartesis.yaml");
+      const { plans, yaml } = await planInstall([site], manifest, INVOKER, undefined, {
+        bridge: () => {
+          throw new Error("must not be bridged");
+        },
+      });
+      const planned = plans[0]?.servers[0];
+      expect(planned?.direct).toBe(server.url);
+      // The client keeps the value exactly as it was written -- its own
+      // reference, filled in by the client -- under a name the policy uses.
+      expect(planned?.wrapped).toMatchObject({ env: { CRM_MCP_AUTHORIZATION: "Bearer ${SYN_TEST_CRM_TOKEN}" } });
+      expect(planned?.wrapped).not.toHaveProperty("url");
+      expect(planned?.wrapped).not.toHaveProperty("headers");
+      // The policy names the variable and never holds the token.
+      expect(yaml).toContain('"Authorization": "${CRM_MCP_AUTHORIZATION}"');
+      expect(yaml).not.toContain("hosted-token");
+      expect(parseManifest(yaml, manifest).servers["crm"]).toMatchObject({ url: server.url, transport: "http" });
+    } finally {
+      delete process.env["SYN_TEST_CRM_TOKEN"];
+      await server.close();
+    }
+  });
+
+  it("names the variable a header moves into after the server and the header", () => {
+    expect(headerVariable("github", "Authorization")).toBe("GITHUB_MCP_AUTHORIZATION");
+    expect(headerVariable("my-api", "X-API-Key")).toBe("MY_API_MCP_X_API_KEY");
+    expect(headerVariable("1pass", "Authorization")).toBe("S_1PASS_MCP_AUTHORIZATION");
   });
 });
 
@@ -435,6 +527,99 @@ describe("finding Claude Code's servers", () => {
       expect(scopes).not.toContain("project /somewhere/else");
     } finally {
       process.env["HOME"] = saved;
+    }
+  });
+});
+
+describe("the clients added in 0.9", () => {
+  function inHome<T>(body: (home: string) => T): T {
+    const home = scratch();
+    const saved = { HOME: process.env["HOME"], XDG: process.env["XDG_CONFIG_HOME"], COPILOT: process.env["COPILOT_HOME"] };
+    process.env["HOME"] = home;
+    delete process.env["XDG_CONFIG_HOME"];
+    delete process.env["COPILOT_HOME"];
+    try {
+      return body(home);
+    } finally {
+      process.env["HOME"] = saved.HOME;
+      if (saved.XDG !== undefined) {
+        process.env["XDG_CONFIG_HOME"] = saved.XDG;
+      }
+      if (saved.COPILOT !== undefined) {
+        process.env["COPILOT_HOME"] = saved.COPILOT;
+      }
+    }
+  }
+
+  function place(path: string, servers: Record<string, unknown>): void {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({ other: "kept", mcpServers: servers }));
+  }
+
+  it.skipIf(process.platform === "win32")("finds each at the path its vendor documents", () => {
+    inHome((home) => {
+      const fs = { command: "node", args: ["server.js"] };
+      place(join(home, ".config", "devin", "mcp_config.json"), { a: fs });
+      place(join(home, ".codeium", "windsurf", "mcp_config.json"), { b: fs });
+      place(join(home, ".gemini", "settings.json"), { c: fs });
+      place(join(home, ".copilot", "mcp-config.json"), { d: fs });
+      place(join(home, ".gemini", "config", "mcp_config.json"), { e: fs });
+      const found = discover(home).map((site) => [site.client, Object.keys(serversAt(site))[0]]);
+      expect(found).toEqual(
+        expect.arrayContaining([
+          ["devin", "a"],
+          ["windsurf", "b"],
+          ["gemini-cli", "c"],
+          ["copilot-cli", "d"],
+          ["antigravity", "e"],
+        ]),
+      );
+    });
+  });
+
+  it("keeps what a client needs besides the command, and drops the ways of reaching it", async () => {
+    // Copilot CLI's own example gives every server a tools list. Dropped on
+    // wrapping, a client that needs it would stop offering the server.
+    const dir = scratch();
+    const path = join(dir, "mcp-config.json");
+    place(path, { fs: { type: "local", command: "node", args: [FS_SERVER, dir], tools: ["*"] } });
+    const site: ConfigSite = {
+      client: "copilot-cli",
+      label: "Copilot CLI",
+      format: "json",
+      path,
+      scope: "global",
+      at: ["mcpServers"],
+    };
+    const { plans } = await planInstall([site], join(dir, "synartesis.yaml"), INVOKER);
+    const wrapped = plans[0]?.servers[0]?.wrapped;
+    expect(wrapped).toMatchObject({ type: "local", tools: ["*"] });
+    expect(isWrapped(wrapped ?? {})).toBe(true);
+  });
+
+  it("leaves a server Antigravity has switched off alone", async () => {
+    const dir = scratch();
+    const path = join(dir, "mcp_config.json");
+    place(path, { off: { command: "node", args: [FS_SERVER, dir], disabled: true } });
+    const site: ConfigSite = { client: "antigravity", label: "Antigravity", format: "json", path, scope: "global", at: ["mcpServers"] };
+    const { plans } = await planInstall([site], join(dir, "synartesis.yaml"), INVOKER);
+    expect(plans[0]?.skipped.map((skip) => skip.name)).toEqual(["off"]);
+  });
+
+  it("fills in each one's references the way that client would", () => {
+    process.env["SYN_TEST_TOKEN"] = "t0k";
+    try {
+      expect(expandForClient("devin", "Bearer ${env:SYN_TEST_TOKEN}")).toBe("Bearer t0k");
+      expect(expandForClient("windsurf", "{{env:SYN_TEST_TOKEN}}")).toBe("t0k");
+      expect(expandForClient("gemini-cli", "$SYN_TEST_TOKEN and ${SYN_TEST_TOKEN}")).toBe("t0k and t0k");
+      // Unset is empty in both, as their documentation says.
+      expect(expandForClient("gemini-cli", "$SYN_TEST_UNSET")).toBe("");
+      expect(expandForClient("devin", "${env:SYN_TEST_UNSET}")).toBe("");
+      // No documented expansion: the text is what the server gets.
+      expect(expandForClient("copilot-cli", "${SYN_TEST_TOKEN}")).toBe("${SYN_TEST_TOKEN}");
+      expect(expandForClient("antigravity", "$SYN_TEST_TOKEN")).toBe("$SYN_TEST_TOKEN");
+    } finally {
+      delete process.env["SYN_TEST_TOKEN"];
     }
   });
 });

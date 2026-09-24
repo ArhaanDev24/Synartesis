@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import { ManifestError, describe as describeCause, type SourceLocation } from "../errors.js";
 import { referencesIn } from "./template.js";
-import type { CallTemplate, Manifest, TemplateValue, ToolPolicy } from "./types.js";
+import type { CallTemplate, Manifest, ServerSpec, TemplateValue, ToolPolicy } from "./types.js";
 
 const templateValue: z.ZodType<TemplateValue> = z.lazy(() =>
   z.union([
@@ -45,11 +45,56 @@ const serverSpec = z.strictObject({
   args: z.array(z.string()).default([]),
   env: z.record(z.string(), z.string()).optional(),
   provenance: z.enum(["live", "documented"]).optional(),
+  trust_annotations: z.boolean().optional(),
+});
+
+/**
+ * Only https, so a token never crosses a network in the clear -- except to
+ * this machine, where a local server under test is the common case and there
+ * is no network to cross.
+ */
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+const remoteSpec = z.strictObject({
+  url: z
+    .string()
+    .refine((value) => URL.canParse(value), "url must be a full address, like https://example.com/mcp")
+    .refine((value) => {
+      const url = new URL(value);
+      return url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.has(url.hostname));
+    }, "url must be https, since it carries a token; plain http is accepted only for this machine"),
+  transport: z.enum(["auto", "http", "sse"]).default("auto"),
+  headers: z.record(z.string(), z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  provenance: z.enum(["live", "documented"]).optional(),
+  trust_annotations: z.boolean().optional(),
+});
+
+/**
+ * One schema or the other, picked before either runs. A union would answer a
+ * mistake in either with a complaint about both -- "command: required" for a
+ * server that was only ever meant to have a url.
+ */
+const anyServer = z.unknown().transform((value, context) => {
+  const has = (key: string): boolean =>
+    typeof value === "object" && value !== null && key in value;
+  if (has("command") && has("url")) {
+    context.addIssue({ code: "custom", message: "give command or url, not both" });
+    return z.NEVER;
+  }
+  const parsed = (has("url") ? remoteSpec : serverSpec).safeParse(value);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      context.addIssue({ ...issue, code: "custom", message: issue.message });
+    }
+    return z.NEVER;
+  }
+  return parsed.data;
 });
 
 const manifestSchema = z.strictObject({
   version: z.literal(1),
-  servers: z.record(z.string(), serverSpec),
+  servers: z.record(z.string(), anyServer),
   tools: z.array(toolPolicy).default([]),
   pins: z.record(z.string(), z.record(z.string(), z.string().min(1))).optional(),
 });
@@ -100,11 +145,12 @@ function checkReferences(
   source: Source,
   path: Path,
   env: Readonly<Record<string, string>>,
+  field: "env" | "headers" = "env",
 ): Readonly<Record<string, string>> {
   for (const [key, value] of Object.entries(env)) {
     if (MALFORMED.test(value)) {
       source.fail(
-        [...path, "env", key],
+        [...path, field, key],
         "a reference is written ${NAME}: letters, digits and underscores, not starting with a digit",
       );
     }
@@ -127,6 +173,58 @@ function matchesAnyServer(segment: string, servers: readonly string[]): boolean 
     .join("[^.]*");
   const test = new RegExp(`^${source}$`);
   return servers.some((name) => test.test(name));
+}
+
+/** Every string in a template, with where it is, so an error can say which line. */
+function stringsIn(value: TemplateValue, path: Path): (readonly [Path, string])[] {
+  if (typeof value === "string") {
+    return [[path, value]];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item: TemplateValue, index) => stringsIn(item, [...path, index]));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, item]) => stringsIn(item, [...path, key]));
+  }
+  return [];
+}
+
+/** How `args.id`, `snapshot.name` or `result.id` is written in a policy. */
+function spelled(inner: string): string {
+  const trimmed = inner.trim().replace(/^\$/, "");
+  for (const [from, to] of [["args.", "$."], ["snapshot.", "$snapshot."], ["result.", "$result."]] as const) {
+    if (trimmed.startsWith(from)) {
+      return `"${to}${trimmed.slice(from.length)}"`;
+    }
+  }
+  return `"$.${trimmed}"`;
+}
+
+/**
+ * Two spellings borrowed from other tools, caught with the line they are on.
+ * `{{args.id}}` loaded without complaint and was sent to the server as those
+ * eleven characters; `${args.id}` failed with no line at all. Run before
+ * anything else reads a rule's references, so it is this message that is seen.
+ */
+function checkSpelling(source: Source, path: Path, call: CallTemplate | undefined): void {
+  if (call === undefined) {
+    return;
+  }
+  for (const [at, text] of stringsIn(call.args, [...path, "args"])) {
+    const braces = /\{\{\s*([^}]*?)\s*\}\}/.exec(text);
+    if (braces !== null) {
+      source.fail(at, `${braces[0]} is sent as written; write ${spelled(braces[1] ?? "")} instead`);
+    }
+    const dollar = /^\$\{([^}]*)\}$/.exec(text);
+    if (dollar !== null) {
+      source.fail(at, `${text} is not a reference here; write ${spelled(dollar[1] ?? "")} instead`);
+    }
+    try {
+      referencesIn(text);
+    } catch (error: unknown) {
+      source.fail(at, error instanceof Error ? error.message : String(error));
+    }
+  }
 }
 
 function checkCall(
@@ -192,6 +290,9 @@ function validate(source: Source, manifest: Manifest): void {
       );
     }
     seen.set(policy.match, index);
+    checkSpelling(source, [...path, "snapshot"], policy.snapshot);
+    checkSpelling(source, [...path, "inverse"], policy.inverse);
+    checkSpelling(source, [...path, "verify"], policy.verify);
 
     const segment = serverSegment(policy.match);
     if (segment === "") {
@@ -350,13 +451,21 @@ export function parseManifest(text: string, file: string): Manifest {
       Object.entries(parsed.data.servers).map(([name, spec]) => [
         name,
         {
-          command: spec.command,
-          args: spec.args,
+          ...("url" in spec
+            ? {
+                url: spec.url,
+                transport: spec.transport,
+                ...(spec.headers === undefined
+                  ? {}
+                  : { headers: checkReferences(source, ["servers", name], spec.headers, "headers") }),
+              }
+            : { command: spec.command, args: spec.args }),
           ...(spec.env === undefined
             ? {}
             : { env: checkReferences(source, ["servers", name], spec.env) }),
           ...(spec.provenance === undefined ? {} : { provenance: spec.provenance }),
-        },
+          ...(spec.trust_annotations === undefined ? {} : { trustAnnotations: spec.trust_annotations }),
+        } satisfies ServerSpec,
       ]),
     ),
     tools: parsed.data.tools.map(withGate),

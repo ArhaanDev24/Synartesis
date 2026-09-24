@@ -1016,3 +1016,64 @@ tools:
     expect(permanent).toContain("cannot be undone");
   });
 });
+
+describe("a tool no rule mentions, that its server marks read-only", () => {
+  const policy = (extra: string): Manifest =>
+    parseManifest(
+      `version: 1
+servers:
+  crm:
+    command: node
+    args: []
+${extra}tools:
+  - match: "crm.send_email"
+    class: irreversible
+    gate: always
+`,
+      "manifest.yaml",
+    );
+  const lookUp = { name: "get_customer", arguments: { id: "c_001" } };
+
+  it("is read as a read instead of being held", async () => {
+    const active = await session({ realGate: true, manifest: policy("") });
+    await active.client.listTools();
+    const read = await active.client.callTool(lookUp);
+    expect(read.isError).toBeFalsy();
+    const row = active.journal.getActions(active.runId).find((action) => action.tool === "get_customer");
+    expect(row?.class).toBe("readonly");
+
+    // The mark only ever loosens a read. A tool the server does not mark
+    // read-only, with no rule, is held exactly as before.
+    const unmarked = await active.client
+      .callTool({ name: "delete_customer", arguments: { id: "c_001" } })
+      .then(() => "went through", (error: unknown) => String(error));
+    expect(unmarked).toContain("there is no rule for crm.delete_customer");
+  });
+
+  it("is held when the policy says not to trust the server's marks", async () => {
+    const active = await session({
+      realGate: true,
+      manifest: parseManifest(
+        "version: 1\nservers:\n  crm:\n    command: node\n    trust_annotations: false\n",
+        "manifest.yaml",
+      ),
+    });
+    await active.client.listTools();
+    const held = await active.client
+      .callTool(lookUp)
+      .then(() => "went through", (error: unknown) => String(error));
+    expect(held).toContain("holding this call");
+  });
+
+  it("is held on a pinned server, where every tool is vouched for by hand", async () => {
+    const active = await session({
+      realGate: true,
+      manifest: policy('pins:\n  crm:\n    send_email: "sha256:any"\n'),
+    });
+    await active.client.listTools();
+    const held = await active.client
+      .callTool(lookUp)
+      .then(() => "went through", (error: unknown) => String(error));
+    expect(held).toContain("holding this call");
+  });
+});

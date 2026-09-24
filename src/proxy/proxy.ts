@@ -30,6 +30,7 @@ import type { Denial, Journal } from "../journal/journal.js";
 import type { Logger } from "../logging.js";
 import {
   createPolicyResolver,
+  type PolicyMatch,
   type PolicyResolver,
 } from "../manifest/match.js";
 import { withIdempotencyKey } from "../idempotency.js";
@@ -110,7 +111,14 @@ function ago(at: string): string {
  */
 const PassthroughResult = z.looseObject({});
 const ToolList = z.looseObject({
-  tools: z.array(z.looseObject({ name: z.string() })),
+  tools: z.array(
+    z.looseObject({
+      name: z.string(),
+      // Only the one mark this reads. Anything else a server says passes
+      // through untouched, and a malformed value reads as no mark at all.
+      annotations: z.looseObject({ readOnlyHint: z.unknown().optional() }).optional().catch(undefined),
+    }),
+  ),
   nextCursor: z.string().optional(),
 });
 const PromptList = z.looseObject({
@@ -369,8 +377,44 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
   const { upstreams, manifest, journal } = options;
   const router = createRouter(upstreams, manifest);
   const policies: PolicyResolver = createPolicyResolver(manifest);
+  // What each server said about its own tools, the last time they were
+  // listed. A client lists before it calls; one that does not gets the
+  // fail-closed answer, which is the safe direction to be wrong in.
+  const markedReadOnly = new Set<string>();
 
   const log = options.logger;
+
+  /**
+   * A tool no rule mentions, that its server marks read-only, is read as a
+   * read rather than held.
+   *
+   * Holding every unmentioned tool is the safe default and the most annoying
+   * one: a server update that adds a search tool held every search until
+   * somebody wrote a rule. In the policies proven against real servers, the
+   * server's own mark agreed with the hand-written reads every time.
+   *
+   * It only ever relaxes a hold on a read -- a destructive mark never loosens
+   * anything, and a rule always wins over the mark. The MCP specification
+   * says annotations are untrusted unless they come from a trusted server;
+   * the trust relied on here is that this is a server somebody chose to
+   * connect. `trust_annotations: false` withdraws it, and so does pinning:
+   * a pinned server is one whose every tool somebody has vouched for by hand.
+   */
+  const trusting = (found: PolicyMatch, server: string, tool: string): PolicyMatch => {
+    const spec = manifest.servers[server];
+    if (
+      found.matched ||
+      spec?.trustAnnotations === false ||
+      manifest.pins?.[server] !== undefined ||
+      !markedReadOnly.has(qualify(server, tool))
+    ) {
+      return found;
+    }
+    return {
+      policy: { match: qualify(server, tool), class: "readonly", gate: "never", refusal: "uncertain" },
+      matched: false,
+    };
+  };
 
   const gate = options.gate ?? createRetryGate(journal, options.approveHint, options.notify);
 
@@ -563,6 +607,12 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             return { items: page.tools, nextCursor: page.nextCursor };
           });
           for (const tool of items) {
+            const qualified = qualify(upstream.name, tool.name);
+            if (tool.annotations?.readOnlyHint === true) {
+              markedReadOnly.add(qualified);
+            } else {
+              markedReadOnly.delete(qualified);
+            }
             tools.push({
               ...compatible(tool, (dialect) => {
                 log?.warn(
@@ -595,7 +645,11 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         );
       }
 
-      const { policy, matched } = policies.resolve(qualify(route.upstream.name, route.tool));
+      const { policy, matched } = trusting(
+        policies.resolve(qualify(route.upstream.name, route.tool)),
+        route.upstream.name,
+        route.tool,
+      );
       const args = request.params.arguments ?? {};
       // Counted from here, not from the forward call: the pre-read is part of
       // the action, and a shutdown that aborts it blocks a legitimate write.
@@ -1150,8 +1204,11 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           });
           return result;
         } catch (error: unknown) {
-          const disconnected = isDisconnected(error);
-          if (neverDispatched(error)) {
+          // A hosted server can say which failures never reached the tool;
+          // a process on a pipe cannot, and falls back to reading the error.
+          const kind = route.upstream.classify?.(error);
+          const disconnected = isDisconnected(error) || kind === "lost";
+          if (neverDispatched(error) || kind !== undefined) {
             // Evidence, not absence of it: there was no transport to write to,
             // or the far end rejected the envelope before any handler ran.
             journal.markFailed(pending.actionId, describe(error));

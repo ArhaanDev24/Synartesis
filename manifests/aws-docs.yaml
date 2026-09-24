@@ -1,0 +1,26 @@
+# Policy for awslabs.aws-documentation-mcp-server.
+#
+# Written against the build current in September 2026 from the server's own tools/list.
+#
+# Reads AWS's public documentation. Nothing here touches an AWS account.
+#
+# A tool a later version adds is held until a rule says what it does.
+version: 1
+
+servers:
+  aws-docs:
+    command: uvx
+    args: ["awslabs.aws-documentation-mcp-server@latest"]
+    provenance: live
+
+tools:
+  - match: "aws-docs.read_documentation"
+    class: readonly
+  - match: "aws-docs.read_sections"
+    class: readonly
+  - match: "aws-docs.search_table"
+    class: readonly
+  - match: "aws-docs.search_documentation"
+    class: readonly
+  - match: "aws-docs.recommend"
+    class: readonly

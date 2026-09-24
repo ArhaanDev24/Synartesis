@@ -460,3 +460,39 @@ describe("what a started server inherits", () => {
     }
   });
 });
+
+describe("a template written the way another tool spells it", () => {
+  const policy = (value: string): string => `version: 1
+servers:
+  crm:
+    command: node
+tools:
+  - match: "crm.update_customer"
+    class: reversible
+    snapshot:
+      tool: "crm.get_customer"
+      args:
+        id: "$.id"
+      absent_when: "no customer"
+    inverse:
+      tool: "crm.update_customer"
+      args:
+        id: ${value}
+`;
+
+  it("refuses {{args.id}}, which was sent to the server as those characters", () => {
+    const error = expectRejection(policy('"{{args.id}}"'));
+    expect(error.message).toContain('write "$.id" instead');
+    expect(error.message).toContain(":16");
+  });
+
+  it("refuses ${args.id} with the line it is on and the spelling that works", () => {
+    const error = expectRejection(policy('"${snapshot.id}"'));
+    expect(error.message).toContain('write "$snapshot.id" instead');
+    expect(error.message).toContain(":16");
+  });
+
+  it("still loads the spelling that works", () => {
+    expect(() => parseManifest(policy('"$.id"'), "manifest.yaml")).not.toThrow();
+  });
+});

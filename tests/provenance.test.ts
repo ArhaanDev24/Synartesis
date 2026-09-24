@@ -100,6 +100,13 @@ describe("adopting a bundled policy carries the claim with it", () => {
     );
   });
 
+  it("knows the two browsers, by the package a client entry names", () => {
+    const playwright = knownPolicyFor("npx", ["-y", "@playwright/mcp@latest"]);
+    expect(playwright?.name).toBe("playwright");
+    expect(playwright?.provenance).toBe("live");
+    expect(knownPolicyFor("npx", ["chrome-devtools-mcp@latest", "--headless"])?.name).toBe("chrome-devtools");
+  });
+
   it("is undefined for a server nothing ships for", () => {
     expect(knownPolicyFor("node", ["some-other-server.js"])).toBeUndefined();
   });

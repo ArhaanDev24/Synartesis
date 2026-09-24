@@ -80,6 +80,7 @@ import {
   ConfigError,
   discover,
   isClientId,
+  LOOKED_FOR,
   type ClientId,
   type ConfigSite,
 } from "./install/clients.js";
@@ -93,7 +94,7 @@ const COMMANDS = `
                                                   undo -- all in one place, with
                                                   the arrow keys. Everything
                                                   below can be done from it.
-  synartesis install [--client <name>] [--dry-run] [--print]
+  synartesis install [--client <name>] [--remote] [--dry-run] [--print]
   synartesis uninstall [--client <name>]
   synartesis status
   synartesis init <server> -- <command> [args...]  [--manifest <path>]
@@ -119,9 +120,12 @@ const COMMANDS = `
                           [--manifest <path>] [--journal <path>]
 
 install is the short way in: it finds what Claude Code, Claude Desktop,
-Cursor or Codex already list, writes a policy covering all of it -- using the ones that
-ship where they fit -- and points each entry at the proxy. The original config
+Cursor, Codex, Gemini CLI, Copilot CLI, Antigravity and Devin Desktop (or
+Windsurf) already list, writes a policy covering all of it -- using the ones
+that ship where they fit -- and points each entry at the proxy. The original config
 is copied aside first, and uninstall puts it back. status says what is covered.
+A hosted server (a url rather than a command) is covered only with --remote,
+through mcp-remote, which opens your browser to sign in.
 
 desktop opens the window, if it is installed. It is a separate download --
 shipping it through npm would put a browser engine inside every install of
@@ -153,7 +157,8 @@ undo stops when somebody has changed the resource since, rather than writing
 over them. Three ways past that, and it prints all three: leave it, put the
 resource back as the run left it and --replan, or --force to overwrite.
 
-  --client    claude-code, claude-desktop, cursor or codex; all by default
+  --client    claude-code, claude-desktop, cursor, codex, gemini-cli,
+              copilot-cli, antigravity, devin or windsurf; all by default
   --print     show the entries install would write, and write nothing
   --full      show every argument, snapshot and inverse in full, nothing elided
   --live      read each resource as it is now and say what has changed since
@@ -412,6 +417,23 @@ async function runCheck(argv: readonly string[]): Promise<number> {
     }
   }
 
+  // A header written out in full is almost always a token sitting in a file
+  // that gets committed and shared. Said, not refused: a public key for a
+  // public server is a real case.
+  for (const [name, spec] of Object.entries(manifest.servers)) {
+    for (const [header, value] of Object.entries(spec.url === undefined ? {} : (spec.headers ?? {}))) {
+      if (!value.includes("${")) {
+        out("");
+        for (const line of wrapped(
+          `${name}'s ${header} header is written into the policy itself. If it is a token, move it to the client entry's env and write "\${NAME}" here instead.`,
+          74,
+        )) {
+          out(`  ${style.accent(line)}`);
+        }
+      }
+    }
+  }
+
   const upstreams: Upstream[] = [];
   // Every tool each server offers, kept rather than discarded. verify reads
   // the same list to check the policies against the servers; reading it twice
@@ -535,13 +557,15 @@ async function runInstall(argv: readonly string[]): Promise<number> {
   if (sites.length === 0) {
     out("");
     out(`  ${style.quiet("No MCP client config was found on this machine.")}`);
-    out(`  ${style.quiet("Looked for Claude Code, Claude Desktop, Cursor and Codex.")}`);
+    out(`  ${style.quiet(LOOKED_FOR)}`);
     out("");
     return 0;
   }
 
   const invoker = invokerFor(version(), fileURLToPath(import.meta.url));
-  const { plans, yaml } = await planInstall(sites, manifestPath, invoker);
+  const { plans, yaml } = await planInstall(sites, manifestPath, invoker, undefined, {
+    remote: argv.includes("--remote"),
+  });
   const total = plans.reduce((sum, plan) => sum + plan.servers.length, 0);
 
   out("");
@@ -568,6 +592,25 @@ async function runInstall(argv: readonly string[]): Promise<number> {
         out(
           `    ${" ".repeat(18)} ${style.accent("never run against the real server -- check it before trusting undo")}`,
         );
+      }
+      if (server.direct !== undefined) {
+        for (const line of [
+          `hosted at ${server.direct}, reached directly with the headers your`,
+          "client gave it. They now sit in this entry's env; the policy names them.",
+        ]) {
+          out(`    ${" ".repeat(18)} ${style.quiet(line)}`);
+        }
+      }
+      // Who holds the sign-in is the first thing to know about a bridge.
+      if (server.bridged !== undefined) {
+        for (const line of [
+          `hosted at ${server.bridged}, reached through mcp-remote,`,
+          "which signs you in and keeps that sign-in itself; synartesis never sees it.",
+          "Hosted tools are named differently from local packages, so no shipped",
+          "policy applies: its writes are held until you write rules for them.",
+        ]) {
+          out(`    ${" ".repeat(18)} ${style.quiet(line)}`);
+        }
       }
     }
     for (const skip of plan.skipped) {
@@ -703,6 +746,8 @@ async function connectThese(
     manifestPath,
     invoker,
     (site, name) => wanted.get(`${site.path}${site.scope}`)?.has(name) === true,
+    // Picked by name from the list, which is the asking.
+    { remote: true },
   );
   const applied = applyInstall(plans, manifestPath, yaml);
   const count = applied.reduce((sum, entry) => sum + entry.servers.length, 0);
@@ -737,7 +782,7 @@ function runStatus(argv: readonly string[]): number {
     const groups = scan(journal, process.cwd());
     if (groups.length === 0) {
       out(`  ${style.quiet("No MCP client config found.")}`);
-      out(`  ${style.quiet("Looked for Claude Code, Claude Desktop, Cursor and Codex.")}`);
+      out(`  ${style.quiet(LOOKED_FOR)}`);
       out("");
       return 0;
     }
@@ -2623,6 +2668,8 @@ const FLAGS = new Set([
   "--force",
   "--yes",
   "--older-than",
+  // install: cover hosted servers too, through mcp-remote.
+  "--remote",
   // notify: send one to see whether they reach you.
   "--test",
   // approve without a terminal, from a script; recorded as unattended.

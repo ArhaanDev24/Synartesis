@@ -1,0 +1,20 @@
+# Policy for mcp-server-fetch.
+#
+# Written against 1.30.0 from the server's own tools/list.
+#
+# It fetches a URL and hands back what is there. A GET can still reach
+# something that changes state on being read -- that is the page's doing, and
+# no policy here can see it.
+#
+# A tool a later version adds is held until a rule says what it does.
+version: 1
+
+servers:
+  fetch:
+    command: uvx
+    args: ["mcp-server-fetch"]
+    provenance: live
+
+tools:
+  - match: "fetch.fetch"
+    class: readonly

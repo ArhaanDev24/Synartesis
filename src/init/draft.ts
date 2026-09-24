@@ -16,8 +16,18 @@ export interface Draft {
 
 export interface DraftOptions {
   readonly name: string;
+  /** How to start it. Ignored when `remote` is given. */
   readonly command: string;
   readonly args: readonly string[];
+  /**
+   * A hosted server instead, reached at a url. Its headers are written into
+   * the policy as `${VAR}` references, and the values come from `env`.
+   */
+  readonly remote?: {
+    readonly url: string;
+    readonly transport: "auto" | "http" | "sse";
+    readonly headers: Readonly<Record<string, string>>;
+  };
   /**
    * The environment and directory the client gives this server, when a client
    * entry is being drafted. Without them a server that authenticates through
@@ -157,7 +167,9 @@ function adopt(
 export async function draftManifest(options: DraftOptions): Promise<Draft> {
   const upstream = await connectUpstream(
     options.name,
-    { command: options.command, args: options.args },
+    options.remote === undefined
+      ? { command: options.command, args: options.args }
+      : { ...options.remote },
     {
       env: options.env === undefined ? { kind: "inherit" } : { kind: "client", env: options.env },
       stderr: "capture",
@@ -197,7 +209,9 @@ export async function draftManifest(options: DraftOptions): Promise<Draft> {
     );
   }
 
-  const known = knownPolicyFor(options.command, options.args);
+  // Hosted servers name their tools differently from the packages these
+  // policies were written for, so none is adopted for one.
+  const known = options.remote === undefined ? knownPolicyFor(options.command, options.args) : undefined;
 
   // Carried into the file being written, not just reported here. A warning
   // that lived only in the bundled copy would go quiet the moment the policy
@@ -215,12 +229,24 @@ export async function draftManifest(options: DraftOptions): Promise<Draft> {
           `    provenance: ${known.provenance}`,
         ];
 
-  const server = [
-    `  ${options.name}:`,
-    `    command: ${quote(options.command)}`,
-    `    args: [${options.args.map(quote).join(", ")}]`,
-    ...claim,
-  ].join("\n");
+  const reach =
+    options.remote === undefined
+      ? [`    command: ${quote(options.command)}`, `    args: [${options.args.map(quote).join(", ")}]`]
+      : [
+          `    url: ${quote(options.remote.url)}`,
+          `    transport: ${options.remote.transport}`,
+          ...(Object.keys(options.remote.headers).length === 0
+            ? []
+            : [
+                `    # Names, not values: each is filled in from the client entry's env`,
+                `    # when the server is reached, so the token never lands in this file.`,
+                `    headers:`,
+                ...Object.entries(options.remote.headers).map(
+                  ([key, value]) => `      ${quote(key)}: ${quote(value)}`,
+                ),
+              ]),
+        ];
+  const server = [`  ${options.name}:`, ...reach, ...claim].join("\n");
 
   const adopted = known === undefined ? undefined : adopt(known, options.name, tools);
   const policies =

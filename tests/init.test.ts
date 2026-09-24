@@ -60,7 +60,7 @@ describe("drafting a manifest", () => {
     const yaml = (await draftManifest({ name: "crm", command: "node", args: [FIXTURE] })).yaml;
     const manifest = parseManifest(yaml, "drafted.yaml");
     expect(manifest.servers["crm"]?.command).toBe("node");
-    expect(manifest.servers["crm"]?.args).toEqual([FIXTURE]);
+    expect(manifest.servers["crm"]).toMatchObject({ args: [FIXTURE] });
   });
 
   it("leaves each tool's description in the file so the author knows what it does", async () => {

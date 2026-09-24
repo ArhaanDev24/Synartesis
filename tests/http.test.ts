@@ -131,7 +131,9 @@ describe("a session whose client vanished", () => {
     // Then abandoned, with no DELETE and no close.
     await new Promise((resolve) => setTimeout(resolve, 2600));
     const late = await post(port, { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} }, TOKEN, session);
-    expect(late.status).toBe(400);
-    expect(await late.text()).toMatch(/no such session/i);
+    // 404, as the specification asks of an ended session: a client reads it
+    // as "start a new one", where a 400 reads as a malformed request.
+    expect(late.status).toBe(404);
+    expect(await late.text()).toMatch(/session has ended/i);
   });
 });

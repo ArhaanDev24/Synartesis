@@ -120,8 +120,8 @@ async function bench(options: { refuse?: boolean } = {}): Promise<Bench> {
 
   const manifest = loadManifest("manifests/git.yaml");
   const server = manifest.servers["git"];
-  if (server === undefined) {
-    throw new Error("the shipped git policy no longer declares a `git` server");
+  if (server?.url !== undefined || server === undefined) {
+    throw new Error("the shipped git policy no longer declares a local `git` server");
   }
   const upstream: Upstream = await connectStdioUpstream({
     name: "git",

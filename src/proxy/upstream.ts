@@ -1,9 +1,14 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport, SseError } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  StreamableHTTPClientTransport,
+  StreamableHTTPError,
+} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import { UpstreamError } from "../errors.js";
-import type { ServerSpec } from "../manifest/types.js";
-import { upstreamEnv, type EnvSource } from "./environment.js";
+import { isRemote, type RemoteServerSpec, type ServerSpec } from "../manifest/types.js";
+import { expandReferences, upstreamEnv, type EnvSource } from "./environment.js";
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -47,6 +52,18 @@ export interface Upstream {
    * nothing to respawn.
    */
   reconnect?(): Promise<void>;
+  /**
+   * What a failed request says about whether it reached the tool, where the
+   * transport can tell. The proxy's own reading of failures was written for a
+   * process on a pipe; over HTTP an expired token arrives as a 401, and read
+   * as "outcome unknown" it would leave a row that blocks undoing the whole
+   * session, for a call the server refused at the door.
+   *
+   * "not-sent": refused before any handler ran. "lost": the session is gone,
+   * which also means not handled, and a new one is needed. Anything else is
+   * left to the ordinary reading, which treats it as unknown.
+   */
+  classify?(error: unknown): "not-sent" | "lost" | undefined;
   close(): Promise<void>;
 }
 
@@ -195,6 +212,9 @@ export async function connectUpstream(
   },
 ): Promise<Upstream> {
   const env = upstreamEnv(name, spec, options.env);
+  if (isRemote(spec)) {
+    return await connectRemoteUpstream(name, spec, (variable) => env?.[variable] ?? process.env[variable]);
+  }
   return await connectStdioUpstream({
     name,
     command: spec.command,
@@ -271,4 +291,106 @@ async function start(spec: UpstreamSpec): Promise<{ client: Client }> {
   }
 
   return { client };
+}
+
+/**
+ * A hosted server, over Streamable HTTP or the older SSE transport.
+ *
+ * Headers are filled in here, from the same environment a local server would
+ * be given, so the policy holds `${GITHUB_TOKEN}` and never the token.
+ *
+ * Redirects are refused. A redirect to another origin drops Authorization
+ * but not a custom header like X-API-Key, so following one could hand a key
+ * to whoever the first server pointed at.
+ */
+export async function connectRemoteUpstream(
+  name: string,
+  spec: RemoteServerSpec,
+  lookup: (name: string) => string | undefined,
+): Promise<Upstream> {
+  const headers: Record<string, string> = {};
+  for (const [key, value] of Object.entries(spec.headers ?? {})) {
+    headers[key] = expandReferences(name, key, value, lookup);
+  }
+  const url = new URL(spec.url);
+  const requestInit: RequestInit = { headers, redirect: "error" };
+  const open = async (kind: "http" | "sse"): Promise<Client> => {
+    const client = new Client({ ...PROXY_CLIENT_INFO });
+    if (kind === "http") {
+      // The class types sessionId as string | undefined, the interface as an
+      // optional string, and exactOptionalPropertyTypes reads those as
+      // different. They are the same at run time; the SDK's own tests connect
+      // it exactly like this.
+      // @ts-expect-error -- see above: an SDK typing gap, not a runtime one.
+      await client.connect(new StreamableHTTPClientTransport(url, { requestInit }));
+    } else {
+      // Deprecated, and still what some hosted servers speak; the SDK's own
+      // note says clients may need both during the migration.
+      // eslint-disable-next-line @typescript-eslint/no-deprecated
+      await client.connect(new SSEClientTransport(url, { requestInit }));
+    }
+    return client;
+  };
+
+  // Which transport answers is settled once, on the first connect. The SSE
+  // fallback is taken only where the server said it does not speak the newer
+  // one -- never on a 401 or 403, which would hide the real problem and send
+  // the token a second time to find out the same thing.
+  let kind: "http" | "sse" = spec.transport === "sse" ? "sse" : "http";
+  let current: Client;
+  try {
+    current = await open(kind);
+  } catch (error: unknown) {
+    const code = statusOf(error);
+    if (spec.transport === "auto" && (code === 400 || code === 404 || code === 405)) {
+      kind = "sse";
+      try {
+        current = await open(kind);
+      } catch (fallback: unknown) {
+        throw new UpstreamError(name, "connect", fallback);
+      }
+    } else {
+      throw new UpstreamError(name, "connect", refusal(error) ?? error);
+    }
+  }
+
+  return {
+    name,
+    get client(): Client {
+      return current;
+    },
+    async reconnect(): Promise<void> {
+      await current.close().catch(() => undefined);
+      current = await open(kind);
+    },
+    classify(error: unknown): "not-sent" | "lost" | undefined {
+      const code = statusOf(error);
+      if (code === undefined || code < 400 || code >= 500) {
+        return undefined;
+      }
+      // A session the server no longer knows. The request was not handled;
+      // the next one needs a new session.
+      return code === 404 ? "lost" : "not-sent";
+    },
+    close: async (): Promise<void> => {
+      await current.close();
+    },
+  };
+}
+
+/** The HTTP status a transport failed with, when it failed with one. */
+function statusOf(error: unknown): number | undefined {
+  if (error instanceof StreamableHTTPError || error instanceof SseError) {
+    return typeof error.code === "number" && error.code > 0 ? error.code : undefined;
+  }
+  return undefined;
+}
+
+/** A refusal at the door, in words, rather than the transport's own. */
+function refusal(error: unknown): string | undefined {
+  const code = statusOf(error);
+  if (code === 401 || code === 403) {
+    return `the server refused the credentials it was given (HTTP ${String(code)}); check the token its headers name`;
+  }
+  return undefined;
 }

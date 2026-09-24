@@ -132,6 +132,11 @@ function proxyEntry(
 ): ServerEntry {
   const command = { command: invoker.command, args: [...invoker.args] };
   return {
+    // What the client keeps about a server besides how to start it: Copilot
+    // CLI's `tools` list, Gemini CLI's `trust` and timeout, a stdio `type`.
+    // Dropped, a client that requires one would stop offering the server.
+    // Not the ways of reaching it, which are all replaced by the proxy.
+    ...Object.fromEntries(Object.entries(original).filter(([key, value]) => kept(key, value))),
     ...command,
     args: [...command.args, "--manifest", resolve(manifestPath), "--server", server],
     // The agent's environment, not ours: the upstream is started by the proxy
@@ -140,6 +145,16 @@ function proxyEntry(
     ...(original.env === undefined ? {} : { env: original.env }),
     ...(original.cwd === undefined ? {} : { cwd: original.cwd }),
   };
+}
+
+/** Starting and addressing keys, which the proxy's entry replaces. */
+const REPLACED = new Set(["command", "args", "env", "cwd", "url", "serverUrl", "httpUrl", "headers"]);
+
+function kept(key: string, value: unknown): boolean {
+  if (key === "type") {
+    return value === "stdio" || value === "local";
+  }
+  return !REPLACED.has(key);
 }
 
 export function isWrapped(entry: ServerEntry): boolean {
@@ -164,6 +179,10 @@ export interface PlannedServer {
   readonly tools?: number;
   /** Already in the policy from an earlier install; only the entry changes. */
   readonly again?: boolean;
+  /** A hosted server, reached through mcp-remote at this url. */
+  readonly bridged?: string;
+  /** A hosted server the proxy reaches itself, with the client's headers. */
+  readonly direct?: string;
 }
 
 export interface SitePlan {
@@ -198,6 +217,66 @@ export function invokerFor(ourVersion: string, cliPath: string): Invoker {
   };
 }
 
+/** A hosted entry's headers, when it has any. */
+function headersOf(entry: ServerEntry): Readonly<Record<string, string>> | undefined {
+  const headers = entry["headers"];
+  if (typeof headers !== "object" || headers === null || Array.isArray(headers)) {
+    return undefined;
+  }
+  const text = Object.entries(headers).filter(
+    (pair): pair is [string, string] => typeof pair[1] === "string",
+  );
+  return text.length === 0 ? undefined : Object.fromEntries(text);
+}
+
+/**
+ * The environment variable a header's value moves into: `GITHUB_MCP_AUTHORIZATION`
+ * for github's Authorization. Named for the server so two servers' tokens
+ * cannot collide in one client's config.
+ */
+export function headerVariable(server: string, header: string): string {
+  const part = (text: string): string =>
+    text.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const name = `${part(server)}_MCP_${part(header)}`;
+  return /^[A-Z_]/.test(name) ? name : `S_${name}`;
+}
+
+/** Which transport the client said, in the words each uses for it. */
+function transportOf(site: ConfigSite, entry: ServerEntry): "auto" | "http" | "sse" {
+  if (entry.type === "sse") {
+    return "sse";
+  }
+  if (typeof entry["httpUrl"] === "string" || entry.type === "http" || entry.type === "streamable-http") {
+    return "http";
+  }
+  // Gemini CLI documents `url` as the SSE endpoint and `httpUrl` as the other.
+  if (site.client === "gemini-cli" && typeof entry.url === "string") {
+    return "sse";
+  }
+  return "auto";
+}
+
+/** The local process that reaches a hosted server. */
+export function bridgeFor(url: string): ServerEntry {
+  return { command: "npx", args: ["-y", "mcp-remote", url] };
+}
+
+/**
+ * Why a hosted server with no headers cannot be covered through mcp-remote
+ * here, if it cannot. (One with headers is reached directly instead: mcp-remote
+ * takes headers only on its command line, which would put a token in every
+ * process listing.)
+ */
+function unbridgeable(site: ConfigSite, entry: ServerEntry, remote: boolean): string | undefined {
+  if (site.format === "toml") {
+    return "hosted; covering one in Codex's config is not supported yet";
+  }
+  if (!remote) {
+    return "hosted; install --remote covers it through mcp-remote, which signs you in through your browser";
+  }
+  return undefined;
+}
+
 export async function planInstall(
   sites: readonly ConfigSite[],
   manifestPath: string,
@@ -210,6 +289,16 @@ export async function planInstall(
    * though only the chosen one was wrapped.
    */
   only?: (site: ConfigSite, name: string) => boolean,
+  options: {
+    /**
+     * Cover hosted servers too, through mcp-remote. Asked for rather than
+     * assumed: covering one starts it, which opens a browser to sign in, and
+     * runs a package from outside this one.
+     */
+    readonly remote?: boolean;
+    /** What starts the bridge; replaced only by tests, which have no network. */
+    readonly bridge?: (url: string) => ServerEntry;
+  } = {},
 ): Promise<{ readonly plans: readonly SitePlan[]; readonly yaml: string }> {
   let yaml = existsSync(manifestPath) ? readFileSync(manifestPath, "utf8") : undefined;
   const plans: SitePlan[] = [];
@@ -247,27 +336,67 @@ export async function planInstall(
     const planned: PlannedServer[] = [];
     const skipped: { name: string; why: string }[] = [];
 
-    for (const [name, entry] of Object.entries(servers)) {
+    for (const [name, original] of Object.entries(servers)) {
       if (only !== undefined && !only(site, name)) {
         continue;
       }
-      if (isWrapped(entry)) {
+      if (isWrapped(original)) {
         skipped.push({ name, why: "already covered" });
         continue;
       }
-      // Remote servers are addressed by url, not started as a process, and
-      // this proxy speaks stdio upstream. Saying so is better than wrapping
-      // one into something that cannot connect.
-      if (entry.command === undefined) {
-        skipped.push({ name, why: entry.url === undefined ? "no command to start" : "remote (http); stdio only today" });
+      // A hosted server is addressed by url rather than started, and this
+      // proxy starts its servers. mcp-remote is the bridge: a local process
+      // that speaks stdio on one side and the hosted server on the other, and
+      // does the sign-in itself -- every major hosted server wants OAuth, and
+      // it keeps its own tokens, so none of them passes through here.
+      // `url` in most clients; Antigravity and Devin say `serverUrl`, and
+      // Gemini CLI `httpUrl` for streaming. mcp-remote works out which.
+      const address = [original.url, original["serverUrl"], original["httpUrl"]].find(
+        (one): one is string => typeof one === "string",
+      );
+      const hosted = original.command === undefined && address !== undefined;
+      // With a token in its headers, reached directly: the proxy sends the
+      // same headers to the same address the client did, so nothing new is
+      // trusted and no browser opens. The values move into the wrapped
+      // entry's env, where the client already keeps secrets and fills in its
+      // own references; the policy names the variables.
+      const headers = headersOf(original);
+      const native =
+        hosted && headers !== undefined && site.format !== "toml"
+          ? {
+              url: address,
+              transport: transportOf(site, original),
+              headers: Object.fromEntries(
+                Object.keys(headers).map((header) => [header, `\${${headerVariable(name, header)}}`]),
+              ),
+              env: Object.fromEntries(
+                Object.entries(headers).map(([header, value]) => [headerVariable(name, header), value]),
+              ),
+            }
+          : undefined;
+      if (hosted && native === undefined) {
+        const why = unbridgeable(site, original, options.remote === true);
+        if (why !== undefined) {
+          skipped.push({ name, why });
+          continue;
+        }
+      }
+      const entry: ServerEntry =
+        native !== undefined
+          ? { ...original, env: { ...(original.env ?? {}), ...native.env } }
+          : hosted
+            ? (options.bridge ?? bridgeFor)(address)
+            : original;
+      if (entry.command === undefined && native === undefined) {
+        skipped.push({ name, why: "no command to start" });
         continue;
       }
-      if (entry.enabled === false) {
+      if (original.enabled === false || original.disabled === true) {
         skipped.push({ name, why: "switched off in the config" });
         continue;
       }
-      if (typeof entry["unreadable"] === "string") {
-        skipped.push({ name, why: `left alone: ${entry["unreadable"]}. Put args on one line, or wrap it by hand` });
+      if (typeof original["unreadable"] === "string") {
+        skipped.push({ name, why: `left alone: ${original["unreadable"]}. Put args on one line, or wrap it by hand` });
         continue;
       }
       // A manifest holds one server per name. Two clients listing a `github`
@@ -283,8 +412,12 @@ export async function planInstall(
       const again = [name, `${name}-${site.client}`].find((candidate) => {
         const spec = existing[candidate];
         const args = entry.args ?? [];
+        if (native !== undefined) {
+          return spec?.url === native.url && !pointedAt.has(candidate);
+        }
         return (
           spec !== undefined &&
+          spec.url === undefined &&
           !pointedAt.has(candidate) &&
           spec.command === entry.command &&
           spec.args.length === args.length &&
@@ -295,7 +428,7 @@ export async function planInstall(
         pointedAt.add(again);
         planned.push({
           name,
-          original: entry,
+          original,
           wrapped: proxyEntry(manifestPath, again, entry, invoker),
           again: true,
         });
@@ -316,8 +449,11 @@ export async function planInstall(
       try {
         draft = await draftManifest({
           name: key,
-          command: entry.command,
+          command: entry.command ?? "",
           args: [...(entry.args ?? [])],
+          ...(native === undefined
+            ? {}
+            : { remote: { url: native.url, transport: native.transport, headers: native.headers } }),
           // As the client would start it, so a server that needs its token to
           // list its tools is drafted rather than reported as broken.
           env: Object.fromEntries(
@@ -340,8 +476,10 @@ export async function planInstall(
       claimed.add(key);
       planned.push({
         name,
-        original: entry,
+        original,
         wrapped: proxyEntry(manifestPath, key, entry, invoker),
+        ...(hosted && native === undefined ? { bridged: address } : {}),
+        ...(native === undefined ? {} : { direct: native.url }),
         ...(draft.adopted === undefined
           ? {}
           : {

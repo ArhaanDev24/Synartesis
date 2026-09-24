@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { parseManifest } from "../src/manifest/load.js";
 import { createPolicyResolver } from "../src/manifest/match.js";
+import { knownPolicyFor } from "../src/init/known.js";
+
+/** Read from the directory, so a policy added later cannot be left out of these. */
+const SHIPPED = readdirSync("manifests")
+  .filter((file) => file.endsWith(".yaml"))
+  .map((file) => file.slice(0, -".yaml".length));
 
 describe("the manifests that ship with this", () => {
   it("never calls a move plainly reversible, because it is only sometimes", () => {
@@ -38,7 +44,7 @@ describe("the manifests that ship with this", () => {
     // undone for github, which has three snapshots of its own.
     process.env["GITHUB_PERSONAL_ACCESS_TOKEN"] = "test-token";
     process.env["MEMORY_FILE_PATH"] = "/tmp/memory.json";
-    for (const name of ["filesystem", "git", "github", "memory", "toy-crm"]) {
+    for (const name of SHIPPED) {
       const path = `manifests/${name}.yaml`;
       const manifest = parseManifest(readFileSync(path, "utf8"), path);
       for (const rule of manifest.tools) {
@@ -57,7 +63,7 @@ describe("the manifests that ship with this", () => {
     // file is still checked.
     process.env["GITHUB_PERSONAL_ACCESS_TOKEN"] = "test-token";
     process.env["MEMORY_FILE_PATH"] = "/tmp/memory.json";
-    for (const name of ["filesystem", "git", "github", "memory", "toy-crm"]) {
+    for (const name of SHIPPED) {
       const path = `manifests/${name}.yaml`;
       expect(() => parseManifest(readFileSync(path, "utf8"), path)).not.toThrow();
     }
@@ -131,6 +137,103 @@ describe("the github policy, against what v1.12 actually exposes", () => {
         const cls = resolver.resolve(`github.${tool}`).policy.class;
         expect(cls, tool).toBe(writesNamedLikeReads.has(tool) ? "irreversible" : "readonly");
       }
+    }
+  });
+});
+
+describe.each([
+  {
+    name: "playwright",
+    fixture: "fixtures/playwright-mcp-1.64.0-tools.txt",
+    held: ["browser_run_code_unsafe", "browser_evaluate", "browser_file_upload", "browser_drop"],
+  },
+  {
+    name: "chrome-devtools",
+    fixture: "fixtures/chrome-devtools-mcp-1.10.1-tools.txt",
+    held: ["evaluate_script", "upload_file"],
+  },
+])("the $name policy, against what the server actually exposes", ({ name, fixture, held }) => {
+  // Each line is a tool name and whether the server marks it read-only, from
+  // the real server's tools/list at the version the policy was written for.
+  const exposed = new Map(
+    readFileSync(fixture, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [tool = "", how = ""] = line.split(" ");
+        return [tool, how === "read"] as const;
+      }),
+  );
+  const path = `manifests/${name}.yaml`;
+  const manifest = parseManifest(readFileSync(path, "utf8"), path);
+  const resolver = createPolicyResolver(manifest);
+
+  it("never lets code or a file from your disk through without a person", () => {
+    // Recording rather than holding is right for a click. It is not for
+    // running code the agent wrote, or sending a file off this machine.
+    for (const tool of held) {
+      expect(exposed.has(tool), tool).toBe(true);
+      expect(resolver.resolve(`${name}.${tool}`).policy.gate, tool).toBe("always");
+    }
+  });
+
+  it("has a rule for every tool, so none is held by accident or let through by one", () => {
+    for (const tool of exposed.keys()) {
+      expect(resolver.resolve(`${name}.${tool}`).matched, tool).toBe(true);
+    }
+    for (const rule of manifest.tools) {
+      expect(rule.match.includes("*"), `${rule.match} is a pattern`).toBe(false);
+      expect(exposed.has(rule.match.slice(name.length + 1)), rule.match).toBe(true);
+    }
+  });
+
+  it("classes as a read exactly what the server marks read-only", () => {
+    for (const [tool, read] of exposed) {
+      expect(resolver.resolve(`${name}.${tool}`).policy.class === "readonly", tool).toBe(read);
+    }
+  });
+
+  it("records everything else as a call that cannot be undone", () => {
+    for (const [tool, read] of exposed) {
+      if (!read) {
+        expect(resolver.resolve(`${name}.${tool}`).policy.class, tool).toBe("irreversible");
+      }
+    }
+  });
+});
+
+describe("the read-only pack", () => {
+  // Each started for real and its tools/list read; every tool it offered is a
+  // read. Several do not mark their tools read-only, so before these every
+  // search was held.
+  const probed = readFileSync("fixtures/read-only-pack-tools.txt", "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [server = "", tool = ""] = line.split(" ");
+      return [server, tool] as const;
+    });
+
+  it("covers every tool each server offers, as a read", () => {
+    for (const [server, tool] of probed) {
+      const path = `manifests/${server}.yaml`;
+      const found = createPolicyResolver(parseManifest(readFileSync(path, "utf8"), path)).resolve(
+        `${server}.${tool}`,
+      );
+      expect(found.matched, `${server}.${tool}`).toBe(true);
+      expect(found.policy.class, `${server}.${tool}`).toBe("readonly");
+    }
+  });
+
+  it("is what install adopts for each", () => {
+    for (const [command, args, name] of [
+      ["uvx", ["mcp-server-fetch"], "fetch"],
+      ["npx", ["-y", "@brave/brave-search-mcp-server"], "brave"],
+      ["npx", ["-y", "exa-mcp-server"], "exa"],
+      ["npx", ["-y", "tavily-mcp@latest"], "tavily"],
+      ["uvx", ["awslabs.aws-documentation-mcp-server@latest"], "aws-docs"],
+    ] as const) {
+      expect(knownPolicyFor(command, args)?.name).toBe(name);
     }
   });
 });

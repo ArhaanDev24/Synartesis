@@ -1,0 +1,115 @@
+# Policy for chrome-devtools-mcp.
+#
+# Written against 1.10.1 from the server's own tools/list, read-only hints and
+# all.
+#
+# What playwright.yaml says holds here too. Nothing a browser does can be
+# undone, and holding every click made the server unusable, so interactions
+# are recorded rather than held: each is classed as a call that cannot be
+# undone, and written to the journal with its arguments.
+#
+# Two tools are still held. Running a script the agent wrote has the reach of
+# the page and everything it is signed in to, and an upload sends a file from
+# your disk to whoever runs the page. A tool this file does not mention is held
+# until a rule says otherwise.
+#
+# Only the tools the server marks read-only are classed as reads. The ones it
+# does not include screenshots, snapshots, traces and audits, and several of
+# those can write a file to disk when given a path. They are recorded, not
+# held.
+version: 1
+
+servers:
+  chrome-devtools:
+    command: npx
+    args: ["-y", "chrome-devtools-mcp@latest"]
+    provenance: live
+
+tools:
+  # --- reads: the tools the server itself marks read-only ------------------
+  - match: "chrome-devtools.list_pages"
+    class: readonly
+  - match: "chrome-devtools.select_page"
+    class: readonly
+  - match: "chrome-devtools.list_console_messages"
+    class: readonly
+  - match: "chrome-devtools.get_console_message"
+    class: readonly
+  - match: "chrome-devtools.list_network_requests"
+    class: readonly
+  - match: "chrome-devtools.get_css_styles"
+    class: readonly
+  - match: "chrome-devtools.performance_analyze_insight"
+    class: readonly
+  - match: "chrome-devtools.wait_for"
+    class: readonly
+
+  # --- held: each reaches past the page -------------------------------------
+  - match: "chrome-devtools.evaluate_script"
+    class: irreversible
+    gate: always
+  - match: "chrome-devtools.upload_file"
+    class: irreversible
+    gate: always
+
+  # --- recorded, not held ----------------------------------------------------
+  - match: "chrome-devtools.navigate_page"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.new_page"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.close_page"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.click"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.fill"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.fill_form"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.type_text"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.press_key"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.hover"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.drag"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.handle_dialog"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.emulate"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.resize_page"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.take_screenshot"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.take_snapshot"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.take_heapsnapshot"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.get_network_request"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.performance_start_trace"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.performance_stop_trace"
+    class: irreversible
+    gate: never
+  - match: "chrome-devtools.lighthouse_audit"
+    class: irreversible
+    gate: never

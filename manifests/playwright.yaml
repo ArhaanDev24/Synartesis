@@ -1,0 +1,106 @@
+# Policy for @playwright/mcp.
+#
+# Written against 1.64.0 from the server's own tools/list, read-only hints and
+# all.
+#
+# Nothing a browser does can be undone. There is no inverse for a click, a
+# submitted form or a page left behind. Holding every one of them made this
+# server unusable behind Synartesis, since an agent driving a page clicks
+# dozens of times a minute. So this policy records instead of holding: each
+# interaction is classed as a call that cannot be undone, so every screen says
+# so, and is written to the journal with its arguments. `show` gives you the
+# whole session afterwards. It does not ask before each one.
+#
+# Three tools are still held, because each reaches past the page. Running code
+# the agent wrote has the full reach of the browser context, and it is how a
+# page's contents become an arbitrary action. A file upload sends something
+# from your disk to whoever runs the page, and so does a drop, which carries
+# files too. A tool this file does not mention is held until a rule says
+# otherwise, the same as everywhere else, so a new tool in a later version is
+# not let through by accident.
+#
+# Recorded is not reversible. If a page is somewhere an agent's click could do
+# real harm -- your bank, a production admin panel -- this policy does not
+# protect you from that click. It tells you it happened.
+version: 1
+
+servers:
+  playwright:
+    command: npx
+    args: ["-y", "@playwright/mcp@latest"]
+    provenance: live
+
+tools:
+  # --- reads: the tools the server itself marks read-only ------------------
+  - match: "playwright.browser_snapshot"
+    class: readonly
+  - match: "playwright.browser_take_screenshot"
+    class: readonly
+  - match: "playwright.browser_console_messages"
+    class: readonly
+  - match: "playwright.browser_network_requests"
+    class: readonly
+  - match: "playwright.browser_network_request"
+    class: readonly
+  - match: "playwright.browser_find"
+    class: readonly
+  - match: "playwright.browser_wait_for"
+    class: readonly
+
+  # --- held: each reaches past the page -------------------------------------
+  - match: "playwright.browser_run_code_unsafe"
+    class: irreversible
+    gate: always
+  - match: "playwright.browser_evaluate"
+    class: irreversible
+    gate: always
+  - match: "playwright.browser_file_upload"
+    class: irreversible
+    gate: always
+  - match: "playwright.browser_drop"
+    class: irreversible
+    gate: always
+
+  # --- recorded, not held: what driving a page is ---------------------------
+  - match: "playwright.browser_navigate"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_navigate_back"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_click"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_type"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_fill_form"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_press_key"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_select_option"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_hover"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_drag"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_handle_dialog"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_tabs"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_resize"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_emulate_media"
+    class: irreversible
+    gate: never
+  - match: "playwright.browser_close"
+    class: irreversible
+    gate: never

@@ -8,7 +8,7 @@ import type { Provenance, ToolPolicy } from "../manifest/types.js";
  * Policies that already exist, for the servers most people start with.
  *
  * Writing a snapshot and an inverse for every write a server offers is the
- * whole barrier to getting anything out of this, and for these four that work
+ * whole barrier to getting anything out of this, and for these that work
  * is done and ships in manifests/. init was asking people to do it again from
  * scratch, fourteen TODOs at a time, against a file already in the package.
  *
@@ -22,6 +22,14 @@ const KNOWN: readonly { readonly marker: string; readonly manifest: string }[] =
   { marker: "server-memory", manifest: "memory" },
   { marker: "mcp-server-git", manifest: "git" },
   { marker: "server-git", manifest: "git" },
+  { marker: "@playwright/mcp", manifest: "playwright" },
+  { marker: "chrome-devtools-mcp", manifest: "chrome-devtools" },
+  // Servers that only read, so their whole policy is "let it look".
+  { marker: "mcp-server-fetch", manifest: "fetch" },
+  { marker: "brave-search-mcp-server", manifest: "brave" },
+  { marker: "exa-mcp-server", manifest: "exa" },
+  { marker: "tavily-mcp", manifest: "tavily" },
+  { marker: "aws-documentation-mcp-server", manifest: "aws-docs" },
 ];
 
 /** The bundled manifests, whether running from dist/ or from src/. */

@@ -17,7 +17,16 @@ import { readServers as readTomlServers, writeServers as writeTomlServers } from
  * one, so every write here is backed up first and lands by rename.
  */
 
-export type ClientId = "claude-code" | "claude-desktop" | "cursor" | "codex";
+export type ClientId =
+  | "claude-code"
+  | "claude-desktop"
+  | "cursor"
+  | "codex"
+  | "devin"
+  | "windsurf"
+  | "gemini-cli"
+  | "copilot-cli"
+  | "antigravity";
 
 /** A server entry as the client wrote it, with any keys we do not know kept. */
 export interface ServerEntry {
@@ -29,6 +38,8 @@ export interface ServerEntry {
   readonly url?: string;
   /** Some clients switch a server off in place rather than deleting it. */
   readonly enabled?: boolean;
+  /** Antigravity's way of saying the same. */
+  readonly disabled?: boolean;
   readonly [key: string]: unknown;
 }
 
@@ -52,11 +63,19 @@ const LABELS: Readonly<Record<ClientId, string>> = {
   "claude-desktop": "Claude Desktop",
   cursor: "Cursor",
   codex: "Codex",
+  devin: "Devin Desktop",
+  windsurf: "Windsurf",
+  "gemini-cli": "Gemini CLI",
+  "copilot-cli": "Copilot CLI",
+  antigravity: "Antigravity",
 };
 
 export function labelFor(client: ClientId): string {
   return LABELS[client];
 }
+
+/** Said when nothing was found, so a person can tell whether their client is one of these. */
+export const LOOKED_FOR = `Looked for ${Object.values(LABELS).slice(0, -1).join(", ")} and ${Object.values(LABELS).slice(-1).join("")}.`;
 
 /** Every client this knows how to find, for validating what somebody typed. */
 export const CLIENT_IDS: readonly ClientId[] = Object.keys(LABELS).filter(
@@ -86,10 +105,26 @@ function claudeDesktopPath(): string {
  *
  * Each client has its own syntax and each was read from the vendor's own
  * documentation. Claude Code: `${VAR}` and `${VAR:-default}`, and an unset
- * variable with no default is left as written. Cursor: `${env:VAR}`. A client
- * with no expansion leaves the text alone, as it would.
+ * variable with no default is left as written. Cursor: `${env:VAR}`. Devin
+ * Desktop, which Windsurf became: `${env:VAR}`, an unset one empty; the older
+ * Windsurf builds' `{{env:VAR}}` is read too, since nothing else would write
+ * it. Gemini CLI: `$VAR` and `${VAR}`, an unset one empty. Copilot CLI and
+ * Antigravity document none. A client with no expansion leaves the text
+ * alone, as it would.
  */
 export function expandForClient(client: ClientId, value: string): string {
+  if (client === "devin" || client === "windsurf") {
+    return value
+      .replace(/\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g, (_whole, name: string) => process.env[name] ?? "")
+      .replace(/\{\{env:([A-Za-z_][A-Za-z0-9_]*)\}\}/g, (_whole, name: string) => process.env[name] ?? "");
+  }
+  if (client === "gemini-cli") {
+    return value.replace(
+      /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g,
+      (_whole, braced: string | undefined, bare: string | undefined) =>
+        process.env[braced ?? bare ?? ""] ?? "",
+    );
+  }
   if (client === "claude-code") {
     return value.replace(
       /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g,
@@ -204,12 +239,31 @@ export function discover(cwd: string): readonly ConfigSite[] {
     });
   }
 
-  for (const [path, scope] of [
-    [join(resolve(cwd), ".cursor", "mcp.json"), "project"],
-    [join(home, ".cursor", "mcp.json"), "global"],
-  ] as const) {
+  // The rest keep an `mcpServers` map in JSON, as Cursor does. Every path is
+  // the vendor's own documented one, checked in September 2026.
+  const config = process.env["XDG_CONFIG_HOME"] ?? join(home, ".config");
+  const plain: readonly (readonly [ClientId, string, string])[] = [
+    ["cursor", join(resolve(cwd), ".cursor", "mcp.json"), "project"],
+    ["cursor", join(home, ".cursor", "mcp.json"), "global"],
+    // Windsurf is Devin Desktop now, which reads its own directory; an older
+    // Windsurf keeps the one it always had.
+    [
+      "devin",
+      platform() === "win32"
+        ? join(process.env["APPDATA"] ?? join(home, "AppData", "Roaming"), "devin", "mcp_config.json")
+        : join(config, "devin", "mcp_config.json"),
+      "global",
+    ],
+    ["windsurf", join(home, ".codeium", "windsurf", "mcp_config.json"), "global"],
+    ["gemini-cli", join(resolve(cwd), ".gemini", "settings.json"), "project"],
+    ["gemini-cli", join(home, ".gemini", "settings.json"), "global"],
+    ["copilot-cli", join(process.env["COPILOT_HOME"] ?? join(home, ".copilot"), "mcp-config.json"), "global"],
+    ["antigravity", join(resolve(cwd), ".agents", "mcp_config.json"), "workspace"],
+    ["antigravity", join(home, ".gemini", "config", "mcp_config.json"), "global"],
+  ];
+  for (const [client, path, scope] of plain) {
     if (existsSync(path)) {
-      sites.push({ client: "cursor", label: LABELS.cursor, format: "json", path, scope, at: ["mcpServers"] });
+      sites.push({ client, label: LABELS[client], format: "json", path, scope, at: ["mcpServers"] });
     }
   }
 

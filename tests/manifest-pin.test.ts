@@ -21,9 +21,13 @@ servers: { crm: { command: node, args: [] } }
 tools:
   - match: "crm.update_customer"
     class: reversible
+    snapshot:
+      tool: "crm.get_customer"
+      args: { id: "$.id" }
+      absent_when: "no customer"
     inverse:
       tool: "crm.update_customer"
-      args: { id: "{{args.id}}", plan: "{{before.plan}}" }
+      args: { id: "$.id", plan: "$snapshot.plan" }
 `;
 
 async function shapesOf(): Promise<readonly ToolShape[]> {

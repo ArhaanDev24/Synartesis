@@ -204,7 +204,10 @@ export async function runRead(
     // after it -- reads, writes, anything -- then failed with "Not connected"
     // for the rest of the session: one large file bricked the run. Reading is
     // safe to do again, so the server is started back up and asked once more.
-    if (!isDisconnected(error) || upstream.reconnect === undefined) {
+    // A hosted server's session can expire mid-run; that is the same "start
+    // again and ask once more" as a dead pipe.
+    const lost = isDisconnected(error) || upstream.classify?.(error) === "lost";
+    if (!lost || upstream.reconnect === undefined) {
       throw new SnapshotError(label, describe(error), { cause: error });
     }
     try {

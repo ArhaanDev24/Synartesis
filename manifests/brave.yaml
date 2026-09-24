@@ -1,0 +1,33 @@
+# Policy for @brave/brave-search-mcp-server.
+#
+# Written against 2.1.4 from the server's own tools/list.
+#
+# Every tool searches. The server does not mark them read-only, which is why
+# each search was held before this file existed.
+#
+# A tool a later version adds is held until a rule says what it does.
+version: 1
+
+servers:
+  brave:
+    command: npx
+    args: ["-y", "@brave/brave-search-mcp-server"]
+    provenance: live
+
+tools:
+  - match: "brave.brave_web_search"
+    class: readonly
+  - match: "brave.brave_local_search"
+    class: readonly
+  - match: "brave.brave_video_search"
+    class: readonly
+  - match: "brave.brave_image_search"
+    class: readonly
+  - match: "brave.brave_news_search"
+    class: readonly
+  - match: "brave.brave_summarizer"
+    class: readonly
+  - match: "brave.brave_llm_context"
+    class: readonly
+  - match: "brave.brave_place_search"
+    class: readonly

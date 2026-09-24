@@ -182,6 +182,13 @@ export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
           return;
         }
 
+        // A session this server has closed or never had. The specification
+        // asks for a 404 here, and a client reads that as "start a new
+        // session" -- a 400 reads as a bad request and is simply retried.
+        if (typeof sessionId === "string") {
+          refuse(res, 404, "that session has ended; start a new one with an initialize request");
+          return;
+        }
         const body: unknown =
           req.method === "POST" && raw.length > 0 ? JSON.parse(raw.toString("utf8")) : undefined;
         if (req.method !== "POST" || !isInitialize(body)) {
