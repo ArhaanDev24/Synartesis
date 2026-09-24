@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stands in for the real one during tests, so a held call in a test never
+# puts a notification on the screen of whoever runs the suite.
+exit 0

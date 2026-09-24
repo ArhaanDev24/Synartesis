@@ -1,3 +1,4 @@
+import { delimiter, resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
@@ -9,5 +10,15 @@ export default defineConfig({
     // The journal file and fixture stores are process-global; running test
     // files in parallel would race on them.
     fileParallelism: false,
+    // A held call now notifies the person, and many tests start a real proxy
+    // and hold a call. Two layers, because the processes they start do not all
+    // inherit the same things: the switch reaches anything spawned with this
+    // environment, and the stand-in notifiers reach anything started with the
+    // SDK's minimal one, which still carries PATH. Without these, running the
+    // suite put real notifications on the screen of whoever ran it.
+    env: {
+      SYNARTESIS_NOTIFY: "0",
+      PATH: `${resolve("tests/helpers/quiet-bin")}${delimiter}${process.env["PATH"] ?? ""}`,
+    },
   },
 });

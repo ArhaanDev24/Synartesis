@@ -333,3 +333,35 @@ describe("pruning a session that recorded how its servers started", () => {
     }
   });
 });
+
+describe("pruning a session somebody said no in", () => {
+  it("removes the denial along with the session instead of refusing", () => {
+    // denials references the action, which references the run. The same
+    // foreign key as above, for the same reason: a session where a person
+    // refused anything would otherwise never be pruned.
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-prune-denials-"));
+    const journal = openJournal(join(dir, "journal.db"));
+    try {
+      const runId = journal.beginRun("an-agent");
+      const held = journal.recordPending({
+        runId,
+        server: "crm",
+        tool: "send_email",
+        args: { to: "a@b.c" },
+        class: "irreversible",
+      });
+      journal.markGated(held.actionId);
+      expect(journal.denyByPerson(held.actionId, "arhaan", "wrong person")).toBe(true);
+      journal.endRun(runId, "complete");
+
+      const far = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const stale = journal.prunableRuns(far).map((run) => run.id);
+      expect(stale).toContain(runId);
+      expect(() => journal.deleteRuns(stale)).not.toThrow();
+      expect(journal.getRun(runId)).toBeUndefined();
+    } finally {
+      journal.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

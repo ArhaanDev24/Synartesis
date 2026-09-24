@@ -93,6 +93,7 @@ const bridge: Bridge = {
   stop: (id: string) => call("chat:stop", id),
 
   approve: (actionId: string) => call("gate:approve", actionId),
+  approveForAnHour: (actionId: string) => call("gate:approve-hour", actionId),
   deny: (actionId: string, why: string) => call("gate:deny", actionId, why),
 
   verify: (id: string) => call("undo:verify", id),

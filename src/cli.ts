@@ -12,8 +12,10 @@ if (NODE_MAJOR < 22) {
   process.exit(2);
 }
 
+import { platform } from "node:os";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { createInterface } from "node:readline/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,7 +34,10 @@ import {
   type RunTally,
 } from "./journal/journal.js";
 import { verifyAgainstServers, toolShapes } from "./manifest/verify.js";
-import { pinBlock, type ToolShape } from "./manifest/pin.js";
+import { allowAlways, PolicyEditError } from "./manifest/edit.js";
+import { fingerprint as pinFingerprint, pinBlock, type ToolShape } from "./manifest/pin.js";
+import { createPolicyResolver } from "./manifest/match.js";
+import { splitQualified } from "./manifest/types.js";
 import {
   describeStanding,
   LIVE_IS_NOT_RECOVERY,
@@ -50,6 +55,7 @@ import { rollback, type RollbackReport } from "./rollback/rollback.js";
 import { inspect, verdict, type Resource } from "./rollback/inspect.js";
 import { banner, counted, NOTHING_RECORDED_YET, rule, style } from "./style.js";
 import { findJournal, findManifest } from "./locate.js";
+import { canNotify, desktopNotifier } from "./notify.js";
 import {
   afterStatus,
   didYouMean,
@@ -106,7 +112,9 @@ const COMMANDS = `
   synartesis watch [--by <name>] [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
+  synartesis allow [<server.tool> --for <30m|2h> | --always | --stop]
   synartesis resolve [actionId] --applied|--failed [--by <name>] [--reason <text>]
+  synartesis notify --test
   synartesis undo [runId] [--to <seq>] [--dry-run] [--replan] [--force [--yes]]
                           [--manifest <path>] [--journal <path>]
 
@@ -158,6 +166,8 @@ resource back as the run left it and --replan, or --force to overwrite.
   --once      watch prints the current state and exits
   --json      machine-readable output for list, show and gates
   --dry-run   read current state and print the plan without changing anything
+  --unattended  approve with no terminal, from a script. Recorded as unattended,
+              so it can be told apart from a yes a person typed
   --applied   resolve: the call did land, though nothing recorded it
   --failed    resolve: the call never landed
   --replan    rebuild each undo from the current manifest, for a run recorded
@@ -239,6 +249,8 @@ const TAKES_VALUE = new Set([
   "--reason",
   "--older-than",
   "--client",
+  "--for",
+  "--confirm",
 ]);
 
 function positional(argv: readonly string[]): string[] {
@@ -1725,19 +1737,53 @@ function runGates(journal: Journal, asJson: boolean): number {
 }
 
 function runDecision(argv: readonly string[], journal: Journal, approving: boolean): number {
+  // A yes needs a person at a terminal. An agent with a shell -- Claude Code,
+  // Codex -- runs commands without one, and until 0.9 it was handed the exact
+  // approve command to relay, which it could simply run itself, recorded as
+  // whoever was logged in. The command no longer reaches the agent at all;
+  // this is the second, smaller half: an agent that finds the command anyway
+  // is refused. It is a speed bump, not a wall -- a process running as you can
+  // write the journal directly -- and the changelog says so. Denying needs no
+  // such check: a no never lets anything through.
+  //
+  // The message is read by whoever ran this, which may be the agent, so it
+  // does not name the way past; --help does.
+  const unattended = argv.includes("--unattended");
+  if (approving && !process.stdin.isTTY && !unattended) {
+    throw new UsageError(
+      "approve needs a person at a terminal, so that an agent with a shell cannot approve its own calls. " +
+        "Run it in your terminal, or answer it in synartesis watch. For approving from a script, see synartesis --help.",
+      false,
+    );
+  }
   const waiting = journal.listGated();
   const given = positional(argv)[1];
   // "unknown" is a poor thing to find in an audit trail when the machine knows
   // perfectly well who is logged in. --by still wins, for approving on behalf
-  // of someone else.
-  const by =
+  // of someone else. An approval given with no terminal says so, so it can be
+  // told apart from one a person typed.
+  const named =
     flag(argv, "--by") ?? process.env["USER"] ?? process.env["LOGNAME"] ?? "unknown";
+  const by = approving && unattended ? `${named} (unattended)` : named;
   const reason = flag(argv, "--reason") ?? "denied by operator";
 
   // Looked up among everything first, so an action that has already been
   // settled gets told what became of it rather than "no such action".
   if (given !== undefined) {
     const settled = journal.getAction(given);
+    // Changing your mind. A person's no stands against the agent's retries
+    // for an hour; approving the same row is how it is taken back, and the
+    // row goes back to waiting for the agent's next attempt as any approval
+    // does. Only a person's denial -- a spent approval is denied too, and
+    // reversing one of those would authorise a call a second time.
+    if (approving && settled?.status === "denied" && journal.reverseDenial(settled.id, by)) {
+      out(
+        `  ${style.accent("approved")} ${style.strong(`${settled.server}.${settled.tool}`)} ${style.quiet(settled.id)} ${style.quiet("(was denied)")}`,
+      );
+      out("");
+      hint({ why: "the agent can make that call again now, and it will go through" });
+      return 0;
+    }
     if (settled !== undefined && settled.status !== "gated") {
       process.stderr.write(
         `synartesis: ${given} is no longer awaiting approval (it is ${labelFor(settled)})\n`,
@@ -1759,7 +1805,7 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
   for (const action of targets) {
     const changed = approving
       ? journal.approve(action.id, by)
-      : journal.deny(action.id, by, reason);
+      : journal.denyByPerson(action.id, by, reason);
     if (!changed) {
       // A decision that lands after the action settled must not look like it
       // took effect.
@@ -1793,11 +1839,239 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
         () =>
           approving
             ? { why: "the agent can make that call again now, and it will go through" }
-            : { why: "the call was refused; the agent is told, and decides what to do next" },
+            : settled === 1
+              ? {
+                  why: "refused; if the agent asks again it is told you said no. Changed your mind?",
+                  run: `approve ${targets[0]?.id.slice(0, 8) ?? ""}`,
+                  needs: ["journal"],
+                }
+              : { why: "refused; if the agent asks again it is told you said no" },
       ),
     );
   }
   return failed === 0 ? 0 : 1;
+}
+
+/** The longest `allow --for` takes: a working day, not a standing policy. */
+const ALLOW_MAX_MINUTES = 24 * 60;
+
+function allowFor(given: string): number {
+  const found = /^(\d+)(m|h)$/.exec(given.trim());
+  const minutes = found === null ? NaN : Number(found[1]) * (found[2] === "h" ? 60 : 1);
+  if (!Number.isFinite(minutes) || minutes < 1 || minutes > ALLOW_MAX_MINUTES) {
+    throw new UsageError(
+      `--for takes minutes or hours up to a day, like 30m or 2h, not ${given}. For good, use --always.`,
+    );
+  }
+  return minutes;
+}
+
+/**
+ * `allow`: stop being asked about one tool, for a while or for good.
+ *
+ * Before this, "stop asking me" meant editing the policy by hand and
+ * restarting the client, in the middle of whatever the agent was doing -- so
+ * people approved the same harmless call over and over, which is exactly how
+ * an approval prompt becomes something clicked through without reading.
+ *
+ * --for is a row in the journal: no reload, in force on the next call, and it
+ * runs out by itself. --always edits the policy, keeps the tool's class, and
+ * takes effect when the client next starts the server. Neither says anything
+ * about a call whose outcome is unknown; that is still asked about.
+ *
+ * Granting needs a person at a terminal, as approving does. Taking one back
+ * never does: a no never lets anything through.
+ */
+async function runAllow(argv: readonly string[], journalPath: string): Promise<number> {
+  const given = positional(argv)[1];
+  const forFlag = flag(argv, "--for");
+  const always = argv.includes("--always");
+  const stop = argv.includes("--stop");
+  const now = new Date();
+
+  if (given === undefined) {
+    if (forFlag !== undefined || always || stop) {
+      throw new UsageError("allow needs the tool, as server.tool -- for example crm.send_email");
+    }
+    const journal = openJournalOrExplain(journalPath);
+    try {
+      const current = journal.listAllowances(now.toISOString());
+      out("");
+      if (current.length === 0) {
+        out(`  ${style.quiet("Nothing is being let through without asking.")}`);
+      }
+      for (const one of current) {
+        out(
+          `  ${style.strong(`${one.server}.${one.tool}`)}  ${style.quiet(`until ${shortTime(one.until, now)}, allowed by ${one.by}`)}`,
+        );
+      }
+      out("");
+      return 0;
+    } finally {
+      journal.close();
+    }
+  }
+
+  const named = splitQualified(given);
+  if (named === undefined) {
+    throw new UsageError(`${given} is not a tool name; write it as server.tool, for example crm.send_email`);
+  }
+  if ([forFlag !== undefined, always, stop].filter(Boolean).length !== 1) {
+    throw new UsageError(
+      `say how long: allow ${given} --for 1h, allow ${given} --always, or allow ${given} --stop`,
+    );
+  }
+  const who = flag(argv, "--by") ?? process.env["USER"] ?? process.env["LOGNAME"] ?? "unknown";
+
+  if (stop) {
+    const journal = openJournalOrExplain(journalPath);
+    try {
+      const stopped = journal.stopAllowance(named.server, named.tool, who, now.toISOString());
+      out(
+        stopped
+          ? `  ${style.accent("stopped")} ${style.strong(given)} ${style.quiet("is held again from its next call")}`
+          : `  ${style.quiet(`${given} was not being let through`)}`,
+      );
+      if (stopped) {
+        out(`  ${style.quiet("A rule written with --always stays in the policy; edit it there.")}`);
+      }
+      return 0;
+    } finally {
+      journal.close();
+    }
+  }
+
+  const unattended = argv.includes("--unattended");
+  const interactive = process.stdin.isTTY;
+  if (!interactive && !unattended) {
+    throw new UsageError(
+      "allow needs a person at a terminal, so that an agent with a shell cannot allow its own calls. " +
+        "Run it in your terminal. For allowing from a script, see synartesis --help.",
+      false,
+    );
+  }
+  const by = unattended ? `${who} (unattended)` : who;
+  const manifestPath = findManifest(flag(argv, "--manifest"));
+  const manifest = loadManifest(manifestPath);
+  const spec = manifest.servers[named.server];
+  if (spec === undefined) {
+    const near = didYouMean(named.server, Object.keys(manifest.servers));
+    throw new UsageError(
+      `${manifestPath} has no server called ${named.server}${near === undefined ? "" : `; did you mean ${near}?`}`,
+    );
+  }
+  const { policy } = createPolicyResolver(manifest).resolve(given);
+
+  if (forFlag !== undefined) {
+    const minutes = allowFor(forFlag);
+    const until = new Date(now.getTime() + minutes * 60_000).toISOString();
+    const journal = openJournalOrExplain(journalPath);
+    try {
+      journal.allow(named.server, named.tool, by, until);
+    } finally {
+      journal.close();
+    }
+    out("");
+    out(
+      `  ${style.accent("allowed")} ${style.strong(given)} ${style.quiet(`until ${shortTime(until, now)} -- its calls go out without asking, and are still recorded`)}`,
+    );
+    if (policy.gate !== "always" && policy.gate !== "on_write") {
+      out(`  ${style.quiet("(the policy was not holding it anyway)")}`);
+    } else if (policy.class === "irreversible") {
+      out(`  ${style.quiet("These cannot be undone. Nothing will ask before each one goes out.")}`);
+    }
+    out(`  ${style.quiet(`Takes effect on its next call. To end it sooner: synartesis allow ${given} --stop`)}`);
+    out("");
+    return 0;
+  }
+
+  // --always. The pin, only when the server is pinned and this tool is not:
+  // a rule that newly matches it would stop the proxy starting otherwise.
+  const text = readFileSync(manifestPath, "utf8");
+  const pins = manifest.pins?.[named.server];
+  let pin: string | undefined;
+  if (pins !== undefined && pins[named.tool] === undefined) {
+    const upstream = await startAsTheClientWould(manifestPath, named.server, spec);
+    try {
+      const shape = (await toolShapes(upstream)).find((tool) => tool.name === named.tool);
+      if (shape === undefined) {
+        throw new UsageError(`${named.server} has no tool called ${named.tool}`);
+      }
+      pin = pinFingerprint(shape.inputSchema);
+    } finally {
+      await upstream.close();
+    }
+  }
+  let edit;
+  try {
+    edit = allowAlways({
+      text,
+      file: manifestPath,
+      server: named.server,
+      tool: named.tool,
+      by,
+      date: now.toISOString().slice(0, 10),
+      ...(pin === undefined ? {} : { pin }),
+    });
+  } catch (error: unknown) {
+    if (error instanceof PolicyEditError) {
+      process.stderr.write(`synartesis: ${error.message}\n`);
+      return 1;
+    }
+    throw error;
+  }
+  if (edit.how === "already") {
+    out(`  ${style.quiet(`${given} is already let through by ${manifestPath}`)}`);
+    return 0;
+  }
+
+  // For good, on a tool that cannot be undone, is the one decision here that
+  // deserves more than a keypress: the name typed out, so it is read.
+  if (edit.policy.class === "irreversible") {
+    const confirmed = unattended
+      ? flag(argv, "--confirm")
+      : await ask(`  ${given} cannot be undone. Type its name to stop holding it for good: `);
+    if (confirmed?.trim() !== given) {
+      process.stderr.write(`synartesis: not confirmed, so ${manifestPath} was not changed\n`);
+      return 1;
+    }
+  }
+
+  // Written beside and moved into place, so a crash leaves the old policy or
+  // the new one and never half of each -- and refused if somebody else wrote
+  // the file while this was deciding.
+  if (readFileSync(manifestPath, "utf8") !== text) {
+    process.stderr.write(`synartesis: ${manifestPath} changed while this was running; nothing was written\n`);
+    return 1;
+  }
+  const beside = `${manifestPath}.${String(process.pid)}.tmp`;
+  writeFileSync(beside, edit.text, { mode: statSync(manifestPath).mode });
+  renameSync(beside, manifestPath);
+
+  out("");
+  out(
+    `  ${style.accent("allowed")} ${style.strong(given)} ${style.quiet(`for good -- ${edit.how === "added" ? "a rule was added to" : "its rule was changed in"} ${manifestPath}`)}`,
+  );
+  if (edit.policy.class === "irreversible") {
+    out(`  ${style.quiet("It still cannot be undone: each call is recorded, and none is held.")}`);
+  }
+  if (pin !== undefined) {
+    out(`  ${style.quiet("Pinned at the shape it has now, as the rest of the server is.")}`);
+  }
+  out(`  ${style.quiet("Takes effect when your client next starts the server. Until then:")}`);
+  out(`  ${style.quiet(`synartesis allow ${given} --for 1h`)}`);
+  out("");
+  return 0;
+}
+
+/** One line from a person at the terminal. */
+async function ask(question: string): Promise<string> {
+  const reader = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await reader.question(question);
+  } finally {
+    reader.close();
+  }
 }
 
 /**
@@ -2314,7 +2588,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
  */
 const KNOWN_COMMANDS = [
   "install", "uninstall", "status", "init", "check", "pin", "list", "show",
-  "gates", "close", "prune", "proxy", "desktop", "watch", "approve", "deny", "resolve",
+  "gates", "close", "prune", "proxy", "desktop", "watch", "approve", "deny", "allow", "resolve", "notify",
   "undo", "help", "version",
 ];
 
@@ -2349,6 +2623,16 @@ const FLAGS = new Set([
   "--force",
   "--yes",
   "--older-than",
+  // notify: send one to see whether they reach you.
+  "--test",
+  // approve without a terminal, from a script; recorded as unattended.
+  "--unattended",
+  // allow: for a while, for good, or no longer; and the typed confirmation
+  // for a tool that cannot be undone, given without a terminal.
+  "--for",
+  "--always",
+  "--stop",
+  "--confirm",
   "--help",
   "-h",
   "--version",
@@ -2577,6 +2861,14 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
 
+  if (command === "notify") {
+    return runNotifyTest(argv);
+  }
+
+  if (command === "allow") {
+    return await runAllow(argv, journalPath);
+  }
+
   if (command === "desktop") {
     return runDesktop();
   }
@@ -2609,6 +2901,41 @@ async function main(argv: readonly string[]): Promise<number> {
   } finally {
     journal.close();
   }
+}
+
+/**
+ * Sends one notification, so a person can see whether they will hear about a
+ * held call at all. Recent macOS can switch notifications from osascript off
+ * without saying so, and a feature that silently does nothing is worse than
+ * one that plainly is not there -- it gets relied on.
+ */
+function runNotifyTest(argv: readonly string[]): number {
+  if (!argv.includes("--test")) {
+    throw new UsageError("notify takes --test, which sends one to see whether they reach you");
+  }
+  const why = canNotify();
+  if (why !== undefined) {
+    out(`  ${style.quiet(`No notification sent: ${why}.`)}`);
+    return 1;
+  }
+  desktopNotifier()({
+    server: "synartesis",
+    tool: "test",
+    actionId: "00000000",
+    approve: "this is only a test",
+  });
+  out("");
+  out(`  ${style.quiet("Sent one. If nothing appeared, notifications for it are switched off:")}`);
+  out(
+    `  ${style.quiet(
+      platform() === "darwin"
+        ? "macOS lists the ones osascript sends under Script Editor, in System Settings > Notifications."
+        : "check that a notification daemon is running and notify-send is installed.",
+    )}`,
+  );
+  out(`  ${style.quiet("Either way, synartesis watch shows every held call as it happens.")}`);
+  out("");
+  return 0;
 }
 
 /**

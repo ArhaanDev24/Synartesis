@@ -25,6 +25,7 @@ import { cliCommandFrom } from "../invocation.js";
 import { findJournal, findManifest } from "../locate.js";
 import { createLogger, isLogLevel, LOG_LEVELS, type LogLevel } from "../logging.js";
 import { mark } from "../style.js";
+import { desktopNotifier } from "../notify.js";
 import { openJournal } from "../journal/journal.js";
 import { loadManifest } from "../manifest/load.js";
 import { toolShapes, verifyAgainstServers, withoutMissingTools } from "../manifest/verify.js";
@@ -267,6 +268,7 @@ async function main(): Promise<void> {
       // Absolute, because whoever approves may be in any directory at all.
       approveHint: (actionId: string): string =>
         `${cliCommandFrom(import.meta.url)} approve ${actionId.slice(0, 8)} --journal ${resolve(argv.journal)}`,
+      notify: desktopNotifier(),
     });
     // Best effort, and never at the session's expense: without this row an
     // undo simply has nothing to compare against, which is how it was before.

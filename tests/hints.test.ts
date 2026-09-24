@@ -294,7 +294,7 @@ describe("what approving does", () => {
     const journal = join(workspace(), "j.db");
     await session(journal, call(2, "send_email", { to: "a@b.c", subject: "s", body: "b" }));
 
-    const said = await run(["approve", "--all", "--by", "arhaan", "--journal", journal]);
+    const said = await run(["approve", "--all", "--by", "arhaan", "--journal", journal, "--unattended"]);
     expect(said.code).toBe(0);
     // Nothing is called from here. Somebody who approves and then waits for
     // something to happen is waiting on a thing already handed back.
@@ -310,7 +310,7 @@ describe("what approving does", () => {
     const held = withIds.parse(JSON.parse(gates.stdout));
     expect(held).toHaveLength(2);
 
-    const said = await run(["approve", held[0]?.id ?? "", "--by", "arhaan", "--journal", journal]);
+    const said = await run(["approve", held[0]?.id ?? "", "--by", "arhaan", "--journal", journal, "--unattended"]);
     expect(said.stdout).toContain("waiting on you");
     expect(said.stdout).toMatch(/synartesis approve [0-9a-f]{8}/);
   });

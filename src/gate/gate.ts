@@ -1,4 +1,5 @@
 import type { Journal } from "../journal/journal.js";
+import { SILENT, type Notifier } from "../notify.js";
 
 export interface GateRequest {
   readonly actionId: string;
@@ -53,17 +54,37 @@ export type ApproveHint = (actionId: string) => string;
 
 const DEFAULT_HINT: ApproveHint = (actionId) => `synartesis approve ${actionId.slice(0, 8)}`;
 
-export function createRetryGate(journal: Journal, approveHint: ApproveHint = DEFAULT_HINT): Gate {
+export function createRetryGate(
+  journal: Journal,
+  approveHint: ApproveHint = DEFAULT_HINT,
+  notify: Notifier = SILENT,
+): Gate {
   return {
     decide(request: GateRequest): Promise<GateDecision> {
+      // Told once per held call, not once per retry. Every retry of the same
+      // call re-enters here with the row already gated; a notification each
+      // time would be a notification people learn to mute.
+      const first = journal.getAction(request.actionId)?.status !== "gated";
       journal.markGated(request.actionId, request.why);
+      if (first) {
+        notify({
+          server: request.server,
+          tool: request.tool,
+          actionId: request.actionId,
+          approve: approveHint(request.actionId),
+        });
+      }
       return Promise.resolve({
         approved: false,
         awaiting: true,
+        // Nothing here tells the agent how to approve it. This used to hand
+        // over the exact `synartesis approve` command to relay, and an agent
+        // with a shell -- Claude Code, Codex -- could simply run it, recorded
+        // as the person. The command goes to the person instead: in the
+        // notification, in `watch`, in the console and in `gates`.
         reason:
-          "it is waiting for a person to approve it. Ask them to run: " +
-          approveHint(request.actionId) +
-          "  --- then make this exact call again.",
+          "it is waiting for a person to decide, and they have been told. " +
+          "Let the user know it is waiting, then make this exact call again once they say it is approved.",
       });
     },
   };

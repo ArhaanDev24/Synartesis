@@ -139,14 +139,14 @@ function Ask({
   onAnswer,
 }: {
   ask: ApprovalCard;
-  onAnswer: (yes: boolean) => Promise<void>;
+  onAnswer: (yes: boolean, forAnHour?: boolean) => Promise<void>;
 }): React.JSX.Element {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const answer = (yes: boolean): void => {
+  const answer = (yes: boolean, forAnHour = false): void => {
     setPending(true);
     setError("");
-    onAnswer(yes).catch((reason: unknown) => {
+    onAnswer(yes, forAnHour).catch((reason: unknown) => {
       setError(reason instanceof Error ? reason.message : String(reason));
       setPending(false);
     });
@@ -164,6 +164,14 @@ function Ask({
       {error === "" ? null : <p role="alert">{error}</p>}
       <div className="ask-row">
         <button className="act" disabled={pending} onClick={() => { answer(false); }}>Deny call</button>
+        <button
+          className="act"
+          disabled={pending}
+          title={`Allow this call, and stop asking about ${ask.server} · ${ask.tool} for an hour`}
+          onClick={() => { answer(true, true); }}
+        >
+          Allow for an hour
+        </button>
         <button
           className="act"
           data-weight="heavy"
@@ -408,9 +416,11 @@ export function App(): React.JSX.Element {
   }, [activity, busy, complain, draft, editDraft, openId, refreshList]);
 
   const answer = useCallback(
-    (actionId: string, yes: boolean) => {
+    (actionId: string, yes: boolean, forAnHour = false) => {
       const request = yes
-        ? engine.approve(actionId)
+        ? forAnHour
+          ? engine.approveForAnHour(actionId)
+          : engine.approve(actionId)
         : engine.deny(actionId, "you said no in the window");
       return request.then(() => {
         setAsks((was) => was.filter((one) => one.actionId !== actionId));
@@ -816,8 +826,8 @@ export function App(): React.JSX.Element {
               <Ask
                 key={ask.actionId}
                 ask={ask}
-                onAnswer={(yes) => {
-                  return answer(ask.actionId, yes);
+                onAnswer={(yes, forAnHour) => {
+                  return answer(ask.actionId, yes, forAnHour);
                 }}
               />
             ))}

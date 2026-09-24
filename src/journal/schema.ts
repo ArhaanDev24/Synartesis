@@ -116,6 +116,51 @@ CREATE TABLE IF NOT EXISTS run_servers (
   PRIMARY KEY (run_id, server)
 );
 
+-- A person's no, kept apart from every other way a row ends up denied.
+--
+-- The status alone cannot say it. A spent approval is stored as denied, and so
+-- is an approval the client stopped waiting for, and a desktop timeout -- some
+-- of them with the approver's name on the row. So "has anybody refused this
+-- exact call?" asked of the status would tell an agent that arhaan said no to
+-- a call arhaan had approved. Only a person's deny writes here.
+--
+-- lifted_at is a person changing their mind: approving the same row afterwards
+-- lifts the denial rather than leaving two contradictory answers standing.
+--
+-- Not a schema version bump, for the reason the tables above are not.
+CREATE TABLE IF NOT EXISTS denials (
+  action_id  TEXT PRIMARY KEY REFERENCES actions(id),
+  server     TEXT NOT NULL,
+  tool       TEXT NOT NULL,
+  denied_by  TEXT NOT NULL,
+  reason     TEXT NOT NULL,
+  denied_at  TEXT NOT NULL,
+  lifted_at  TEXT,
+  lifted_by  TEXT
+);
+CREATE INDEX IF NOT EXISTS denials_recent ON denials(server, tool, denied_at);
+
+-- A person saying "stop asking me about this tool" for a while.
+--
+-- Before this the only way to stop being asked was to edit the policy by hand
+-- and restart the client, in the middle of whatever the agent was doing. This
+-- takes effect on the next call, with no reload, and runs out by itself: a
+-- yes that outlives the session it was given for is a yes nobody remembers
+-- giving. stopped_at is the person taking it back before then.
+--
+-- Not a schema version bump, for the reason the tables above are not.
+CREATE TABLE IF NOT EXISTS allows (
+  id          INTEGER PRIMARY KEY,
+  server      TEXT NOT NULL,
+  tool        TEXT NOT NULL,
+  allowed_by  TEXT NOT NULL,
+  allowed_at  TEXT NOT NULL,
+  until       TEXT NOT NULL,
+  stopped_at  TEXT,
+  stopped_by  TEXT
+);
+CREATE INDEX IF NOT EXISTS allows_current ON allows(server, tool, until);
+
 CREATE INDEX IF NOT EXISTS actions_by_run ON actions(run_id, seq);
 
 -- Deliberately not a schema version bump. Adding an index changes no row and

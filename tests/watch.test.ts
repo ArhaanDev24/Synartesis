@@ -249,6 +249,39 @@ describe("deciding from the watch view", () => {
     expect(action?.approvedBy).toBe("arhaan");
   });
 
+  it("approves it and stops asking about that tool for an hour when A is pressed", async () => {
+    const { path, ids } = gated(1);
+    const board = keyboard();
+    const running = watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: () => undefined,
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    board.press("A");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    board.press("q");
+    board.done();
+    await running;
+
+    const journal = openJournal(path);
+    const action = journal.getAction(ids[0] ?? "");
+    const inAMinute = new Date(Date.now() + 60_000).toISOString();
+    const inTwoHours = new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+    const soon = journal.findAllowance("memory", "delete_thing_0", inAMinute);
+    const later = journal.findAllowance("memory", "delete_thing_0", inTwoHours);
+    const other = journal.findAllowance("memory", "delete_thing_1", inAMinute);
+    journal.close();
+    expect(action?.status).toBe("approved");
+    expect(soon?.by).toBe("arhaan");
+    // An hour, not for good, and only the tool that was asked about.
+    expect(later).toBeUndefined();
+    expect(other).toBeUndefined();
+  });
+
   it("denies it when d is pressed", async () => {
     const { path, ids } = gated(1);
     const board = keyboard();

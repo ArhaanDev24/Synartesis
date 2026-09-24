@@ -146,6 +146,25 @@ const seenSchema = z.object({ server: z.string(), ts: z.string() });
 
 const countedSchema = z.object({ run_id: z.string(), n: z.number() });
 
+const allowanceSchema = z.object({
+  server: z.string(),
+  tool: z.string(),
+  allowed_by: z.string(),
+  allowed_at: z.string(),
+  until: z.string(),
+});
+
+function toAllowance(raw: unknown): Allowance {
+  const row = allowanceSchema.parse(raw);
+  return { server: row.server, tool: row.tool, by: row.allowed_by, at: row.allowed_at, until: row.until };
+}
+
+const denialSchema = z.object({
+  denied_by: z.string(),
+  reason: z.string(),
+  denied_at: z.string(),
+});
+
 const runServerSchema = z.object({
   cwd: z.string().nullable(),
   fingerprints: z.string(),
@@ -369,6 +388,39 @@ export interface Journal {
   approve(actionId: string, by: string): boolean;
   deny(actionId: string, by: string | undefined, reason: string): boolean;
   /**
+   * A person saying no, recorded so the agent can be told when it asks again.
+   * `deny` alone changed only the row: the retry gate had already refused the
+   * call, a retry skipped denied rows and opened a fresh hold, and the agent
+   * was never told -- while `deny` printed "the agent is told".
+   */
+  denyByPerson(actionId: string, by: string, reason: string): boolean;
+  /** A person's standing no for this exact call, if there is one. */
+  findDenial(query: {
+    server: string;
+    tool: string;
+    args: unknown;
+    notBefore: string;
+  }): Denial | undefined;
+  /**
+   * A person changing their mind: the denied row becomes approved, the denial
+   * is lifted, and the agent's next identical call goes through. False when
+   * the row was not a person's denial still standing.
+   */
+  reverseDenial(actionId: string, by: string): boolean;
+  /** Stop holding every call to this tool until `until`. */
+  allow(server: string, tool: string, by: string, until: string): void;
+  /** The allowance in force for this tool at `now`, if any. */
+  findAllowance(server: string, tool: string, now: string): Allowance | undefined;
+  /** Every allowance in force at `now`, soonest to run out first. */
+  listAllowances(now: string): readonly Allowance[];
+  /** Ends any allowance in force for this tool. False when there was none. */
+  stopAllowance(server: string, tool: string, by: string, now: string): boolean;
+  /**
+   * Puts the allowance's name on a call it let through, so the record says
+   * whose yes it went out on -- the same place an approval's name goes.
+   */
+  markAllowed(actionId: string, by: string): void;
+  /**
    * Records a refusal whatever state the row is in. `deny` is conditional
    * because an operator's decision must not overwrite one already settled; the
    * proxy needs the opposite, to record that an action it had approval for was
@@ -499,6 +551,21 @@ export interface Journal {
   vacuum(): void;
   pragma(name: string): unknown;
   close(): void;
+}
+
+export interface Allowance {
+  readonly server: string;
+  readonly tool: string;
+  readonly by: string;
+  readonly at: string;
+  readonly until: string;
+}
+
+export interface Denial {
+  readonly action: ActionRow;
+  readonly by: string;
+  readonly reason: string;
+  readonly at: string;
 }
 
 export interface RunServer {
@@ -1423,9 +1490,13 @@ class SqliteJournal implements Journal {
         const dropLeases = this.#db.prepare(
           "DELETE FROM leases WHERE action_id IN (SELECT id FROM actions WHERE run_id = ?)",
         );
+        const dropDenials = this.#db.prepare(
+          "DELETE FROM denials WHERE action_id IN (SELECT id FROM actions WHERE run_id = ?)",
+        );
         for (const id of ids) {
           dropServers.run(id);
           dropLeases.run(id);
+          dropDenials.run(id);
           actions += dropActions.run(id).changes;
           runs += dropRun.run(id).changes;
         }
@@ -1434,6 +1505,137 @@ class SqliteJournal implements Journal {
       // immediate, for the same reason recordPending is: this reads before it
       // writes, and a deferred transaction cannot take the write lock later.
       return remove.immediate(runIds);
+    });
+  }
+
+  denyByPerson(actionId: string, by: string, reason: string): boolean {
+    return this.#run("denyByPerson", () =>
+      this.#db.transaction(() => {
+        const changed = this.deny(actionId, by, reason);
+        if (!changed) {
+          return false;
+        }
+        const row = this.getAction(actionId);
+        if (row === undefined) {
+          return false;
+        }
+        this.#db
+          .prepare(
+            `INSERT INTO denials (action_id, server, tool, denied_by, reason, denied_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .run(actionId, row.server, row.tool, by, reason, new Date().toISOString());
+        return true;
+      }).immediate(),
+    );
+  }
+
+  findDenial(query: {
+    server: string;
+    tool: string;
+    args: unknown;
+    notBefore: string;
+  }): Denial | undefined {
+    return this.#run("findDenial", () => {
+      const raws = this.#db
+        .prepare(
+          `SELECT a.*, d.denied_by, d.reason, d.denied_at
+             FROM denials d INDEXED BY denials_recent
+             JOIN actions a ON a.id = d.action_id
+            WHERE d.server = ? AND d.tool = ? AND d.lifted_at IS NULL AND d.denied_at >= ?
+            ORDER BY d.denied_at DESC`,
+        )
+        .all(query.server, query.tool, query.notBefore);
+      const rows = raws.map((raw) => ({ action: toAction(raw), denial: denialSchema.parse(raw) }));
+      const found = sameCall(
+        rows.map((row) => row.action),
+        query.args,
+      );
+      const hit = found === undefined ? undefined : rows.find((row) => row.action.id === found.id);
+      return hit === undefined
+        ? undefined
+        : { action: hit.action, by: hit.denial.denied_by, reason: hit.denial.reason, at: hit.denial.denied_at };
+    });
+  }
+
+  reverseDenial(actionId: string, by: string): boolean {
+    return this.#run("reverseDenial", () =>
+      this.#db.transaction(() => {
+        const now = new Date().toISOString();
+        const standing = this.#db
+          .prepare("SELECT 1 FROM denials WHERE action_id = ? AND lifted_at IS NULL")
+          .get(actionId);
+        if (standing === undefined) {
+          return false;
+        }
+        const flipped = this.#db
+          .prepare(
+            `UPDATE actions SET status = 'approved', approved_by = ?, approved_at = ?, error = NULL
+              WHERE id = ? AND status = 'denied'`,
+          )
+          .run(by, now, actionId);
+        if (flipped.changes !== 1) {
+          return false;
+        }
+        this.#db
+          .prepare("UPDATE denials SET lifted_at = ?, lifted_by = ? WHERE action_id = ?")
+          .run(now, by, actionId);
+        return true;
+      }).immediate(),
+    );
+  }
+
+  allow(server: string, tool: string, by: string, until: string): void {
+    this.#run("allow", () => {
+      this.#db
+        .prepare(
+          "INSERT INTO allows (server, tool, allowed_by, allowed_at, until) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(server, tool, by, new Date().toISOString(), until);
+    });
+  }
+
+  findAllowance(server: string, tool: string, now: string): Allowance | undefined {
+    return this.#run("findAllowance", () => {
+      const raw = this.#db
+        .prepare(
+          `SELECT * FROM allows INDEXED BY allows_current
+            WHERE server = ? AND tool = ? AND until > ? AND stopped_at IS NULL
+            ORDER BY until DESC LIMIT 1`,
+        )
+        .get(server, tool, now);
+      return raw === undefined ? undefined : toAllowance(raw);
+    });
+  }
+
+  listAllowances(now: string): readonly Allowance[] {
+    return this.#run("listAllowances", () =>
+      this.#db
+        .prepare("SELECT * FROM allows WHERE until > ? AND stopped_at IS NULL ORDER BY until")
+        .all(now)
+        .map(toAllowance),
+    );
+  }
+
+  stopAllowance(server: string, tool: string, by: string, now: string): boolean {
+    return this.#run("stopAllowance", () => {
+      const result = this.#db
+        .prepare(
+          `UPDATE allows SET stopped_at = ?, stopped_by = ?
+            WHERE server = ? AND tool = ? AND until > ? AND stopped_at IS NULL`,
+        )
+        .run(now, by, server, tool, now);
+      return result.changes > 0;
+    });
+  }
+
+  markAllowed(actionId: string, by: string): void {
+    this.#run("markAllowed", () => {
+      this.#db
+        .prepare(
+          "UPDATE actions SET approved_by = ?, approved_at = ? WHERE id = ? AND status = 'pending'",
+        )
+        .run(by, new Date().toISOString(), actionId);
     });
   }
 

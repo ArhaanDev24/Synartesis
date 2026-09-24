@@ -24,8 +24,9 @@ import { z } from "zod";
 import { canonical } from "../canonical.js";
 import { SnapshotError, UpstreamError, describe } from "../errors.js";
 import { createRetryGate, type ApproveHint, type Gate } from "../gate/gate.js";
+import type { Notifier } from "../notify.js";
 import { shouldGateOnWrite } from "../gate/heuristic.js";
-import type { Journal } from "../journal/journal.js";
+import type { Denial, Journal } from "../journal/journal.js";
 import type { Logger } from "../logging.js";
 import {
   createPolicyResolver,
@@ -56,6 +57,12 @@ export interface ProxyOptions {
   readonly logger?: Logger;
   /** Builds the exact command a person here would run to approve an action. */
   readonly approveHint?: ApproveHint;
+  /**
+   * How the person is told a call is waiting. Silent unless given: only the
+   * real proxy process wires a desktop notifier, so tests and embedders never
+   * fire one by accident.
+   */
+  readonly notify?: Notifier;
 }
 
 export interface ProxyServer {
@@ -78,6 +85,23 @@ type Passthrough = { [key: string]: unknown };
  * this morning cannot quietly authorise the same call tomorrow.
  */
 const APPROVAL_WINDOW_MS = 60 * 60 * 1000;
+
+/** What the agent is told when a person has already refused this exact call. */
+function saidNo(name: string, denial: Denial): McpError {
+  return new McpError(
+    ErrorCode.InvalidRequest,
+    `synartesis blocked ${name}: ${denial.by} denied this exact call ${ago(denial.at)} (${denial.reason}). Ask the user what they want instead; do not retry it or reach the same result another way.`,
+  );
+}
+
+/** "4 minutes ago", for telling an agent how fresh a person's answer is. */
+function ago(at: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 60_000));
+  if (minutes === 0) {
+    return "just now";
+  }
+  return `${String(minutes)} minute${minutes === 1 ? "" : "s"} ago`;
+}
 
 /**
  * Results are read through loose schemas. The SDK's typed schemas strip fields
@@ -223,10 +247,11 @@ const SYNARTESIS_INSTRUCTIONS = [
   "Some actions cannot be undone. Those are held until a person approves them, and the call",
   "will fail with a message beginning \"Synartesis is holding this call for approval\".",
   "When that happens:",
-  "  1. Tell the user plainly that you are asking Synartesis for approval, and what for.",
-  "  2. Give them the exact `synartesis approve ...` command from the error.",
-  "  3. Once they say they have approved it, make the same call again. It will go through.",
-  "Do not try to work around a held call by using a different tool to achieve the same thing.",
+  "  1. Tell the user plainly that the call is waiting for their approval, and what it is for.",
+  "     They have been notified, and can see and answer it in `synartesis watch`.",
+  "  2. Once they say they have approved it, make the same call again. It will go through.",
+  "Do not approve it yourself, and do not try to work around a held call by using a",
+  "different tool to achieve the same thing.",
 ].join("\n");
 
 function instructionsFor(router: Router): string {
@@ -347,7 +372,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
 
   const log = options.logger;
 
-  const gate = options.gate ?? createRetryGate(journal, options.approveHint);
+  const gate = options.gate ?? createRetryGate(journal, options.approveHint, options.notify);
 
   const capabilities = mergeCapabilities(
     upstreams.map((upstream) => upstream.client.getServerCapabilities() ?? {}),
@@ -570,14 +595,23 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
         );
       }
 
-      const { policy } = policies.resolve(qualify(route.upstream.name, route.tool));
+      const { policy, matched } = policies.resolve(qualify(route.upstream.name, route.tool));
       const args = request.params.arguments ?? {};
       // Counted from here, not from the forward call: the pre-read is part of
       // the action, and a shutdown that aborts it blocks a legitimate write.
       enter();
       try {
-        const wantsGate =
+        const policyGates =
           policy.gate === "always" || (policy.gate === "on_write" && shouldGateOnWrite(args));
+        // A person said to stop asking about this tool for a while. It lifts
+        // the policy's hold and nothing else: an earlier attempt whose outcome
+        // is unknown is still asked about below, because that question is
+        // about this exact call having maybe happened already, which no yes
+        // given in advance could have answered.
+        const allowance = policyGates
+          ? journal.findAllowance(route.upstream.name, route.tool, new Date().toISOString())
+          : undefined;
+        const wantsGate = policyGates && allowance === undefined;
 
         // An earlier attempt at this exact call that nobody could resolve.
         //
@@ -641,6 +675,33 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
               })
             : undefined;
 
+        // A person already said no to this exact call. Before this, a retry
+        // stepped past the denied row and opened a fresh hold, so the agent
+        // heard "waiting for a person" about a call a person had refused, and
+        // the person was asked the same question again. Answered here, before
+        // anything is recorded, so a refusal leaves no new row to decide.
+        //
+        // Only a person's deny counts. A row can be denied for reasons that
+        // have nothing to do with anybody saying no -- a spent approval, an
+        // approval the client stopped waiting for -- and reading the status
+        // would tell the agent that the approver had refused it.
+        const refused =
+          mustAsk && granted === undefined && waiting === undefined
+            ? journal.findDenial({
+                server: route.upstream.name,
+                tool: route.tool,
+                args,
+                notBefore: new Date(Date.now() - APPROVAL_WINDOW_MS).toISOString(),
+              })
+            : undefined;
+        if (refused !== undefined) {
+          log?.info(
+            { action: refused.action.id, by: refused.by },
+            "refused again: a person denied this exact call",
+          );
+          throw saidNo(request.params.name, refused);
+        }
+
         const reusable = waiting ?? (inherited === undefined ? granted : undefined);
         const pending =
           reusable === undefined
@@ -656,6 +717,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
                 seq: reusable.seq,
                 idempotencyKey: reusable.idempotencyKey,
               };
+
+        if (allowance !== undefined && !mustAsk) {
+          journal.markAllowed(pending.actionId, `${allowance.by} (allowed without asking)`);
+        }
 
         // Spending an approval is a claim, not an announcement. Several
         // proxies share one journal, so two can read the same standing yes
@@ -749,7 +814,16 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             unresolved === undefined
               ? undefined
               : `an earlier attempt at this exact call, action ${String(unresolved.seq)}, went out and its outcome could never be established, so sending it again may apply the change a second time`,
-            wantsGate ? "this action cannot be undone" : undefined,
+            // Two different problems used to share this one sentence. A tool
+            // no rule mentions is held because nobody has said what it does,
+            // not because it is known to be permanent -- and the answer to
+            // that is a rule, which the person is told how to write, not a
+            // yes to every call it makes.
+            wantsGate
+              ? matched
+                ? "this action cannot be undone"
+                : `there is no rule for ${route.upstream.name}.${route.tool} in the policy, so nothing says whether it can be undone`
+              : undefined,
           ].filter((one): one is string => one !== undefined);
           await decide(because.join(", and "));
         }
@@ -857,19 +931,52 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             : { present: true, value: snapshot };
 
         if (noWayBack !== undefined && !askedAlready) {
+          // A person's word about this tool or this call counts here as it
+          // does at the policy's gate. Creating a file is the commonest hold
+          // of all and it comes through here, so an hour's allowance that
+          // skipped this path would still ask about nearly everything, and a
+          // no that skipped it would be asked again on the next retry.
+          const allowedNow = journal.findAllowance(
+            route.upstream.name,
+            route.tool,
+            new Date().toISOString(),
+          );
           // An approval granted out of band counts here too. It was only ever
           // looked up for a policy that asked to be gated, so a write whose
           // prior state was missing -- an agent creating a file, the commonest
           // thing an agent does -- asked, was approved, and asked again, and
           // no number of approvals ever let it through. The instructions this
           // proxy sends to every agent promise the opposite.
-          const standing = journal.findApproval({
-            server: route.upstream.name,
-            tool: route.tool,
-            args,
-            notBefore: new Date(Date.now() - APPROVAL_WINDOW_MS).toISOString(),
-          });
-          if (standing === undefined) {
+          const standing =
+            allowedNow === undefined
+              ? journal.findApproval({
+                  server: route.upstream.name,
+                  tool: route.tool,
+                  args,
+                  notBefore: new Date(Date.now() - APPROVAL_WINDOW_MS).toISOString(),
+                })
+              : undefined;
+          const refusedHere =
+            allowedNow === undefined && standing === undefined
+              ? journal.findDenial({
+                  server: route.upstream.name,
+                  tool: route.tool,
+                  args,
+                  notBefore: new Date(Date.now() - APPROVAL_WINDOW_MS).toISOString(),
+                })
+              : undefined;
+          if (allowedNow !== undefined) {
+            journal.markAllowed(pending.actionId, `${allowedNow.by} (allowed without asking)`);
+          } else if (refusedHere !== undefined) {
+            // Settled rather than left pending: this row never went out, and
+            // a pending row reads as a call whose outcome is unknown.
+            journal.settleAsDenied(
+              pending.actionId,
+              refusedHere.by,
+              `not sent: ${refusedHere.by} had denied this exact call`,
+            );
+            throw saidNo(request.params.name, refusedHere);
+          } else if (standing === undefined) {
             // Not "nothing exists here": every tool-level error on a pre-read
             // arrives here, so a file that exists and merely could not be read
             // came out as one that was not there. The person approving an

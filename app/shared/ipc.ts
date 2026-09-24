@@ -233,6 +233,8 @@ export interface Bridge {
   stop(id: string): Promise<void>;
 
   approve(actionId: string): Promise<void>;
+  /** Approve this call, and stop asking about its tool for an hour. */
+  approveForAnHour(actionId: string): Promise<void>;
   deny(actionId: string, why: string): Promise<void>;
 
   /** A real read of every resource the session touched. Costs upstream calls. */
@@ -281,6 +283,7 @@ export interface Answers {
   "chat:send": undefined;
   "chat:stop": undefined;
   "gate:approve": undefined;
+  "gate:approve-hour": undefined;
   "gate:deny": undefined;
   "folder:choose": string | undefined;
   "folder:report": FolderReport;
@@ -324,6 +327,7 @@ export const BRIDGE_CALLS: Readonly<Record<Exclude<keyof Bridge, "onEvent">, key
   send: "chat:send",
   stop: "chat:stop",
   approve: "gate:approve",
+  approveForAnHour: "gate:approve-hour",
   deny: "gate:deny",
   verify: "undo:verify",
   previewUndo: "undo:preview",

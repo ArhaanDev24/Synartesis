@@ -82,7 +82,7 @@ describe("what the timeline says about an approval that moved", () => {
     const held = withIds.parse(JSON.parse(gates.stdout));
     expect(held).toHaveLength(1);
 
-    await run(["approve", held[0]?.id.slice(0, 8) ?? "", "--by", "arhaan", "--journal", journal]);
+    await run(["approve", held[0]?.id.slice(0, 8) ?? "", "--by", "arhaan", "--journal", journal, "--unattended"]);
     // The agent tries again in a new session; the approval moves to that call.
     await run(["proxy", "--manifest", POLICY, "--journal", journal], `${HELLO}\n${call(2, "send_email", email)}\n`);
 

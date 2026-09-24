@@ -985,3 +985,34 @@ describe("two undos where the first is still mid-inverse", () => {
     }
   });
 });
+
+describe("why a call is held", () => {
+  it("says a tool has no rule, rather than that it cannot be undone", async () => {
+    // Two different problems shared one sentence. A tool no rule mentions is
+    // held because nobody has said what it does -- and "this action cannot be
+    // undone" sent people off to approve every call to it, when what it
+    // needed was one line of policy.
+    const uncovered = parseManifest(
+      `version: 1
+servers: { crm: { command: node, args: [] } }
+tools:
+  - match: "crm.send_email"
+    class: irreversible
+    gate: always
+`,
+      "manifest.yaml",
+    );
+    const active = await session({ realGate: true, manifest: uncovered });
+
+    const noRule = await active.client
+      .callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } })
+      .then(() => "went through", (error: unknown) => String(error));
+    expect(noRule).toContain("there is no rule for crm.update_customer");
+    expect(noRule).not.toContain("cannot be undone");
+
+    const permanent = await active.client
+      .callTool({ name: "send_email", arguments: { to: "a@b.c", subject: "s", body: "b" } })
+      .then(() => "went through", (error: unknown) => String(error));
+    expect(permanent).toContain("cannot be undone");
+  });
+});

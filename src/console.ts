@@ -10,6 +10,9 @@ import { cliCommand } from "./invocation.js";
 import { keysIn } from "./keys.js";
 import { counted, NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
 
+/** How long the A key stops asking about a tool. */
+const HOUR_MS = 60 * 60 * 1000;
+
 /**
  * One screen you drive, rather than eight commands you have to remember.
  *
@@ -410,7 +413,7 @@ function footer(screen: Screen, options: ConsoleOptions): string[] {
     screen.mode === "connections"
       ? [keyHint("enter", "connect"), keyHint("a", "connect all"), keyHint("r", "rescan"), keyHint("j/k", "move"), keyHint("h", "back")]
       : screen.mode === "gates"
-      ? [keyHint("a", "approve"), keyHint("d", "deny"), keyHint("j/k", "move"), keyHint("r", "runs")]
+      ? [keyHint("a", "approve"), keyHint("A", "and for an hour"), keyHint("d", "deny"), keyHint("j/k", "move"), keyHint("r", "runs")]
       : screen.mode === "run"
         ? [
             keyHint("l", "check now"),
@@ -621,7 +624,10 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     return ["", `  ${style.quiet("nothing to undo in this session")}`];
   };
 
-  const decide = (approve: boolean): void => {
+  // A: approve this one and stop asking about the tool for an hour. The
+  // same row `synartesis allow --for 1h` writes, from the screen where the
+  // same question has just been asked for the third time.
+  const decide = (approve: boolean, forAnHour = false): void => {
     const ready = open();
     if (ready === undefined) {
       return;
@@ -633,15 +639,20 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     }
     const changed = approve
       ? ready.approve(action.id, options.decideAs)
-      : ready.deny(action.id, options.decideAs, "denied from the console");
+      : ready.denyByPerson(action.id, options.decideAs, "denied from the console");
+    if (changed && approve && forAnHour) {
+      ready.allow(action.server, action.tool, options.decideAs, new Date(Date.now() + HOUR_MS).toISOString());
+    }
     // Approving is not the call. The agent was refused and is not waiting on
     // anything, so nothing happens until somebody asks it again.
     say(
       !changed
         ? `${action.server}.${action.tool} was already settled`
         : approve
-          ? `approved ${action.server}.${action.tool} ${DOT} now tell the agent to try again`
-          : `denied ${action.server}.${action.tool} ${DOT} it will not go through`,
+          ? forAnHour
+            ? `approved ${action.server}.${action.tool} ${DOT} not asked again for an hour ${DOT} tell the agent to try again`
+            : `approved ${action.server}.${action.tool} ${DOT} now tell the agent to try again`
+          : `denied ${action.server}.${action.tool} ${DOT} the agent is told if it asks again`,
     );
     screen.cursor = 0;
   };
@@ -827,6 +838,11 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         }
         return;
       }
+      case "A":
+        if (screen.mode === "gates") {
+          decide(true, true);
+        }
+        return;
       case "a":
         if (screen.mode === "gates") {
           decide(true);

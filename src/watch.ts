@@ -6,6 +6,9 @@ import { shortTime } from "./clock.js";
 import { plainly, subject } from "./describe.js";
 import { NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
 
+/** How long the A key stops asking about a tool. */
+const HOUR_MS = 60 * 60 * 1000;
+
 /**
  * A live view of the journal.
  *
@@ -157,7 +160,7 @@ function render(journal: Journal, options: WatchOptions, tick: number, view: Vie
     out.push("");
     out.push(
       canDecide(options)
-        ? `  ${keyHint("a", "approve")}   ${keyHint("d", "deny")}   ${keyHint("j/k", "move")}   ${keyHint("q", "quit")}`
+        ? `  ${keyHint("a", "approve")}   ${keyHint("A", "and for an hour")}   ${keyHint("d", "deny")}   ${keyHint("j/k", "move")}   ${keyHint("q", "quit")}`
         : `  ${style.quiet(`${options.approveWith} approve --all`)}`,
     );
   }
@@ -260,7 +263,10 @@ export async function watch(options: WatchOptions): Promise<number> {
    * them a chance to approve the wrong thing because you are working from an
    * id rather than from the call itself.
    */
-  const decide = (approve: boolean): void => {
+  // A: approve this one and stop asking about the tool for an hour. The
+  // same row `synartesis allow --for 1h` writes, from the screen where the
+  // same question has just been asked for the third time.
+  const decide = (approve: boolean, forAnHour = false): void => {
     const ready = open();
     if (ready === undefined || options.decideAs === undefined) {
       return;
@@ -272,7 +278,10 @@ export async function watch(options: WatchOptions): Promise<number> {
     }
     const changed = approve
       ? ready.approve(action.id, options.decideAs)
-      : ready.deny(action.id, options.decideAs, "denied from the watch view");
+      : ready.denyByPerson(action.id, options.decideAs, "denied from the watch view");
+    if (changed && approve && forAnHour) {
+      ready.allow(action.server, action.tool, options.decideAs, new Date(Date.now() + HOUR_MS).toISOString());
+    }
     // Approving is not the call. The agent was refused and is not waiting on
     // anything, so nothing happens until somebody asks it again -- and a view
     // that says only "approved" leaves you watching a screen that has already
@@ -280,8 +289,10 @@ export async function watch(options: WatchOptions): Promise<number> {
     view.notice = !changed
       ? `${action.server}.${action.tool} was already settled`
       : approve
-        ? `approved ${action.server}.${action.tool} \u00b7 now tell the agent to try again`
-        : `denied ${action.server}.${action.tool} \u00b7 it will not go through`;
+        ? forAnHour
+          ? `approved ${action.server}.${action.tool} \u00b7 not asked again for an hour \u00b7 tell the agent to try again`
+          : `approved ${action.server}.${action.tool} \u00b7 now tell the agent to try again`
+        : `denied ${action.server}.${action.tool} \u00b7 the agent is told if it asks again`;
     view.noticeUntil = tick + NOTICE_TICKS;
     view.cursor = 0;
   };
@@ -297,6 +308,9 @@ export async function watch(options: WatchOptions): Promise<number> {
         return;
       case "a":
         decide(true);
+        return;
+      case "A":
+        decide(true, true);
         return;
       case "d":
         decide(false);

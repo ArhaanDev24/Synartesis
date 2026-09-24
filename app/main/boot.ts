@@ -142,6 +142,9 @@ export function answersFor(
     "gate:approve": (actionId) => {
       need(desk).approve(asString(actionId));
     },
+    "gate:approve-hour": (actionId) => {
+      need(desk).approve(asString(actionId), { forAnHour: true });
+    },
     "gate:deny": (actionId, why) => {
       need(desk).deny(asString(actionId), asString(why));
     },

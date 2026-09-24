@@ -340,6 +340,31 @@ describe("saying something and watching it happen", () => {
     expect(readFileSync(fresh, "utf8")).toBe("hello\n");
   });
 
+  it("stops asking about that tool for an hour when the person says so", async () => {
+    const { desk, files, script, events } = await bench({ gateTimeoutMs: 4000 });
+    const opened = await desk.start();
+    script.calls = [{ name: WRITE, args: { path: join(files, "one.txt"), content: "1\n" } }];
+    const answered = new Promise<void>((settle) => {
+      const watch = setInterval(() => {
+        const ask = events.find((one) => one.event.kind === "approval");
+        if (ask?.event.kind === "approval") {
+          clearInterval(watch);
+          desk.approve(ask.event.request.actionId, { forAnHour: true });
+          settle();
+        }
+      }, 20);
+    });
+    await Promise.all([desk.send(opened.id, "make a file"), answered]);
+
+    // The next one is not asked about, and nobody answers it.
+    const asked = events.filter((one) => one.event.kind === "approval").length;
+    const two = join(files, "two.txt");
+    script.calls = [{ name: WRITE, args: { path: two, content: "2\n" } }];
+    await desk.send(opened.id, "and another");
+    expect(readFileSync(two, "utf8")).toBe("2\n");
+    expect(events.filter((one) => one.event.kind === "approval")).toHaveLength(asked);
+  });
+
   it("does not do a held call when nobody answers", async () => {
     const { desk, files, script } = await bench({ gateTimeoutMs: 250 });
     const fresh = join(files, "unasked.txt");

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -396,7 +396,9 @@ describe("the cli", () => {
     // read as absent either, because absent means the newest run and for undo
     // that would quietly reverse something nobody named.
     for (const command of ["show", "undo", "approve"]) {
-      const empty = await run("node", [CLI, command, "", "--journal", space.journal]);
+      // --unattended so approve reaches its own check on the id rather than
+      // stopping first at the one about a terminal.
+      const empty = await run("node", [CLI, command, "", "--journal", space.journal, "--unattended"]);
       expect(empty.code, command).toBe(2);
       expect(empty.stderr, command).toContain("empty id");
     }
@@ -457,7 +459,7 @@ describe("the gate, driven from a second process", () => {
     return id;
   }
 
-  it("refuses at once and tells the agent how to get approval", async () => {
+  it("refuses at once, and does not tell the agent how to approve it", async () => {
     const space = workspace();
     const client = await agentAgainst(space);
 
@@ -471,11 +473,11 @@ describe("the gate, driven from a second process", () => {
     expect(elapsed).toBeLessThan(2000);
     expect(thrown).toBeInstanceOf(McpError);
     expect(String(thrown)).toContain("Synartesis is holding this call for approval");
-    // Not the literal string "synartesis approve": whether the short form is
-    // available depends on whether it has been installed on this machine, and
-    // the point is that whatever is printed can actually be run. The test
-    // below executes it.
-    expect(String(thrown)).toMatch(/approve [0-9a-f]{8}/);
+    // Until 0.9 this carried the exact command to approve it, for the agent to
+    // relay -- and an agent with a shell could just run it, recorded as the
+    // person. The command goes to the person now, never to the agent.
+    expect(String(thrown)).not.toMatch(/approve [0-9a-f]{8}/);
+    expect(String(thrown)).not.toContain("synartesis approve");
     await client.close();
   });
 
@@ -487,7 +489,7 @@ describe("the gate, driven from a second process", () => {
 
     const actionId = gatedAction(space.journal);
     const approved = await run("node", [
-      CLI, "approve", actionId, "--by", "arhaan", "--journal", space.journal,
+      CLI, "approve", actionId, "--by", "arhaan", "--journal", space.journal, "--unattended",
     ]);
     expect(approved.code).toBe(0);
 
@@ -510,7 +512,7 @@ describe("the gate, driven from a second process", () => {
     await first.close();
 
     await run("node", [
-      CLI, "approve", gatedAction(space.journal), "--by", "arhaan", "--journal", space.journal,
+      CLI, "approve", gatedAction(space.journal), "--by", "arhaan", "--journal", space.journal, "--unattended",
     ]);
     const second = await agentAgainst(space);
     await second.callTool(email);
@@ -522,7 +524,9 @@ describe("the gate, driven from a second process", () => {
       .flatMap((run_) => journal.getActions(run_.id))
       .filter((action) => action.status === "applied" && action.tool === "send_email");
     expect(applied).toHaveLength(1);
-    expect(applied[0]?.approvedBy).toBe("arhaan");
+    // Given from a script, so it says so: an audit has to be able to tell a
+    // yes a person typed from one nobody was at a terminal for.
+    expect(applied[0]?.approvedBy).toBe("arhaan (unattended)");
     journal.close();
   });
 
@@ -554,30 +558,265 @@ describe("the gate, driven from a second process", () => {
     journal.close();
   });
 
-  it("tells the agent a command that actually runs", async () => {
+  it("tells the agent a person said no, instead of asking the person again", async () => {
     const space = workspace();
     const client = await agentAgainst(space);
-    const thrown = await client.callTool(email).catch((error: unknown) => error);
+    await client.callTool(email).catch(() => undefined);
+
+    const actionId = gatedAction(space.journal);
+    const denied = await run("node", [
+      CLI, "deny", actionId, "--by", "arhaan", "--reason", "wrong channel", "--journal", space.journal,
+    ]);
+    expect(denied.code).toBe(0);
+
+    // Before 0.9 the retry stepped past the denied row and opened a fresh
+    // hold: the agent heard "waiting for a person" about a call a person had
+    // refused, and the person was asked the same question twice.
+    const again = await client.callTool(email).catch((error: unknown) => error);
+    expect(String(again)).toContain("arhaan denied this exact call");
+    expect(String(again)).toContain("wrong channel");
+    expect(String(again)).not.toContain("holding this call");
+    const journal = openJournal(space.journal);
+    expect(journal.listGated()).toHaveLength(0);
+    journal.close();
+
+    // A different call is a different question.
+    const other = await client
+      .callTool({ ...email, arguments: { ...email.arguments, subject: "Other" } })
+      .catch((error: unknown) => error);
+    expect(String(other)).toContain("holding this call");
+    await client.close();
+  });
+
+  it("tells the agent about a no given to a call held for having nothing to restore", async () => {
+    // Held by the pre-read rather than the policy's gate: there is no such
+    // customer, so there is nothing an undo could put back. The commonest
+    // hold there is -- an agent creating a file comes through the same path.
+    const space = workspace();
+    const client = await agentAgainst(space);
+    const ghost = { name: "update_customer", arguments: { id: "c_999", notes: "hello" } };
+    const first = await client.callTool(ghost).catch((error: unknown) => error);
+    expect(String(first)).toContain("holding this call");
+
+    await run("node", [
+      CLI, "deny", gatedAction(space.journal), "--by", "arhaan", "--reason", "no such customer",
+      "--journal", space.journal,
+    ]);
+    const again = await client.callTool(ghost).catch((error: unknown) => error);
+    expect(String(again)).toContain("arhaan denied this exact call");
     await client.close();
 
-    // Whoever approves may be in any directory, so the instruction has to
-    // carry everything it needs. Three separate bugs have been exactly this:
-    // output naming a command that fails the moment somebody follows it.
-    const suggested = /Ask them to run: (.+?)\s+---/.exec(String(thrown))?.[1];
-    expect(suggested).toBeDefined();
-    expect(suggested).toContain(space.journal);
-
-    const ran = await new Promise<number>((resolveRun) => {
-      const child = spawn(suggested ?? "", { shell: true, stdio: "ignore", cwd: tmpdir() });
-      child.on("close", (code) => {
-        resolveRun(code ?? -1);
-      });
-    });
-    expect(ran).toBe(0);
-
+    // And the attempt that was refused is settled, not left looking like a
+    // call whose outcome nobody knows -- which would block undoing the run.
     const journal = openJournal(space.journal);
-    expect(journal.getAction(gatedOrApproved(journal))?.approvedBy).toBeTruthy();
+    const statuses = journal
+      .listRuns()
+      .flatMap((entry) => journal.getActions(entry.id))
+      .map((action) => action.status);
     journal.close();
+    expect(statuses).not.toContain("pending");
+    expect(statuses).not.toContain("gated");
+  });
+
+  it("lets a person take a denial back", async () => {
+    const space = workspace();
+    const client = await agentAgainst(space);
+    await client.callTool(email).catch(() => undefined);
+    const actionId = gatedAction(space.journal);
+    const denied = await run("node", [CLI, "deny", actionId, "--by", "arhaan", "--journal", space.journal]);
+    // The way back is offered to the person who said no.
+    expect(denied.stdout).toContain(`approve ${actionId.slice(0, 8)}`);
+
+    const approved = await run("node", [
+      CLI, "approve", actionId, "--by", "arhaan", "--journal", space.journal, "--unattended",
+    ]);
+    expect(approved.code).toBe(0);
+    const result = await client.callTool(email);
+    expect(result.isError).toBeFalsy();
+    await client.close();
+  });
+
+  it("stops asking about a tool for as long as a person said, and no longer", async () => {
+    const space = workspace();
+    const client = await agentAgainst(space);
+    await client.callTool(email).catch(() => undefined);
+
+    // Without a terminal and without saying so, it is refused: the agent has
+    // a shell too, and this is a yes to every call it makes to that tool.
+    const refused = await run("node", [
+      CLI, "allow", "crm.send_email", "--for", "1h", "--manifest", space.manifest, "--journal", space.journal,
+    ]);
+    expect(refused.code).toBe(2);
+    expect(refused.stderr).toContain("needs a person at a terminal");
+
+    const allowed = await run("node", [
+      CLI, "allow", "crm.send_email", "--for", "1h", "--by", "arhaan", "--unattended",
+      "--manifest", space.manifest, "--journal", space.journal,
+    ]);
+    expect(allowed.code).toBe(0);
+    expect(allowed.stdout).toContain("cannot be undone");
+
+    // In force on the next call, with nobody approving it and no restart.
+    const other = { ...email, arguments: { ...email.arguments, subject: "Another" } };
+    expect((await client.callTool(other)).isError).toBeFalsy();
+    const journal = openJournal(space.journal);
+    const sent = journal
+      .listRuns()
+      .flatMap((entry) => journal.getActions(entry.id))
+      .find((action) => action.status === "applied" && action.tool === "send_email");
+    journal.close();
+    expect(sent?.approvedBy).toBe("arhaan (unattended) (allowed without asking)");
+
+    const listed = await run("node", [CLI, "allow", "--journal", space.journal]);
+    expect(listed.stdout).toContain("crm.send_email");
+
+    const stopped = await run("node", [CLI, "allow", "crm.send_email", "--stop", "--journal", space.journal]);
+    expect(stopped.code).toBe(0);
+    const held = await client
+      .callTool({ ...email, arguments: { ...email.arguments, subject: "Third" } })
+      .catch((error: unknown) => error);
+    expect(String(held)).toContain("holding this call");
+    await client.close();
+  });
+
+  it("lets a tool through for good only once its name is typed", async () => {
+    const space = workspace();
+    const original = readFileSync(space.manifest, "utf8");
+    const unconfirmed = await run("node", [
+      CLI, "allow", "crm.send_email", "--always", "--unattended", "--manifest", space.manifest,
+    ]);
+    expect(unconfirmed.code).toBe(1);
+    expect(readFileSync(space.manifest, "utf8")).toBe(original);
+
+    const confirmed = await run("node", [
+      CLI, "allow", "crm.send_email", "--always", "--unattended", "--confirm", "crm.send_email",
+      "--manifest", space.manifest,
+    ]);
+    expect(confirmed.code).toBe(0);
+    expect(confirmed.stdout).toContain("next starts the server");
+
+    // A proxy started on the edited policy lets it through, and it is still
+    // recorded as a call that cannot be undone.
+    const client = await agentAgainst(space);
+    expect((await client.callTool(email)).isError).toBeFalsy();
+    await client.close();
+    const journal = openJournal(space.journal);
+    const sent = journal
+      .listRuns()
+      .flatMap((entry) => journal.getActions(entry.id))
+      .find((action) => action.tool === "send_email");
+    journal.close();
+    expect(sent).toMatchObject({ status: "applied", class: "irreversible" });
+  });
+
+  it("never reports a used approval as somebody saying no", async () => {
+    const space = workspace();
+    const first = await agentAgainst(space);
+    await first.callTool(email).catch(() => undefined);
+    await first.close();
+    await run("node", [
+      CLI, "approve", gatedAction(space.journal), "--by", "arhaan", "--journal", space.journal, "--unattended",
+    ]);
+
+    // The approval moves to the call in this session, and the approved row
+    // is stored as denied -- with arhaan's name on it.
+    const second = await agentAgainst(space);
+    expect((await second.callTool(email)).isError).toBeFalsy();
+    const next = await second.callTool(email).catch((error: unknown) => error);
+    expect(String(next)).toContain("holding this call");
+    expect(String(next)).not.toContain("denied");
+    await second.close();
+
+    // Nor can approve resurrect it into a second yes.
+    const journal = openJournal(space.journal);
+    const spent = journal
+      .listRuns()
+      .flatMap((entry) => journal.getActions(entry.id))
+      .find((action) => action.status === "denied");
+    journal.close();
+    expect(spent).toBeDefined();
+    const revived = await run("node", [
+      CLI, "approve", spent?.id ?? "", "--journal", space.journal, "--unattended",
+    ]);
+    expect(revived.code).toBe(1);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "tells the person a command that actually runs, from wherever they are",
+    async () => {
+      // The command reaches the person through the notification now. Whoever
+      // approves may be in any directory, so it has to carry everything it
+      // needs. Three separate bugs have been exactly this: output naming a
+      // command that fails the moment somebody follows it.
+      const space = workspace();
+      const bin = join(space.dir, "bin");
+      const said = join(space.dir, "notified.json");
+      mkdirSync(bin);
+      for (const name of ["osascript", "notify-send"]) {
+        writeFileSync(
+          join(bin, name),
+          `#!/bin/sh\nnode -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2)))' ${JSON.stringify(said)} "$@"\n`,
+        );
+        chmodSync(join(bin, name), 0o755);
+      }
+      // The proxy is started with the SDK's minimal environment, which keeps
+      // PATH: so this notifier, first on it, is the one that answers.
+      const saved = process.env["PATH"];
+      process.env["PATH"] = `${bin}:${saved ?? ""}`;
+      let client: Client | undefined;
+      try {
+        client = await agentAgainst(space);
+        await client.callTool(email).catch(() => undefined);
+      } finally {
+        process.env["PATH"] = saved;
+        await client?.close();
+      }
+      for (let i = 0; i < 100 && !existsSync(said); i += 1) {
+        await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+      }
+
+      const argv = z.array(z.string()).parse(JSON.parse(readFileSync(said, "utf8")));
+      const body = (argv[argv.length - 1] ?? "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+      const suggested = body.slice(body.indexOf(" -- ") + 4);
+      expect(suggested).toContain("approve");
+      expect(suggested).toContain(space.journal);
+
+      // Run from somewhere else entirely. --unattended because this is a
+      // script standing in for a person at a terminal.
+      const ran = await new Promise<number>((resolveRun) => {
+        const child = spawn(`${suggested} --unattended`, { shell: true, stdio: "ignore", cwd: tmpdir() });
+        child.on("close", (code) => {
+          resolveRun(code ?? -1);
+        });
+      });
+      expect(ran).toBe(0);
+
+      const journal = openJournal(space.journal);
+      expect(journal.getAction(gatedOrApproved(journal))?.approvedBy).toBeTruthy();
+      journal.close();
+    },
+  );
+
+  it("will not take a yes from something with no terminal, unless told it is a script", async () => {
+    // An agent with a shell runs commands with no terminal attached. It is no
+    // longer given the command, and one that finds it anyway is refused -- in
+    // words that do not name the way past, since the agent reads them.
+    const space = workspace();
+    const client = await agentAgainst(space);
+    await client.callTool(email).catch(() => undefined);
+    await client.close();
+
+    const refused = await run("node", [CLI, "approve", gatedAction(space.journal), "--journal", space.journal]);
+    expect(refused.code).toBe(2);
+    expect(refused.stderr).toContain("needs a person at a terminal");
+    expect(refused.stderr).not.toContain("--unattended");
+    const journal = openJournal(space.journal);
+    expect(journal.getAction(gatedAction(space.journal))?.status).toBe("gated");
+    journal.close();
+
+    // Denying needs no such check: a no never lets anything through.
+    const denied = await run("node", [CLI, "deny", gatedAction(space.journal), "--journal", space.journal]);
+    expect(denied.code).toBe(0);
   });
 
   it("says nothing has started rather than inventing an empty journal", async () => {
@@ -604,13 +843,15 @@ describe("the gate, driven from a second process", () => {
     const actionId = gatedAction(space.journal);
     // No --by. "unknown" is a poor thing to find in an audit trail when the
     // machine knows who is logged in.
-    await run("node", [CLI, "approve", actionId, "--journal", space.journal]);
+    await run("node", [CLI, "approve", actionId, "--journal", space.journal, "--unattended"]);
 
     const journal = openJournal(space.journal);
     const who = journal.getAction(actionId)?.approvedBy;
     journal.close();
-    expect(who).toBe(process.env["USER"] ?? process.env["LOGNAME"]);
-    expect(who).not.toBe("unknown");
+    // And says it was given without a terminal, so an audit can tell it
+    // apart from a yes a person typed.
+    expect(who).toBe(`${process.env["USER"] ?? process.env["LOGNAME"] ?? ""} (unattended)`);
+    expect(who).not.toContain("unknown");
   });
 
   it("reports a decision that arrives after the action is settled", async () => {
@@ -620,7 +861,7 @@ describe("the gate, driven from a second process", () => {
     await client.close();
 
     const actionId = gatedAction(space.journal);
-    await run("node", [CLI, "approve", actionId, "--journal", space.journal]);
+    await run("node", [CLI, "approve", actionId, "--journal", space.journal, "--unattended"]);
     const late = await run("node", [CLI, "deny", actionId, "--journal", space.journal]);
     expect(late.code).toBe(1);
     expect(late.stderr).toContain("no longer awaiting approval");

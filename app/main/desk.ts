@@ -388,13 +388,24 @@ export class Desk {
    * read afterwards. Signed out it says "you", which is honest and useless;
    * signed in it says who.
    */
-  approve(actionId: string): void {
-    this.#journal().approve(actionId, this.#signed.actor);
+  approve(actionId: string, options: { readonly forAnHour?: boolean } = {}): void {
+    const journal = this.#journal();
+    // For an hour: the same row `synartesis allow --for 1h` writes, so the
+    // window, the terminal and the console all agree on what is let through.
+    const action = options.forAnHour === true ? journal.getAction(actionId) : undefined;
+    if (journal.approve(actionId, this.#signed.actor) && action !== undefined) {
+      journal.allow(
+        action.server,
+        action.tool,
+        this.#signed.actor,
+        new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      );
+    }
     this.#announce(actionId);
   }
 
   deny(actionId: string, why: string): void {
-    this.#journal().deny(actionId, this.#signed.actor, why);
+    this.#journal().denyByPerson(actionId, this.#signed.actor, why);
     this.#announce(actionId);
   }
 
