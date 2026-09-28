@@ -159,7 +159,14 @@ async function main(): Promise<void> {
     log.warn({ servers: unproven }, warnUntested(unproven));
   }
 
-  const journal = openJournal(argv.journal);
+  const journal = openJournal(argv.journal, {
+    setAsideDamaged: (movedTo) => {
+      log.warn(
+        { journal: argv.journal, movedTo },
+        "the journal was damaged and could not be read; it was set aside, not deleted, and a new one started",
+      );
+    },
+  });
 
   const declared = Object.entries(manifest.servers);
   const wanted =

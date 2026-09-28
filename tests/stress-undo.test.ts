@@ -396,3 +396,57 @@ describe("resuming after an undo was killed mid-compensation", () => {
     expect(active.store.__snapshot().customers[made]?.notes).toBe("a person");
   });
 });
+
+describe("finishing a claim, when the undo is killed in the middle of it", () => {
+  it("never leaves an action claimed with nobody holding it", async () => {
+    // markRolledBack dropped the lease and then settled the row, as two
+    // writes. A kill between them left the row rolling_back, owned by nobody,
+    // after its inverse had landed. Each of the two writes is made to fail in
+    // turn -- the moment of a kill, without a kill -- and whichever fails,
+    // the row and its lease must still agree.
+    for (const trigger of [
+      "CREATE TRIGGER stop BEFORE DELETE ON leases BEGIN SELECT RAISE(ABORT, 'killed here'); END",
+      "CREATE TRIGGER stop BEFORE UPDATE OF status ON actions WHEN NEW.status = 'rolled_back' BEGIN SELECT RAISE(ABORT, 'killed here'); END",
+    ]) {
+      const active = await open();
+      await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", notes: "agent" } });
+      const row = active.journal.getActions(active.runId)[0];
+      if (row === undefined) {
+        throw new Error("nothing recorded");
+      }
+      expect(active.journal.markRollingBack(row.id)).toBe(true);
+      const db = new Database(active.path);
+      db.exec(trigger);
+      db.close();
+      expect(() => {
+        active.journal.markRolledBack(row.id);
+      }, trigger).toThrow();
+      expect(active.journal.getAction(row.id)?.status, trigger).toBe("rolling_back");
+      expect(active.journal.leaseFor(row.id), trigger).toBeDefined();
+    }
+  });
+
+  it("recognises an inverse that landed, even on a row an older build left with no lease", async () => {
+    const active = await open();
+    await active.client.callTool({
+      name: "create_customer",
+      arguments: { name: "Made", email: "m@e.x", plan: "pro", notes: "" },
+    });
+    const row = active.journal.getActions(active.runId)[0];
+    const made = Object.keys(active.store.__snapshot().customers).find((id) => !["c_001", "c_002", "c_003"].includes(id)) ?? "";
+    if (row === undefined) {
+      throw new Error("nothing recorded");
+    }
+    expect(active.journal.markRollingBack(row.id)).toBe(true);
+    const db = new Database(active.path);
+    db.prepare("DELETE FROM leases WHERE action_id = ?").run(row.id);
+    db.close();
+    const before = active.store.__snapshot();
+    active.store.__restore({
+      ...before,
+      customers: Object.fromEntries(Object.entries(before.customers).filter(([id]) => id !== made)),
+    });
+    const report = await rollback({ journal: active.journal, router: active.router, runId: active.runId });
+    expect(report.status).toBe("rolled_back");
+  });
+});

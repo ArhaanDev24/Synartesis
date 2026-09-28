@@ -848,6 +848,24 @@ function runStatus(argv: readonly string[]): number {
   );
   out("");
 
+  // A policy that does not load stops every proxy that reads it, so every
+  // server it covers is gone from the AI app -- and this, the command for
+  // "what is covered", listed them all as covered. It is the first thing to
+  // say, with the line, and the way to get the tools back in the meantime.
+  if (existsSync(manifestPath)) {
+    try {
+      loadManifest(manifestPath);
+    } catch (error: unknown) {
+      out(`  ${style.accent("Your policy cannot be read, so the servers it covers will not start:")}`);
+      for (const line of wrapped(error instanceof Error ? error.message : String(error), 72)) {
+        out(`    ${line}`);
+      }
+      out(`  ${style.quiet("Fix that line and restart your AI apps, or run synartesis uninstall to put")}`);
+      out(`  ${style.quiet("them back as they were in the meantime.")}`);
+      out("");
+    }
+  }
+
   const journal = openIfPresent(journalPath);
   try {
     const groups = scan(journal, process.cwd());

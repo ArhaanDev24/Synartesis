@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readSync, renameSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 
@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import { z } from "zod";
 
 import { canonical } from "../canonical.js";
-import { JournalError } from "../errors.js";
+import { DamagedJournalError, JournalError } from "../errors.js";
 import { SCHEMA_SQL, SCHEMA_VERSION } from "./schema.js";
 
 export type RunStatus = "active" | "complete" | "rolled_back" | "partial";
@@ -689,7 +689,10 @@ function openDatabase(path: string): Database.Database {
     return db;
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    if (detail.includes("not a database")) {
+    if (damaged(detail) && isSqlite(path)) {
+      throw new DamagedJournalError(path);
+    }
+    if (damaged(detail)) {
       throw new JournalError(
         "open",
         `${path} is not a Synartesis journal. Point --journal at a journal, or at a new file to start one.`,
@@ -697,6 +700,31 @@ function openDatabase(path: string): Database.Database {
     }
     throw new JournalError("open", `the journal at ${path} could not be opened: ${detail}`);
   }
+}
+
+/**
+ * Whether a file begins as a SQLite database does. Only such a file can be a
+ * damaged journal. Anything else -- a text file, a --journal typed at the
+ * wrong path -- is somebody else's file, and must never be renamed.
+ */
+function isSqlite(path: string): boolean {
+  try {
+    const header = Buffer.alloc(16);
+    const fd = openSync(path, "r");
+    try {
+      readSync(fd, header, 0, 16, 0);
+    } finally {
+      closeSync(fd);
+    }
+    return header.toString("latin1") === "SQLite format 3\u0000";
+  } catch {
+    return false;
+  }
+}
+
+/** SQLite's words for a file that is not, or is no longer, a readable database. */
+function damaged(detail: string): boolean {
+  return /not a database|malformed|disk image/i.test(detail);
 }
 
 class SqliteJournal implements Journal {
@@ -734,7 +762,18 @@ class SqliteJournal implements Journal {
       );
     }
 
-    this.#db.exec(SCHEMA_SQL);
+    try {
+      // Damage past the header surfaces here, on the first statement that
+      // reads the schema, rather than in the middle of somebody's session.
+      this.#db.exec(SCHEMA_SQL);
+    } catch (error: unknown) {
+      this.#db.close();
+      const detail = error instanceof Error ? error.message : String(error);
+      if (damaged(detail) && isSqlite(path)) {
+        throw new DamagedJournalError(path);
+      }
+      throw error;
+    }
     this.#db.pragma(`user_version = ${String(SCHEMA_VERSION)}`);
   }
 
@@ -1012,15 +1051,23 @@ class SqliteJournal implements Journal {
   }
 
   markRolledBack(actionId: string): void {
-    this.#release(actionId);
-    // Only the holder of the claim gets here. Where the resource turned out to
-    // be already in the state the inverse would produce, the row is still
-    // applied and nothing was sent -- both are the caller's to settle.
-    this.#settle("markRolledBack", actionId, "rolled_back", [
-      "rolling_back",
-      "applied",
-      "unrecoverable",
-    ]);
+    // One transaction, and the status before the lease. These were two writes
+    // with the lease dropped first, so an undo killed between them left a row
+    // still rolling_back with nobody recorded as holding it -- after its
+    // inverse had landed -- and no later undo could tell that from one still
+    // being sent. Found by SIGKILLing undo at random (tests/kill-undo.test.ts),
+    // the same gap markRollingBack had at the other end of the claim.
+    this.#db.transaction(() => {
+      // Only the holder of the claim gets here. Where the resource turned out
+      // to be already in the state the inverse would produce, the row is still
+      // applied and nothing was sent -- both are the caller's to settle.
+      this.#settle("markRolledBack", actionId, "rolled_back", [
+        "rolling_back",
+        "applied",
+        "unrecoverable",
+      ]);
+      this.#release(actionId);
+    }).immediate();
   }
 
   /**
@@ -1034,8 +1081,11 @@ class SqliteJournal implements Journal {
     // action is back to needing an undo like any other. Leaving the lease
     // would make the next attempt ask whether a process that has moved on is
     // still working on it.
-    this.#release(actionId);
-    this.#settle("markInverseRejected", actionId, "applied", ["rolling_back"], error);
+    // Together, for the reason markRolledBack is.
+    this.#db.transaction(() => {
+      this.#settle("markInverseRejected", actionId, "applied", ["rolling_back"], error);
+      this.#release(actionId);
+    }).immediate();
   }
 
   /**
@@ -1810,13 +1860,38 @@ export interface OpenOptions {
    * which looks identical to a real answer and leaves a stray file behind.
    */
   readonly mustExist?: boolean;
+  /**
+   * Set a damaged journal aside and start a new one, told where it went. For
+   * the proxy, whose refusing to start takes every server it covers away from
+   * the AI app. Commands that only read never pass this: they report.
+   */
+  readonly setAsideDamaged?: (movedTo: string) => void;
 }
 
 export function openJournal(path: string, options: OpenOptions = {}): Journal {
   if (options.mustExist === true && path !== ":memory:" && !existsSync(path)) {
     throw new JournalError("open", `there is no journal at ${path}`);
   }
-  return new SqliteJournal(path);
+  try {
+    return new SqliteJournal(path);
+  } catch (error: unknown) {
+    if (!(error instanceof DamagedJournalError) || options.setAsideDamaged === undefined) {
+      throw error;
+    }
+    // A damaged journal used to stop the proxy starting at all, and with it
+    // every server it covers: the AI app simply lost its tools, with the only
+    // explanation in its MCP log. The file is kept, renamed, never deleted --
+    // it is the history of everything an agent did, and may be recoverable --
+    // and a new journal takes its place.
+    const aside = `${path}.damaged-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    for (const suffix of ["", "-wal", "-shm"]) {
+      if (existsSync(`${path}${suffix}`)) {
+        renameSync(`${path}${suffix}`, `${aside}${suffix}`);
+      }
+    }
+    options.setAsideDamaged(aside);
+    return new SqliteJournal(path);
+  }
 }
 
 /**

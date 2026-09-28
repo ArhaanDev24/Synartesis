@@ -410,13 +410,13 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
         verified = true;
       } else if (
         sameState(current, intendedAfterInverse(action)) ||
-        // An inverse this undo sent before it was killed, whose owner is gone:
-        // the resource having reached the state it produces is the inverse
-        // having landed. Found by SIGKILLing undo mid-compensation: the delete
-        // had gone through, and every later attempt called its absence drift.
-        (action.status === "rolling_back" &&
-          journal.leaseFor(action.id)?.alive === false &&
-          looksUndone(current, action))
+        // An inverse sent before an interruption: the resource having reached
+        // the state it produces is the inverse having landed. Found by
+        // SIGKILLing undo mid-compensation: the delete had gone through, and
+        // every later attempt called its absence drift. Whoever holds the
+        // claim does not matter here -- recognising it sends nothing -- so
+        // this also frees rows an older build left claimed with no lease.
+        (action.status === "rolling_back" && looksUndone(current, action))
       ) {
         // The inverse has already taken effect, whether by an interrupted
         // rollback or by someone doing it by hand.

@@ -254,6 +254,22 @@ export class JournalError extends SynartesisError {
   }
 }
 
+/**
+ * The journal file is not a database that can be read: overwritten, cut short
+ * by a full disk, or damaged by a power cut. Distinct from a journal written by
+ * a different version, which is intact and must never be set aside.
+ */
+export class DamagedJournalError extends JournalError {
+  constructor(readonly path: string) {
+    super(
+      "open",
+      `the journal at ${path} is damaged and cannot be read. ` +
+        `Your AI apps set it aside and start a new one the next time they run; to do that now: ` +
+        `mv '${path}' '${path}.damaged'`,
+    );
+  }
+}
+
 export function describe(cause: unknown): string {
   if (cause instanceof Error) {
     return cause.message;

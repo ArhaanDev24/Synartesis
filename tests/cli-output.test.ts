@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { z } from "zod";
@@ -195,5 +195,19 @@ describe("asking what version this is", () => {
     const said = await run(["help"]);
     expect(said.code).toBe(0);
     expect(said.stdout).toContain("synartesis install");
+  });
+});
+
+describe("status, when the policy does not load", () => {
+  it("says so first, with the line, and how to get the tools back meanwhile", async () => {
+    // Every proxy reading a broken policy refuses to start, so every server it
+    // covers is gone from the AI app. status listed them all as covered.
+    const dir = workspace();
+    const policy = join(dir, "synartesis.yaml");
+    writeFileSync(policy, "version: 1\nservers:\n  fs: [oops\n");
+    const said = await run(["status", "--manifest", policy, "--journal", join(dir, "j.db")]);
+    expect(said.stdout).toContain("Your policy cannot be read");
+    expect(said.stdout).toMatch(/synartesis\.yaml:\d+:\d+/);
+    expect(said.stdout).toContain("synartesis uninstall");
   });
 });

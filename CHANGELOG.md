@@ -2,6 +2,42 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.9.3 — 2026-09-28
+
+Bug fixes, found by running every command in every state a real setup can be in
+(new machine, empty journal, busy journal, broken policy, damaged journal), and
+by running the SIGKILL undo test hundreds of times instead of once.
+
+### Fixed
+
+- **A damaged journal took every covered server away from the AI app.** A power
+  cut, a full disk or a sync tool can leave the journal file unreadable. The
+  proxy refused to start on one, and with it every server it covered: the AI
+  app simply lost those tools, and the only explanation was in its MCP log. The
+  proxy now sets a damaged journal aside (renamed, never deleted) and starts a
+  new one. It only does that to a file that really is a damaged database: a
+  journal from another version is intact and still refused with its own
+  message, and a file that was never a database (a `--journal` pointed at the
+  wrong path) is never touched. Commands that only read, like `list` and
+  `undo`, say the journal is damaged and give the one-line command to set it
+  aside.
+- **Undo could still block an action for good if killed at the wrong moment.**
+  0.9.1 made claiming an action atomic, but finishing one had the same gap:
+  the lease was dropped and the row settled as two writes. A kill between them
+  left an action whose inverse had landed still marked in flight, with nobody
+  recorded as holding it, and every later undo stopped there. Both writes are
+  now one transaction, and the same for a refused inverse. The SIGKILL test
+  failed about one run in four before this and passed 250 consecutive rounds
+  after.
+- **An inverse that landed before an interruption is recognised whoever holds
+  its claim**, since recognising it sends nothing. This also frees rows that an
+  older build left claimed with no lease at all.
+- **`status` said nothing about a policy that does not load.** Every proxy
+  reading a broken policy refuses to start, which is right, since it cannot
+  tell what is safe. But `status` listed all those servers as covered. It now
+  says first that the policy cannot be read, with the line, and that
+  `synartesis uninstall` gives the apps their tools back in the meantime.
+
 ## 0.9.2 — 2026-09-24
 
 For someone who has never used a terminal. Every screen was walked through as a

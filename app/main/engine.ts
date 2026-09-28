@@ -158,7 +158,11 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
    * read the world, and the router needs every upstream, including the toolset.
    */
   const live: { router?: Router; runId?: string } = {};
-  const journal = openJournal(options.journalPath);
+  const journal = openJournal(options.journalPath, {
+    // The window is a proxy too: a damaged file must not leave it with no
+    // tools. Kept beside the new one, renamed.
+    setAsideDamaged: () => undefined,
+  });
 
   const upstreams: Upstream[] = [];
   const down: ServerTrouble[] = [];
