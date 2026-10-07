@@ -8,7 +8,7 @@ import { plainly, subject, summariseArgs } from "./describe.js";
 import { LOOKED_FOR } from "./install/clients.js";
 import { needsConnecting, stateOf, type ClientGroup, type Connection } from "./install/connections.js";
 import { cliCommand } from "./invocation.js";
-import { keysIn } from "./keys.js";
+import { keysIn, restoreTerminal } from "./keys.js";
 import { counted, NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
 
 /** How long the A key stops asking about a tool. */
@@ -111,6 +111,14 @@ interface Screen {
    * first session is recorded it moves to the sessions by itself.
    */
   welcome: boolean;
+  /** How far the cursor can go in the view last drawn. */
+  limit: number;
+  /** The line the cursor is drawn on, which headings and notes push down. */
+  line: number;
+  /** The held call the cursor was drawn on, which is the one a key answers. */
+  shown: string | undefined;
+  /** Where the cursor was in the list of sessions, to go back to. */
+  listCursor: number;
 }
 
 /**
@@ -141,6 +149,26 @@ function windowed(lines: readonly string[], at: number, room: number): string[] 
     ...shown.slice(above === 0 ? 0 : 1, below === 0 ? undefined : -1),
     ...(below === 0 ? [] : [`  ${style.quiet(`${String(below)} more below`)}`]),
   ];
+}
+
+/**
+ * A view windowed on the line its cursor was drawn on. Read after the view is
+ * built, since building it is what finds that line: the cursor counts rows,
+ * and headings, blank lines and notes put rows further down the screen than
+ * their number, so the highlighted one could fall under "more below".
+ */
+function atLine(lines: readonly string[], screen: Screen, room: number): string[] {
+  return windowed(lines, screen.line, room);
+}
+
+/**
+ * A session's actions, which have no cursor of their own: j and k scroll
+ * them. Pinned at the top, the rest of a long session was unreachable.
+ */
+function scrolled(lines: readonly string[], screen: Screen, room: number): string[] {
+  screen.limit = Math.max(1, lines.length - room + 1);
+  const top = Math.min(screen.cursor, screen.limit - 1);
+  return windowed(lines, top + Math.floor(room / 2), room);
 }
 
 /** The sentence, not the diff that follows it. */
@@ -210,6 +238,7 @@ function runsView(journal: Journal, screen: Screen, options: ConsoleOptions): st
   }
 
   const at = Math.min(screen.cursor, runs.length - 1);
+  screen.limit = runs.length;
   // Once for the frame, not once per row, and from the index rather than from
   // the actions. This loop called getActions for every session on screen --
   // every snapshot, result and inverse in each of them, through a zod parse --
@@ -355,6 +384,7 @@ function connectionsView(screen: Screen, options: ConsoleOptions): string[] {
   }
   const rows = connectionRows(screen);
   const at = Math.min(screen.cursor, Math.max(0, rows.length - 1));
+  screen.limit = rows.length;
   const now = new Date();
   const out: string[] = [];
   let index = 0;
@@ -373,6 +403,9 @@ function connectionsView(screen: Screen, options: ConsoleOptions): string[] {
     }
     for (const connection of group.connections) {
       const here = index === at && canPress(options);
+      if (index === at) {
+        screen.line = out.length;
+      }
       const state = stateOf(connection, now);
       const shown = connection.covered ? style.quiet(state) : style.accent(state);
       out.push(
@@ -389,10 +422,15 @@ function connectionsView(screen: Screen, options: ConsoleOptions): string[] {
 
 function gatesView(journal: Journal, screen: Screen, options: ConsoleOptions): string[] {
   const waiting = journal.listGated();
+  screen.limit = waiting.length;
+  screen.shown = undefined;
   if (waiting.length === 0) {
     return [`  ${style.quiet("Nothing is waiting for a decision.")}`];
   }
   const at = Math.min(screen.cursor, waiting.length - 1);
+  screen.shown = canPress(options) ? waiting[at]?.id : undefined;
+  // One line each, and a second under the highlighted one.
+  screen.line = at;
   return waiting.flatMap((action, index) => {
     const here = index === at && canPress(options);
     const name = `${action.server}.${action.tool}`;
@@ -457,7 +495,7 @@ function welcomeFrame(screen: Screen, options: ConsoleOptions, tick: number): st
         : [
             `  ${style.strong("Welcome.")} ${style.quiet("These are the AI apps on this machine and the tools they use.")}`,
             `  ${style.quiet("Press")} ${style.strong("a")} ${style.quiet("to cover all of them, or move to one and press")} ${style.strong("enter")}${style.quiet(".")}`,
-            `  ${style.quiet("Nothing else on your machine is changed, and")} ${style.strong("synartesis uninstall")} ${style.quiet("puts it all back.")}`,
+            `  ${style.quiet("Nothing else on your machine is changed, and")} ${style.strong(`${cliCommand()} uninstall`)} ${style.quiet("puts it all back.")}`,
           ];
   const notice =
     screen.notice === "" ? [] : ["", ...screen.notice.split("\n").map((line) => `  ${style.accent(line)}`)];
@@ -546,6 +584,10 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
     notice: "",
     noticeUntil: 0,
     welcome: false,
+    limit: 0,
+    line: 0,
+    shown: undefined,
+    listCursor: 0,
   };
   let tick = 0;
   // Read through a call rather than touched directly: the compiler narrows a
@@ -585,10 +627,10 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
       screen.mode === "runs"
         ? windowed(runsView(ready, screen, options), screen.cursor, room)
         : screen.mode === "run"
-          ? windowed(runView(ready, screen), 0, room)
+          ? scrolled(runView(ready, screen), screen, room)
           : screen.mode === "connections"
-            ? windowed(connectionsView(screen, options), screen.cursor, room)
-            : windowed(gatesView(ready, screen, options), screen.cursor, room);
+            ? atLine(connectionsView(screen, options), screen, room)
+            : atLine(gatesView(ready, screen, options), screen, room);
     // Several lines, because what undoing would write over is a diff and
     // there is no useful one-line form of it.
     const notice =
@@ -703,8 +745,14 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
       return;
     }
     const waiting = ready.listGated();
-    const action = waiting[Math.min(screen.cursor, waiting.length - 1)];
+    if (screen.shown === undefined) {
+      return;
+    }
+    // The one the cursor was drawn on, not whatever is at that position now:
+    // a call answered elsewhere between frames moved the next one under it.
+    const action = waiting.find((one) => one.id === screen.shown);
     if (action === undefined) {
+      say("that call was answered somewhere else a moment ago; nothing was changed");
       return;
     }
     const changed = approve
@@ -866,7 +914,9 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         return;
       case "j":
       case `${ESC}[B`:
-        screen.cursor += 1;
+        // No further than the last row, or k does nothing for as many presses
+        // as j overshot.
+        screen.cursor = Math.min(screen.cursor + 1, Math.max(0, screen.limit - 1));
         return;
       case "k":
       case `${ESC}[A`:
@@ -901,13 +951,19 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         return;
       case ESC:
       case "h":
+        if (screen.mode === "run") {
+          screen.cursor = screen.listCursor;
+        }
         screen.mode = "runs";
         screen.openRun = undefined;
         return;
       case "\r":
       case "\n": {
         if (screen.mode === "connections") {
-          const chosen = connectionRows(screen)[screen.cursor];
+          const rows = connectionRows(screen);
+          // The row drawn highlighted, which stops at the last one however
+          // far the cursor was pushed.
+          const chosen = rows[Math.min(screen.cursor, rows.length - 1)];
           void connect(chosen === undefined ? [] : [chosen]);
           return;
         }
@@ -916,6 +972,8 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
         if (run !== undefined) {
           screen.openRun = run.id;
           screen.mode = "run";
+          screen.listCursor = screen.cursor;
+          screen.cursor = 0;
         }
         return;
       }
@@ -1049,7 +1107,14 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
             if (next.done === true || stopped()) {
               return;
             }
-            press(next.value);
+            try {
+              press(next.value);
+            } catch (error: unknown) {
+              // Said on the screen. Thrown from here it was an unhandled
+              // rejection: the process died with the cursor hidden and the
+              // terminal raw.
+              say(`that did not work: ${error instanceof Error ? error.message : String(error)}`);
+            }
             // Before anything has run there is only the connect list to be
             // on; a key that would move to a list of sessions has none to show.
             if (screen.welcome && open() === undefined) {
@@ -1103,6 +1168,12 @@ export async function openConsole(options: ConsoleOptions): Promise<number> {
       })(),
       new Promise<void>((resolve) => setTimeout(resolve, 50).unref()),
     ]);
+    // Put back by hand: a reader waiting on a key only runs its own clean-up
+    // when the next key arrives, so leaving any way but q left the terminal
+    // raw and the process held open by stdin.
+    if (source !== undefined && options.keys === undefined) {
+      restoreTerminal();
+    }
     journal?.close();
   }
 }

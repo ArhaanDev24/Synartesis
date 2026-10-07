@@ -83,10 +83,11 @@ import {
   discover,
   isClientId,
   LOOKED_FOR,
+  serversAt,
   type ClientId,
   type ConfigSite,
 } from "./install/clients.js";
-import { needsConnecting, scan, stateOf } from "./install/connections.js";
+import { needsConnecting, scan, stateOf, type ClientGroup } from "./install/connections.js";
 import { applyInstall, applyUninstall, invokerFor, planInstall } from "./install/install.js";
 import { findDesktop, whereToGetIt } from "./desktop.js";
 
@@ -107,15 +108,15 @@ const COMMANDS = `
   synartesis show <runId> [--full] [--live] [--journal <path>]
   synartesis gates [--journal <path>]
   synartesis close [runId] [--journal <path>]
-  synartesis clean [--dry-run] [--yes]              clear finished sessions,
-                                                  keep what still matters
+  synartesis clean [--dry-run] [--yes] [--journal <path>]
+                                     clear finished sessions, keep what still matters
   synartesis prune [--older-than <days>] [--dry-run] [--journal <path>]
   synartesis proxy --manifest <path> [--server <name>]    what your agent runs
                   [--journal <path>]
                   [--http <port> --token <secret>]      for a client that
                                                         cannot start one
   synartesis desktop
-  synartesis watch [--by <name>] [--journal <path>]
+  synartesis watch [--by <name>] [--once] [--journal <path>]
   synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
   synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
   synartesis allow [<server.tool> --for <30m|2h> | --always | --stop]
@@ -848,32 +849,38 @@ function runStatus(argv: readonly string[]): number {
   );
   out("");
 
-  // A policy that does not load stops every proxy that reads it, so every
-  // server it covers is gone from the AI app -- and this, the command for
-  // "what is covered", listed them all as covered. It is the first thing to
-  // say, with the line, and the way to get the tools back in the meantime.
-  if (existsSync(manifestPath)) {
-    try {
-      loadManifest(manifestPath);
-    } catch (error: unknown) {
-      out(`  ${style.accent("Your policy cannot be read, so the servers it covers will not start:")}`);
-      for (const line of wrapped(error instanceof Error ? error.message : String(error), 72)) {
-        out(`    ${line}`);
-      }
-      out(`  ${style.quiet("Fix that line and restart your AI apps, or run synartesis uninstall to put")}`);
-      out(`  ${style.quiet("them back as they were in the meantime.")}`);
-      out("");
-    }
-  }
-
   const journal = openIfPresent(journalPath);
   try {
     const groups = scan(journal, process.cwd());
+
+    // A policy that does not load stops every proxy that reads it, so every
+    // server it covers is gone from the AI app -- and this, the command for
+    // "what is covered", listed them all as covered. It is the first thing to
+    // say, with the line, and the way to get the tools back in the meantime.
+    // Every policy the connected servers actually load, not only the one
+    // found from where this was run: a project with its own policy would
+    // otherwise be checked in place of the one the apps use.
+    let broken = false;
+    for (const path of [...new Set([...(existsSync(manifestPath) ? [manifestPath] : []), ...policiesInUse(groups)])]) {
+      try {
+        loadManifest(path);
+      } catch (error: unknown) {
+        broken = true;
+        out(`  ${style.accent(`The policy at ${path} cannot be read, so the servers it covers will not start:`)}`);
+        for (const line of wrapped(error instanceof Error ? error.message : String(error), 72)) {
+          out(`    ${line}`);
+        }
+        out(`  ${style.quiet(`Fix that line and restart your AI apps, or run ${cliCommand()} uninstall to put`)}`);
+        out(`  ${style.quiet("them back as they were in the meantime.")}`);
+        out("");
+      }
+    }
+
     if (groups.length === 0) {
       out(`  ${style.quiet("No MCP client config found.")}`);
       out(`  ${style.quiet(LOOKED_FOR)}`);
       out("");
-      return 0;
+      return broken ? 2 : 0;
     }
     const now = new Date();
     for (const group of groups) {
@@ -895,11 +902,18 @@ function runStatus(argv: readonly string[]): number {
     }
     const waiting = needsConnecting(groups).length;
     out(
-      waiting === 0
-        ? `  ${style.quiet("Everything found is covered.")}`
-        : `  ${style.accent(`${String(waiting)} not covered.`)} ${style.quiet(`${cliCommand()} install covers them.`)}`,
+      broken
+        ? `  ${style.accent("Wrapped, but not working: nothing above starts until the policy loads.")}`
+        : waiting === 0
+          ? `  ${style.quiet("Everything found is covered.")}`
+          : `  ${style.accent(`${String(waiting)} not covered.`)} ${style.quiet(`${cliCommand()} install covers them.`)}`,
     );
     out("");
+    if (broken) {
+      // The help promises 2 for a configuration problem, and a script that
+      // asks whether everything is covered should not hear yes.
+      return 2;
+    }
     // Only once there is nothing left to wire up. Two suggestions at once,
     // one of them about coverage and one about a session, is the help page
     // again in miniature.
@@ -913,6 +927,27 @@ function runStatus(argv: readonly string[]): number {
     journal?.close();
   }
   return 0;
+}
+
+/** The policy file each wrapped entry passes with --manifest. */
+function policiesInUse(groups: readonly ClientGroup[]): string[] {
+  const paths: string[] = [];
+  for (const connection of groups.flatMap((group) => group.connections)) {
+    if (!connection.covered) {
+      continue;
+    }
+    try {
+      const args = serversAt(connection.site)[connection.server]?.args ?? [];
+      const at = args.indexOf("--manifest");
+      const path = at === -1 ? undefined : args[at + 1];
+      if (path !== undefined) {
+        paths.push(resolve(path));
+      }
+    } catch {
+      // A config that cannot be read is reported in the list itself.
+    }
+  }
+  return paths;
 }
 
 async function runInit(argv: readonly string[]): Promise<number> {
@@ -1808,14 +1843,28 @@ async function runClean(argv: readonly string[], journal: Journal, journalPath: 
   }
   // Asked again after closing, rather than trusting the preview: a session
   // could have been used in the seconds spent answering.
-  const now = journal.cleanable(idleBefore).finished;
-  const removed = journal.deleteRuns(now.map((run) => run.id));
-  journal.vacuum();
+  // Only what was shown, and only what is still clearable now, decided and
+  // deleted together: a session could have been used in the seconds spent
+  // answering, or another app could have exited and left one to close.
+  const removed = journal.cleanRuns(
+    [...finished.map((run) => run.id), ...abandoned],
+    idleBefore,
+  );
+  let compacted = true;
+  try {
+    journal.vacuum();
+  } catch {
+    // Busy: a proxy is writing. What was cleared is cleared either way.
+    compacted = false;
+  }
   out("");
   out(
     `  ${style.accent(`cleared ${counted(removed.runs, "session")}`)}` +
       style.quiet(`${abandoned.length > 0 ? `, closed ${String(abandoned.length)}` : ""} \u00b7 journal ${sizeBefore} \u2192 ${sizeOf(journalPath)}`),
   );
+  if (!compacted) {
+    out(`  ${style.quiet("The file was not made smaller: an app was writing to it. Run clean again later.")}`);
+  }
   out("");
   return 0;
 }

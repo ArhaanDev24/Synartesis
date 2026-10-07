@@ -1,4 +1,15 @@
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, platform } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -361,8 +372,18 @@ export function withServers(
   const rest = at.slice(1);
   const below = document[head];
   const child =
-    rest.length === 0 ? servers : withServers(isRecord(below) ? below : {}, rest, servers);
+    rest.length === 0 ? keepingNotes(below, servers) : withServers(isRecord(below) ? below : {}, rest, servers);
   return { ...document, [head]: child };
+}
+
+/**
+ * The new server map, with whatever in the old one was not a server -- a
+ * `"//": "comment"`, a `"_note"` -- left where it was. Those are not ours to
+ * read, and replacing the map dropped them from the file.
+ */
+function keepingNotes(before: unknown, servers: Record<string, ServerEntry>): Record<string, unknown> {
+  const notes = isRecord(before) ? Object.entries(before).filter(([, value]) => !isRecord(value)) : [];
+  return { ...Object.fromEntries(notes), ...servers };
 }
 
 /** Two spaces unless the file plainly uses something else, so the diff stays small. */
@@ -380,7 +401,14 @@ function indentOf(path: string): string | number {
 }
 
 export function backupPathFor(path: string): string {
-  return `${path}.synartesis-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  const stamp = `${path}.synartesis-backup-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+  // Two writes in one millisecond would otherwise share a name, and the
+  // second copy -- already ours -- would replace the first, the original.
+  let candidate = stamp;
+  for (let n = 1; existsSync(candidate); n += 1) {
+    candidate = `${stamp}-${String(n)}`;
+  }
+  return candidate;
 }
 
 /** How many copies of one config to keep. Enough to undo a mistake, not a pile. */
@@ -419,17 +447,48 @@ export function writeDocument(site: ConfigSite, document: Record<string, unknown
   return writeText(site, `${JSON.stringify(document, undefined, indentOf(site.path))}\n`);
 }
 
-/** The backup, the temporary file and the rename, shared by both formats. */
-function writeText(site: ConfigSite, text: string): string {
-  const backup = backupPathFor(site.path);
-  const original = readFileSync(site.path);
-  writeFileSync(backup, original);
-  pruneBackups(site.path);
+/**
+ * What this process last wrote to each file, and the backup taken before it.
+ *
+ * One install writes `~/.claude.json` once for every project in it, and each
+ * write took a backup and pruned to five, so an install touching six projects
+ * deleted the one copy of the file as it was before -- the copy the backup is
+ * for. A file still holding exactly what was written here has been backed up
+ * already.
+ */
+const written = new Map<string, { readonly text: string; readonly backup: string }>();
 
-  const temporary = join(dirname(site.path), `.synartesis-write-${String(process.pid)}.tmp`);
+/**
+ * The backup, the temporary file and the rename, shared by both formats.
+ *
+ * Written to where a symlink points, not over the link: a config kept in a
+ * dotfiles repository and linked into place stopped being linked. And with
+ * the file's own permissions: these files hold tokens, and a config that was
+ * readable only by its owner came back readable by everyone, as did the
+ * backup beside it.
+ */
+function writeText(site: ConfigSite, text: string): string {
+  const target = realpathSync(site.path);
+  const mode = statSync(target).mode & 0o777;
+  const original = readFileSync(target);
+  const before = written.get(target);
+  let backup: string;
+  if (before !== undefined && original.toString("utf8") === before.text) {
+    backup = before.backup;
+  } else {
+    backup = backupPathFor(site.path);
+    writeFileSync(backup, original, { mode: 0o600 });
+    chmodSync(backup, 0o600);
+    pruneBackups(site.path);
+  }
+
+  const temporary = join(dirname(target), `.synartesis-write-${String(process.pid)}.tmp`);
   try {
-    writeFileSync(temporary, text);
-    renameSync(temporary, site.path);
+    writeFileSync(temporary, text, { mode });
+    // Past the umask, which `mode` on create is not.
+    chmodSync(temporary, mode);
+    renameSync(temporary, target);
+    written.set(target, { text, backup });
   } catch (error: unknown) {
     try {
       unlinkSync(temporary);

@@ -27,3 +27,17 @@ export function keysIn(chunk: string): string[] {
   }
   return keys;
 }
+
+/** The terminal as it was before the keys were read: cooked, and not holding the process. */
+export function restoreTerminal(): void {
+  const input = process.stdin;
+  if (input.isTTY) {
+    try {
+      input.setRawMode(false);
+    } catch {
+      // Already closed: nothing left to put back.
+    }
+  }
+  input.pause();
+  input.unref();
+}

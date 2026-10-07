@@ -207,11 +207,16 @@ export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
           },
         });
         await proxy.server.connect(transport);
+        // Added to, not replaced: connecting installed the server's own close
+        // handler here, and it is what ends the session's run. Assigning over
+        // it left every HTTP session `active` for ever.
+        const closed = transport.onclose;
         transport.onclose = (): void => {
           const id = transport.sessionId;
           if (id !== undefined) {
             sessions.delete(id);
           }
+          closed?.();
         };
         await writeResponse(res, await transport.handleRequest(toRequest(req, raw, origin)));
       } catch (error: unknown) {

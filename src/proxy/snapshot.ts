@@ -189,8 +189,9 @@ export async function runRead(
   }
   const { tool, args } = read;
 
+  let used = upstream.client;
   const ask = (): Promise<unknown> =>
-    upstream.client.request(
+    (used = upstream.client).request(
       { method: "tools/call", params: { name: tool, arguments: args } },
       z.looseObject({}),
       { signal },
@@ -211,7 +212,7 @@ export async function runRead(
       throw new SnapshotError(label, describe(error), { cause: error });
     }
     try {
-      await upstream.reconnect();
+      await upstream.reconnect(used);
       raw = await ask();
     } catch (retry: unknown) {
       // The second attempt can kill the connection the same way the first did
@@ -219,7 +220,7 @@ export async function runRead(
       // call that caused it fails either way; the rest of the session should
       // not have to.
       if (isDisconnected(retry)) {
-        await upstream.reconnect().catch(() => undefined);
+        await upstream.reconnect(used).catch(() => undefined);
       }
       // Twice, the same way, on a fresh connection: the request is fine and
       // the reply is what cannot be carried. Saying so is the difference

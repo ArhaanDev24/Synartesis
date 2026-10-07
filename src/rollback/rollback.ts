@@ -5,6 +5,7 @@ import { IDEMPOTENCY_META_KEY } from "../idempotency.js";
 import { DriftConflict, RollbackHalted, changedLines, describe } from "../errors.js";
 import { labelFor, type ActionRow, type ActionStatus, type Journal, type Lease } from "../journal/journal.js";
 import type { Router } from "../proxy/routing.js";
+import { CALL_TIMEOUT_MS } from "../proxy/upstream.js";
 import {
   observeState,
   planInverse,
@@ -362,6 +363,21 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       continue;
     }
     const plan = parsedPlan.data;
+
+    // Another undo holds this row and is still running. Whatever the resource
+    // says, the row is that undo's to settle: finishing it from here -- as
+    // already undone, or as drifted -- made the holder's own write fail when
+    // it got there, and that undo stopped without saying how the session
+    // ended. A row with no lease, or one whose holder has exited, is free. A
+    // dry run settles nothing, so it goes on to report what it finds.
+    const busy = action.status === "rolling_back" && !dryRun ? journal.leaseFor(action.id) : undefined;
+    if (busy !== undefined && busy.alive !== false) {
+      const reason =
+        "an inverse for this action was already sent and never finished, and the undo that sent it is still running";
+      halted = { seq: action.seq, reason, detail: held(busy) };
+      steps.push({ ...describeStep(action), kind: "halt", reason, verified: false, plan });
+      break;
+    }
 
     // Drift check. Only possible where a pre-read was declared, which is what
     // produced both the stored verify call and the post-state.
@@ -834,11 +850,18 @@ async function executeInverse(
         params: {
           name: plan.tool,
           arguments: plan.args,
-          _meta: { [IDEMPOTENCY_META_KEY]: idempotencyKey },
+          // Its own key, not the forward call's. A server that de-duplicates
+          // by key would read the forward call's as a repeat of the write,
+          // answer with the cached result and change nothing, and the undo
+          // would be recorded as done. Derived, so a retried undo of the same
+          // action still presents the same key.
+          _meta: { [IDEMPOTENCY_META_KEY]: `${idempotencyKey}:undo` },
         },
       },
       z.looseObject({}),
-      { signal },
+      // As long as the forward call was given: an inverse is the same tool
+      // doing the same kind of work.
+      { signal, timeout: CALL_TIMEOUT_MS, resetTimeoutOnProgress: true },
     );
   } catch (error: unknown) {
     // Refused at the door -- an expired token on a hosted server -- is known
@@ -852,7 +875,7 @@ async function executeInverse(
     return {
       ok: false,
       rejected: true,
-      message: `the inverse was refused: ${JSON.stringify(raw)}`,
+      message: `the inverse was refused: ${truncated(JSON.stringify(raw))}`,
     };
   }
   return { ok: true };

@@ -2,7 +2,125 @@
 
 What changed, and why it mattered. Dates are release dates.
 
-## 0.9.3 — 2026-09-28
+## 0.9.4 — 2026-10-07
+
+Bug fixes. 0.9.3 never reached npm, so this release also carries everything
+listed under it below. These were found by reading the proxy, the journal and
+the screens looking for the case each one gets wrong. Each fix has a test that
+fails without it.
+
+### Fixed: things that defeated the promise
+
+- **The SQL read check could be bypassed with a quoted comment marker.**
+  `SELECT '--'; DELETE FROM users` was read as a single `SELECT`, because
+  comments were removed before strings, so the `--` inside the string hid the
+  delete. Strings and comments are now read together in one pass, left to
+  right, as the database reads them.
+- **Undo sent the same idempotency key as the call it was undoing.** A server
+  that de-duplicates by key would see the undo as a repeat of the write,
+  answer with the cached result and change nothing, and the undo was recorded
+  as done. An undo now sends its own key, which stays the same when that undo
+  is retried.
+- **Losing a race for an approval could put the winning call back on hold.**
+  When two proxies reached the same approval together, the one that lost
+  still used the approved row as its own. Its new hold moved the winner's
+  call, which was already on its way out, back to "waiting", so the person
+  was asked about an email that had already gone. The loser now opens a hold
+  of its own.
+- **`clean` could delete a session that was still in use.** Undoing a session
+  whose app is still connected marks it rolled back while its proxy goes on
+  recording into it. `clean` then removed it, and every later call that proxy
+  made failed. `clean` now keeps any session whose process is still running.
+  It deletes only what it showed you, re-checking each one at the moment of
+  deletion, and it keeps sessions holding a recent "no" so the agent is not
+  asked again. If the journal is busy and cannot be compacted, it says so
+  rather than failing after clearing.
+- **An undo could finish an action another undo was still working on.** That
+  made the other undo fail partway through without saying how the session
+  ended. An action claimed by an undo that is still running is now left to it.
+
+### Fixed: the proxy
+
+- **HTTP sessions never ended.** The handler that ends a session's run was
+  replaced when the session was set up, so every HTTP session stayed
+  "active" for good, and `clean` could never close one.
+- **Every tool call was cut off after one minute.** That is the MCP SDK's
+  default, and the proxy did not change it. A build, a migration or a large
+  upload was cancelled by the proxy while the agent was still waiting, and a
+  write cancelled partway is one whose outcome nobody knows. Calls now get 30
+  minutes, counted from the tool's last progress report. Progress reports now
+  reach the agent; they used to be dropped.
+- **A write the agent cancelled was always recorded as unknown.** The check
+  that reads what actually happened was cancelled along with the call, and an
+  unknown outcome blocks undoing the whole session. That check now runs on its
+  own.
+- **After a reconnect, nothing the server announced reached the agent again.**
+  This covered changed tool lists, log lines and resource updates. Two calls
+  failing on the same dead connection each started a replacement server, and
+  one was left running unowned. Over HTTP, only the newest session heard
+  anything. Notifications now reach every session through every reconnect,
+  and one failure starts one replacement.
+- **One server could take every other server's tools away.**
+  - A server that offers no tools stopped the proxy starting.
+  - A server that failed to list its tools emptied the whole tool list.
+  - Now each server's failure costs only its own tools, and it is logged.
+  - A server that repeats a page cursor is no longer asked for ever.
+- **Shutdown stopped at the first server that would not close**, leaving the
+  rest running.
+
+### Fixed: install
+
+- **Rewriting a client config made it readable by everyone.** These files hold
+  tokens. A config only its owner could read came back readable by every
+  account, and so did the backup beside it. The config keeps its permissions
+  now, and backups are owner-only.
+- **A config that was a symlink**, as in a dotfiles repository, was replaced by
+  a plain file. It is now written through the link.
+- **Notes in a server list** (`"//": "…"`) were dropped from the file.
+- **One install could delete the backup of the original file.** Claude Code
+  keeps one server list per project in one file, so one install writes that
+  file once per project, and each write pruned the backups to five. The
+  original is now backed up once per install.
+- **On Windows, install did not recognise entries it had written**, so a
+  second install wrapped the proxy in itself and uninstall left it behind.
+- **Codex: a comment at the end of a line** was read as part of the value, and
+  a table header with a comment was not seen at all. Comments are now ignored
+  when reading and kept when writing.
+- The policy file and the install record are written whole or not at all.
+
+### Fixed: the journal
+
+- **Setting aside a damaged journal is safer.**
+  - It no longer renames a healthy journal that another process has just put
+    in its place.
+  - It moves the database's side files before the database itself.
+  - It closes the damaged file before renaming it.
+- Errors while undoing now come back as journal errors, as everywhere else.
+- A refused undo no longer copies the tool's whole reply into the error text.
+
+### Fixed: watch and the console
+
+- **Leaving any way but `q` left the terminal broken.** A signal, or a journal
+  that would not open, left it in raw mode, and the process waited for one
+  more key before exiting.
+- **An error while handling a key crashed the screen** with the cursor hidden.
+  It is now shown as a message.
+- **`a` could approve a call you had not seen highlighted.** If the
+  highlighted call was answered from another terminal between frames, the
+  next one slid under the cursor and the key acted on it. Keys now act on the
+  call that was drawn highlighted, and say so if it has gone.
+- The cursor stops at the last row, so `k` is never a dead key after
+  overshooting.
+- Enter in the connections list acts on the row it shows highlighted.
+- A long session's actions can be scrolled with `j` and `k`.
+- `watch` before any journal exists answers keys and shows how to quit.
+- **`status` with a broken policy said everything was covered and exited 0.**
+  It now exits 2 and checks the policy your apps actually load, not only the
+  one found from the current folder.
+- The `clean` and `watch` usage lines list every flag they take, and the
+  console names the uninstall command as it runs on your machine.
+
+## 0.9.3 — 2026-09-28 (not published; included in 0.9.4)
 
 Bug fixes, found by running every command in every state a real setup can be in
 (new machine, empty journal, busy journal, broken policy, damaged journal), and

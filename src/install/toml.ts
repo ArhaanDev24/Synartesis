@@ -29,6 +29,40 @@ export interface TomlTable {
 // between the first bracket and the last read one as a table called "[x".
 const HEADER = /^\s*\[(?!\[)([^[\]]+)\]\s*$/;
 
+/**
+ * Where a line's trailing `# comment` begins, outside any string, or the
+ * line's length when it has none.
+ *
+ * `command = "npx"  # pinned` read as the command `"npx"  # pinned`, quotes
+ * and all, which uninstall then wrote back escaped -- and a header with a
+ * comment after it was not seen as a header at all, so the table before it
+ * ran on into the next server's lines.
+ */
+function commentAt(line: string): number {
+  let quote: '"' | "'" | undefined;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line.charAt(index);
+    if (quote === '"' && character === "\\") {
+      index += 1;
+    } else if (quote === undefined && (character === '"' || character === "'")) {
+      quote = character;
+    } else if (character === quote) {
+      quote = undefined;
+    } else if (quote === undefined && character === "#") {
+      return index;
+    }
+  }
+  return line.length;
+}
+
+function code(line: string): string {
+  return line.slice(0, commentAt(line));
+}
+
+function headerOf(line: string): string | undefined {
+  return HEADER.exec(code(line))?.[1];
+}
+
 /** Every `[mcp_servers.NAME]` table, excluding its `.env` and other subtables. */
 export function serverTables(lines: readonly string[]): TomlTable[] {
   const tables: TomlTable[] = [];
@@ -42,7 +76,7 @@ export function serverTables(lines: readonly string[]): TomlTable[] {
   };
 
   lines.forEach((line, index) => {
-    const header = HEADER.exec(line)?.[1];
+    const header = headerOf(line);
     if (header === undefined) {
       return;
     }
@@ -81,10 +115,10 @@ function readKey(lines: readonly string[], table: TomlTable, key: string): strin
   const pattern = new RegExp(`^\\s*${key}\\s*=\\s*(.*)$`);
   for (let index = table.start + 1; index < table.end; index += 1) {
     const line = lines[index];
-    if (line === undefined || HEADER.test(line)) {
+    if (line === undefined || headerOf(line) !== undefined) {
       break;
     }
-    const value = pattern.exec(line)?.[1];
+    const value = pattern.exec(code(line))?.[1];
     if (value !== undefined) {
       return value.trim();
     }
@@ -242,12 +276,14 @@ function setKey(lines: string[], table: TomlTable, key: string, value: string): 
   const pattern = new RegExp(`^(\\s*)${key}\\s*=`);
   for (let index = table.start + 1; index < table.end; index += 1) {
     const line = lines[index];
-    if (line === undefined || HEADER.test(line)) {
+    if (line === undefined || headerOf(line) !== undefined) {
       break;
     }
     const indent = pattern.exec(line)?.[1];
     if (indent !== undefined) {
-      lines[index] = `${indent}${key} = ${value}`;
+      // The person's comment on the line stays with it.
+      const comment = line.slice(commentAt(line));
+      lines[index] = `${indent}${key} = ${value}${comment === "" ? "" : ` ${comment.trimStart()}`}`;
       return;
     }
   }

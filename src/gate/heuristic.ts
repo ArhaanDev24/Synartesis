@@ -46,19 +46,54 @@ const WRITES =
 /**
  * The statement with everything that is not code taken out.
  *
- * Comments first, so a write keyword cannot hide in one. Then quoted strings
- * and quoted identifiers, so `SELECT 'delete from users'` -- which writes
- * nothing -- is not gated on the strength of a word inside a literal. Both
- * doublings (`''` and `""`) are the escapes SQL defines, and each closes and
- * immediately reopens, so a simple non-greedy match handles them.
+ * Comments, quoted strings and quoted identifiers, so `SELECT 'delete from
+ * users'` -- which writes nothing -- is not gated on the strength of a word
+ * inside a literal, and a write keyword cannot hide in a comment.
+ *
+ * One pass, left to right, because which of them something is depends on
+ * what came first. Stripping comments and then literals read `SELECT '--';
+ * DELETE FROM users` as `SELECT '`: the `--` inside the string swallowed the
+ * delete, and with it the semicolon that said a second statement followed.
+ * Both doublings (`''` and `""`) are the escapes SQL defines. An unterminated
+ * literal or comment runs to the end, which leaves nothing to call a read.
  */
 function code(text: string): string {
-  return text
-    .replace(/--[^\n]*/g, " ")
-    .replace(/\/\*[\s\S]*?\*\//g, " ")
-    .replace(/'(?:[^']|'')*'/g, " ")
-    .replace(/"(?:[^"]|"")*"/g, " ")
-    .trim();
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const here = text.charAt(i);
+    const next = text.charAt(i + 1);
+    if (here === "-" && next === "-") {
+      const end = text.indexOf("\n", i);
+      i = end === -1 ? text.length : end;
+      out += " ";
+    } else if (here === "/" && next === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end === -1 ? text.length : end + 2;
+      out += " ";
+    } else if (here === "'" || here === '"') {
+      let j = i + 1;
+      for (;;) {
+        const close = text.indexOf(here, j);
+        if (close === -1) {
+          // Never closed: whatever follows is inside it, as far as the
+          // database is concerned, and is an error rather than a read.
+          return `${out} ${here}`.trim();
+        }
+        if (text[close + 1] === here) {
+          j = close + 2;
+          continue;
+        }
+        i = close + 1;
+        break;
+      }
+      out += " ";
+    } else {
+      out += here;
+      i += 1;
+    }
+  }
+  return out.trim();
 }
 
 function isReadOnlyStatement(text: string): boolean {

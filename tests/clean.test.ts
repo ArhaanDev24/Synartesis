@@ -50,6 +50,8 @@ function world(): { path: string; ids: Record<string, string> } {
     const id = journal.beginRun(label);
     body?.(id);
     journal.endRun(id, "complete");
+    // As the proxy does when its client goes.
+    journal.releaseRun(id);
     return id;
   };
   ids["empty"] = finished("empty");
@@ -71,6 +73,17 @@ function world(): { path: string; ids: Record<string, string> } {
     const sent = journal.recordPending({ runId: id, server: "fs", tool: "write_file", args: {}, class: "reversible" });
     journal.markUnknown(sent.actionId, "timed out");
   });
+  // A person said no to it an hour ago: the agent's retry is refused on the
+  // strength of that, and clearing it would ask them again.
+  ids["denied"] = finished("denied", (id) => {
+    const held = journal.recordPending({ runId: id, server: "fs", tool: "move_file", args: {}, class: "irreversible" });
+    journal.markGated(held.actionId);
+    journal.denyByPerson(held.actionId, "arhaan", "no");
+  });
+  // Undone while its app is still connected: rolled back, but its proxy is
+  // still recording into it, so it is in use.
+  ids["undone-live"] = journal.beginRun("undone-live");
+  journal.endRun(ids["undone-live"], "rolled_back");
   // Open, and its app is still running: this test process owns it.
   ids["live"] = journal.beginRun("live");
   // Open, and its app has exited.
@@ -101,7 +114,7 @@ describe("synartesis clean", () => {
     const { path } = world();
     const ran = clean(path, "--yes");
     expect(ran.code).toBe(0);
-    expect(remaining(path).sort()).toEqual(["live", "undoable", "unknown", "waiting"]);
+    expect(remaining(path).sort()).toEqual(["denied", "live", "undoable", "undone-live", "unknown", "waiting"]);
     expect(ran.stdout).toContain("cleared 4 sessions");
     expect(ran.stdout).toContain("closed 1");
   });
@@ -112,7 +125,7 @@ describe("synartesis clean", () => {
     expect(ran.stdout).toContain("4 finished sessions");
     expect(ran.stdout).toContain("1 session left open");
     expect(ran.stdout).toContain("Nothing was changed");
-    expect(remaining(path)).toHaveLength(8);
+    expect(remaining(path)).toHaveLength(10);
   });
 
   it("asks before changing anything, and changes nothing without a terminal to ask at", () => {
@@ -120,7 +133,7 @@ describe("synartesis clean", () => {
     const ran = clean(path);
     expect(ran.code).toBe(1);
     expect(ran.stdout).toContain("add --yes");
-    expect(remaining(path)).toHaveLength(8);
+    expect(remaining(path)).toHaveLength(10);
   });
 
   it("says so when there is nothing to clear", () => {

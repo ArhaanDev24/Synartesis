@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { IDEMPOTENCY_META_KEY } from "../src/idempotency.js";
+import { loadManifest } from "../src/manifest/load.js";
+import { createRouter } from "../src/proxy/routing.js";
+import { rollback } from "../src/rollback/rollback.js";
 import { createHarness, type Harness } from "./helpers/harness.js";
 
 let harness: Harness | undefined;
@@ -137,5 +140,29 @@ describe("forward-call idempotency", () => {
     const rows = harness.journal.getActions(runId).filter((row) => row.tool === "send_email");
     expect(rows).toHaveLength(1);
     expect(new Set(rows.map((row) => row.idempotencyKey)).size).toBe(1);
+  });
+
+  it("undoes under a key of its own, so a server that de-duplicates does not skip the undo", async () => {
+    harness = await createHarness();
+    const seen = watch(harness);
+    await harness.proxied.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    const runId = harness.journal.listRuns()[0]?.id ?? "";
+
+    const undo = async (): Promise<unknown> => {
+      const active = harness;
+      if (active === undefined) {
+        throw new Error("no harness");
+      }
+      const router = createRouter([active.upstream], loadManifest("manifests/toy-crm.yaml"));
+      return rollback({ journal: active.journal, router, runId });
+    };
+    await undo();
+
+    const writes = calls(seen).filter((params) => params["name"] === "update_customer");
+    expect(writes).toHaveLength(2);
+    const [forward, inverse] = writes.map((params) => keyOf(params));
+    expect(inverse).toBeTypeOf("string");
+    expect(inverse).not.toBe(forward);
+    expect(inverse).toBe(`${String(forward)}:undo`);
   });
 });

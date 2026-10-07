@@ -541,3 +541,70 @@ describe("watch with nothing waiting", () => {
     await running;
   });
 });
+
+describe("keys that arrive after the screen has changed", () => {
+  it("does not approve a call the cursor was never shown on", async () => {
+    // Three waiting, cursor on the second. The second is answered from
+    // another terminal; the third slides under the cursor; `a` used to
+    // approve it before any frame had shown it highlighted.
+    const { path, ids } = gated(3);
+    const board = keyboard();
+    let text = "";
+    const running = watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: (chunk) => (text += chunk),
+      live: true,
+      intervalMs: 200,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    board.press("j");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const elsewhere = openJournal(path);
+    elsewhere.denyByPerson(ids[1] ?? "", "someone", "no");
+    elsewhere.close();
+    board.press("a");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    board.press("q");
+    board.done();
+    await running;
+
+    const journal = openJournal(path);
+    const statuses = ids.map((id) => journal.getAction(id)?.status);
+    journal.close();
+    expect(statuses).toEqual(["gated", "denied", "gated"]);
+    expect(text).toContain("answered somewhere else");
+  });
+
+  it("stops the cursor at the last call, so moving back up is never a dead key", async () => {
+    const { path, ids } = gated(2);
+    const board = keyboard();
+    const running = watch({
+      journalPath: path,
+      approveWith: "synartesis",
+      write: () => undefined,
+      live: true,
+      intervalMs: 1,
+      decideAs: "arhaan",
+      keys: board.keys,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    for (const key of ["j", "j", "j", "j", "k"]) {
+      board.press(key);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    board.press("a");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    board.press("q");
+    board.done();
+    await running;
+
+    const journal = openJournal(path);
+    const statuses = ids.map((id) => journal.getAction(id)?.status);
+    journal.close();
+    expect(statuses).toEqual(["approved", "gated"]);
+  });
+});

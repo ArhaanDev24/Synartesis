@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { knownPolicyFor } from "../init/known.js";
@@ -104,6 +104,14 @@ export function readRecord(manifestPath: string): InstalledRecord {
   return EMPTY;
 }
 
+/** A temporary file beside it, then a rename, so a reader sees one or the other. */
+function writeWhole(path: string, text: string, mode: number): void {
+  const temporary = `${path}.synartesis-${String(process.pid)}.tmp`;
+  writeFileSync(temporary, text, { mode });
+  chmodSync(temporary, mode);
+  renameSync(temporary, path);
+}
+
 function writeRecord(manifestPath: string, record: InstalledRecord): void {
   mkdirSync(dirname(recordPathFor(manifestPath)), { recursive: true, mode: 0o700 });
   // Owner-only. This file keeps every original client entry so uninstall can
@@ -112,8 +120,7 @@ function writeRecord(manifestPath: string, record: InstalledRecord): void {
   // account on the machine. `mode` only applies when a file is created, so a
   // record written by an earlier version is tightened explicitly as well.
   const path = recordPathFor(manifestPath);
-  writeFileSync(path, `${JSON.stringify(record, undefined, 2)}\n`, { mode: 0o600 });
-  chmodSync(path, 0o600);
+  writeWhole(path, `${JSON.stringify(record, undefined, 2)}\n`, 0o600);
 }
 
 /**
@@ -165,7 +172,13 @@ export function isWrapped(entry: ServerEntry): boolean {
     (entry.command === "synartesis" ||
       entry.command === "synartesis-proxy" ||
       args.includes("synartesis") ||
-      args.some((arg) => arg.endsWith("dist/cli.js") || arg.endsWith("dist/proxy.js")))
+      // Normalised, because on Windows the path install writes is
+      // `...\dist\cli.js`: an entry it wrote itself was not recognised, so a
+      // second install wrapped the proxy in itself and uninstall left it.
+      args.some((arg) => {
+        const path = arg.replaceAll("\\", "/");
+        return path.endsWith("dist/cli.js") || path.endsWith("dist/proxy.js");
+      }))
   );
 }
 
@@ -549,7 +562,9 @@ export function applyInstall(
   // than none, because the client is by then pointing at it.
   parseManifest(yaml, manifestPath);
   mkdirSync(dirname(resolve(manifestPath)), { recursive: true, mode: 0o700 });
-  writeFileSync(manifestPath, yaml);
+  // Whole or not at all: running proxies read this file, and a crash halfway
+  // through a plain write left them a policy cut off mid-rule.
+  writeWhole(manifestPath, yaml, existsSync(manifestPath) ? statSync(manifestPath).mode & 0o777 : 0o644);
 
   const record = readRecord(manifestPath);
   const wrapped = { ...record.wrapped };

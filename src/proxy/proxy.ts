@@ -1,3 +1,4 @@
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   CallToolRequestSchema,
@@ -16,6 +17,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import type {
   Implementation,
+  Notification,
+  Progress,
   Request,
   ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -48,7 +51,7 @@ import {
   type ResolvedRead,
   type StateObservation,
 } from "./snapshot.js";
-import type { Upstream } from "./upstream.js";
+import { CALL_TIMEOUT_MS, type Upstream } from "./upstream.js";
 
 export interface ProxyOptions {
   readonly upstreams: readonly Upstream[];
@@ -87,6 +90,18 @@ type Passthrough = { [key: string]: unknown };
  * this morning cannot quietly authorise the same call tomorrow.
  */
 const APPROVAL_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * The read that settles what a call did, once the call itself is over.
+ *
+ * Not tied to the agent's signal: when the agent cancels, that signal is
+ * already aborted, so the read failed before it was sent and every cancelled
+ * write was recorded as an outcome nobody knows -- which blocks undoing the
+ * whole session -- even where the policy declared a read that could have
+ * answered it. The agent has gone either way; the journal still needs the
+ * answer.
+ */
+const READ_BACK_MS = 60_000;
 
 /** What the agent is told when a person has already refused this exact call. */
 function saidNo(name: string, denial: Denial): McpError {
@@ -281,17 +296,52 @@ function instructionsFor(router: Router): string {
 }
 
 /** Walks every page so that aggregation across servers is never partial. */
+/**
+ * One server's part of a list, without letting it sink the others'.
+ *
+ * Listing asked every server in turn and failed as a whole if any one did, so
+ * a single server that had died -- or that answered tools/list with an error
+ * -- took every other server's tools away from the agent too. With several
+ * servers, the one that failed is left out and logged; with one, its failure
+ * is the answer.
+ */
+async function spare<T>(
+  upstream: Upstream,
+  others: boolean,
+  log: Logger | undefined,
+  list: () => Promise<T[]>,
+): Promise<T[]> {
+  try {
+    return await list();
+  } catch (error: unknown) {
+    if (!others) {
+      throw error;
+    }
+    log?.warn({ server: upstream.name, error: describe(error) }, "left out of the list: the server did not answer");
+    return [];
+  }
+}
+
 async function drain<T>(
   fetch: (
     cursor: string | undefined,
   ) => Promise<{ items: T[]; nextCursor: string | undefined }>,
 ): Promise<T[]> {
   const collected: T[] = [];
+  const seen = new Set<string>();
   let cursor: string | undefined;
   do {
     const page = await fetch(cursor);
     collected.push(...page.items);
     cursor = page.nextCursor;
+    // A server that hands back a cursor it has given before would be asked
+    // for the same page for ever.
+    if (cursor !== undefined) {
+      if (seen.has(cursor)) {
+        break;
+      }
+      seen.add(cursor);
+    }
   } while (cursor !== undefined);
   return collected;
 }
@@ -589,7 +639,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           if (!supports(upstream, "tools")) {
             continue;
           }
-          const items = await drain(async (cursor) => {
+          const items = await spare(upstream, router.upstreams.length > 1, log, () =>
+            drain(async (cursor) => {
             const raw = await ask(
               upstream,
               {
@@ -600,7 +651,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             );
             const page = ToolList.parse(raw);
             return { items: page.tools, nextCursor: page.nextCursor };
-          });
+            }),
+          );
           for (const tool of items) {
             const qualified = qualify(upstream.name, tool.name);
             if (tool.annotations?.readOnlyHint === true) {
@@ -754,7 +806,22 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           throw saidNo(request.params.name, refused);
         }
 
-        const reusable = waiting ?? (inherited === undefined ? granted : undefined);
+        // Spending an approval is a claim, not an announcement. Several
+        // proxies share one journal, so two can read the same standing yes
+        // before either has used it; whoever loses has no approval and must
+        // ask, or one person's yes authorises two irreversible calls.
+        //
+        // Claimed before the row is chosen, because the loser must not take
+        // the approved row as its own: it is the winner's call now, in
+        // flight, and the loser's hold would put it back to `gated` under it.
+        let spent = true;
+        const reusingApproved = granted !== undefined && waiting === undefined && inherited === undefined;
+        if (reusingApproved) {
+          // Reusing the approved row itself: from here its outcome stops being
+          // known, so it stops being `approved`.
+          spent = journal.markInFlight(granted.id);
+        }
+        const reusable = waiting ?? (reusingApproved && spent ? granted : undefined);
         const pending =
           reusable === undefined
             ? journal.recordPending({
@@ -774,19 +841,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           journal.markAllowed(pending.actionId, `${allowance.by} (allowed without asking)`);
         }
 
-        // Spending an approval is a claim, not an announcement. Several
-        // proxies share one journal, so two can read the same standing yes
-        // before either has used it; whoever loses has no approval and must
-        // ask, or one person's yes authorises two irreversible calls.
-        let spent = true;
         if (inherited !== undefined) {
           spent = journal.adoptApproval(pending.actionId, inherited);
-        } else if (granted !== undefined && waiting === undefined) {
-          // Reusing the approved row itself: from here its outcome stops being
-          // known, so it stops being `approved`.
-          spent = journal.markInFlight(granted.id);
         }
-        if (granted !== undefined) {
+        if (granted !== undefined && spent) {
           log?.info(
             { action: pending.actionId, by: granted.approvedBy, from: granted.runId },
             "proceeding on a standing approval",
@@ -1073,9 +1131,29 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           },
         };
 
+        let sentOn: Client | undefined;
         try {
-          const result = await route.upstream.client.request(forwarded, PassthroughResult, {
+          const progressToken = request.params._meta?.progressToken;
+          sentOn = route.upstream.client;
+          const result = await sentOn.request(forwarded, PassthroughResult, {
             signal: extra.signal,
+            timeout: CALL_TIMEOUT_MS,
+            resetTimeoutOnProgress: true,
+            // Progress the tool reports goes back to the agent under the
+            // agent's own token. Without a handler here the upstream client
+            // received it, matched it to nothing, and dropped it.
+            ...(progressToken === undefined
+              ? {}
+              : {
+                  onprogress: (progress: Progress): void => {
+                    void extra
+                      .sendNotification({
+                        method: "notifications/progress",
+                        params: { ...progress, progressToken },
+                      })
+                      .catch(() => undefined);
+                  },
+                }),
           });
 
           /**
@@ -1109,7 +1187,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             const settled =
               policy.refusal === "clean"
                 ? "none"
-                : await whatHappened(router, probe, priorState, extra.signal);
+                : await whatHappened(router, probe, priorState, AbortSignal.timeout(READ_BACK_MS));
             if (settled !== "applied") {
               const why = `the upstream refused the call: ${refused}`;
               if (settled === "none") {
@@ -1215,7 +1293,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             // transport that closed while a reply was owed. Ask the resource
             // what is true rather than asserting that nothing happened, and
             // keep the uncertainty when it cannot say.
-            const settled = await whatHappened(router, probe, priorState, extra.signal);
+            const settled = await whatHappened(router, probe, priorState, AbortSignal.timeout(READ_BACK_MS));
             if (settled === "none") {
               journal.markFailed(pending.actionId, describe(error));
             } else if (settled === "unknown") {
@@ -1247,7 +1325,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           if (disconnected && route.upstream.reconnect !== undefined) {
             // Not to retry this call -- a write must never be sent twice on a
             // guess -- but so the rest of the session is not lost with it.
-            await route.upstream.reconnect().catch(() => undefined);
+            await route.upstream.reconnect(sentOn).catch(() => undefined);
           }
           return rethrow(route.upstream.name, "tools/call", error);
         }
@@ -1268,7 +1346,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           if (!supports(upstream, "resources")) {
             continue;
           }
-          const items = await drain(async (cursor) => {
+          const items = await spare(upstream, router.upstreams.length > 1, log, () =>
+            drain(async (cursor) => {
             const raw = await ask(
               upstream,
               {
@@ -1279,7 +1358,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             );
             const page = ResourceList.parse(raw);
             return { items: page.resources, nextCursor: page.nextCursor };
-          });
+            }),
+          );
           resources.push(...items);
         }
         return { resources };
@@ -1294,7 +1374,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           if (!supports(upstream, "resources")) {
             continue;
           }
-          const items = await drain(async (cursor) => {
+          const items = await spare(upstream, router.upstreams.length > 1, log, () =>
+            drain(async (cursor) => {
             const raw = await ask(
               upstream,
               {
@@ -1308,7 +1389,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
               items: page.resourceTemplates,
               nextCursor: page.nextCursor,
             };
-          });
+            }),
+          );
           resourceTemplates.push(...items);
         }
         return { resourceTemplates };
@@ -1342,7 +1424,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           if (!supports(upstream, "prompts")) {
             continue;
           }
-          const items = await drain(async (cursor) => {
+          const items = await spare(upstream, router.upstreams.length > 1, log, () =>
+            drain(async (cursor) => {
             const raw = await ask(
               upstream,
               {
@@ -1353,7 +1436,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             );
             const page = PromptList.parse(raw);
             return { items: page.prompts, nextCursor: page.nextCursor };
-          });
+            }),
+          );
           for (const prompt of items) {
             prompts.push({
               ...prompt,
@@ -1426,20 +1510,27 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
 
   // --- lifecycle ----------------------------------------------------------
   let connected = false;
-  for (const upstream of router.upstreams) {
-    upstream.client.fallbackNotificationHandler = async (
-      notification,
-    ): Promise<void> => {
-      if (notification.method.endsWith("list_changed")) {
-        owners = undefined;
-        schemes = undefined;
-        conflict = undefined;
-      }
-      if (connected) {
-        await server.notification(notification);
-      }
-    };
-  }
+  const hear = async (notification: Notification): Promise<void> => {
+    if (notification.method.endsWith("list_changed")) {
+      owners = undefined;
+      schemes = undefined;
+      conflict = undefined;
+    }
+    if (connected) {
+      await server.notification(notification);
+    }
+  };
+  // Subscribed, where the upstream allows it, rather than set on its client:
+  // upstreams are shared by every session an HTTP proxy serves, and each new
+  // session's handler replaced the last, so only the newest heard anything --
+  // and a reconnect's fresh client had no handler at all.
+  const unsubscribe = router.upstreams.map((upstream) => {
+    if (upstream.onNotification !== undefined) {
+      return upstream.onNotification(hear);
+    }
+    upstream.client.fallbackNotificationHandler = hear;
+    return (): void => undefined;
+  });
 
   server.oninitialized = (): void => {
     connected = true;
@@ -1453,6 +1544,9 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
   const previousOnClose = server.onclose;
   server.onclose = (): void => {
     connected = false;
+    for (const stop of unsubscribe) {
+      stop();
+    }
     if (runId !== undefined) {
       // Only if it is still running. A disconnect says this client went away,
       // which is not news about whether the session was put back -- and undo
@@ -1460,6 +1554,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
       // `rolled_back` with `complete` the moment the agent's client closed,
       // so the session that had been reversed came back looking untouched.
       journal.endRun(runId, "complete", ["active"]);
+      // And it is finished with: from here `clean` may clear the session,
+      // which while this proxy could still record into it would fail every
+      // call it went on to make.
+      journal.releaseRun(runId);
       runId = undefined;
     }
     previousOnClose?.();

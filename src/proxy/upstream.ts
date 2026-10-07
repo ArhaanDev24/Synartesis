@@ -5,6 +5,7 @@ import {
   StreamableHTTPClientTransport,
   StreamableHTTPError,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Notification } from "@modelcontextprotocol/sdk/types.js";
 
 import { UpstreamError } from "../errors.js";
 import { isRemote, type RemoteServerSpec, type ServerSpec } from "../manifest/types.js";
@@ -51,7 +52,14 @@ export interface Upstream {
    * Absent on an upstream that was not spawned from a command, which has
    * nothing to respawn.
    */
-  reconnect?(): Promise<void>;
+  reconnect?(failed?: Client): Promise<void>;
+  /**
+   * Hears every notification the server sends that no request is waiting
+   * for -- list changes, log lines, resource updates -- on whichever
+   * connection is current, including those made after a reconnect. Returns
+   * the way to stop hearing them.
+   */
+  onNotification?(listener: (notification: Notification) => Promise<void>): () => void;
   /**
    * What a failed request says about whether it reached the tool, where the
    * transport can tell. The proxy's own reading of failures was written for a
@@ -66,6 +74,16 @@ export interface Upstream {
   classify?(error: unknown): "not-sent" | "lost" | undefined;
   close(): Promise<void>;
 }
+
+/**
+ * How long a tool call may run before the proxy gives up on it, counted from
+ * the last progress the tool reported. The SDK's own default is a minute, so
+ * a build, a migration or a large upload was cancelled by the proxy while the
+ * agent was still willing to wait -- and a write cancelled mid-flight is one
+ * whose outcome nobody knows, which blocks undoing the whole session. The
+ * agent's client keeps its own limit and can still cancel sooner.
+ */
+export const CALL_TIMEOUT_MS = 30 * 60 * 1000;
 
 export const PROXY_CLIENT_INFO = { name: "synartesis-proxy", version: "0.0.0" } as const;
 
@@ -225,24 +243,80 @@ export async function connectUpstream(
   });
 }
 
-export async function connectStdioUpstream(spec: UpstreamSpec): Promise<Upstream> {
-  const started = await start(spec);
-  let current = started;
+/**
+ * The connection an upstream holds now, and the way to replace it.
+ *
+ * A reconnect made a new client and dropped the notification handler the
+ * proxy had set on the old one, so after the first one nothing the server
+ * announced -- a changed tool list, a log line -- reached the agent again.
+ * And two calls failing on the same dead connection each started a
+ * replacement; the second won, and the first process ran unowned until the
+ * proxy exited. Here, listeners belong to the upstream and are attached to
+ * every client it makes, and a reconnect asked for by a caller whose client
+ * has already been replaced joins that replacement rather than making
+ * another.
+ */
+function managed(
+  name: string,
+  first: Client,
+  make: () => Promise<Client>,
+  classify?: Upstream["classify"],
+): Upstream {
+  let current = first;
+  let replacing: Promise<void> | undefined;
+  const listeners = new Set<(notification: Notification) => Promise<void>>();
+  const attach = (client: Client): void => {
+    client.fallbackNotificationHandler = async (notification): Promise<void> => {
+      for (const listener of [...listeners]) {
+        await listener(notification).catch(() => undefined);
+      }
+    };
+  };
+  attach(first);
   return {
-    name: spec.name,
+    name,
+    ...(classify === undefined ? {} : { classify }),
     get client(): Client {
-      return current.client;
+      return current;
     },
-    async reconnect(): Promise<void> {
-      // Best effort: the old one is already broken, and failing to close a
-      // broken thing must not stop the new one being made.
-      await current.client.close().catch(() => undefined);
-      current = await start(spec);
+    reconnect(failed?: Client): Promise<void> {
+      if (replacing !== undefined) {
+        return replacing;
+      }
+      if (failed !== undefined && failed !== current) {
+        // Somebody else already replaced the connection this caller saw fail.
+        return Promise.resolve();
+      }
+      replacing = (async (): Promise<void> => {
+        // Best effort: the old one is already broken, and failing to close a
+        // broken thing must not stop the new one being made.
+        await current.close().catch(() => undefined);
+        // If this throws, `current` is still the closed client, and the next
+        // caller to find it broken asks again.
+        const next = await make();
+        attach(next);
+        current = next;
+      })().finally(() => {
+        replacing = undefined;
+      });
+      return replacing;
+    },
+    onNotification(listener): () => void {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
     },
     close: async (): Promise<void> => {
-      await current.client.close();
+      await replacing?.catch(() => undefined);
+      await current.close();
     },
   };
+}
+
+export async function connectStdioUpstream(spec: UpstreamSpec): Promise<Upstream> {
+  const started = await start(spec);
+  return managed(spec.name, started.client, async () => (await start(spec)).client);
 }
 
 async function start(spec: UpstreamSpec): Promise<{ client: Client }> {
@@ -354,28 +428,15 @@ export async function connectRemoteUpstream(
     }
   }
 
-  return {
-    name,
-    get client(): Client {
-      return current;
-    },
-    async reconnect(): Promise<void> {
-      await current.close().catch(() => undefined);
-      current = await open(kind);
-    },
-    classify(error: unknown): "not-sent" | "lost" | undefined {
-      const code = statusOf(error);
-      if (code === undefined || code < 400 || code >= 500) {
-        return undefined;
-      }
-      // A session the server no longer knows. The request was not handled;
-      // the next one needs a new session.
-      return code === 404 ? "lost" : "not-sent";
-    },
-    close: async (): Promise<void> => {
-      await current.close();
-    },
-  };
+  return managed(name, current, () => open(kind), (error: unknown): "not-sent" | "lost" | undefined => {
+    const code = statusOf(error);
+    if (code === undefined || code < 400 || code >= 500) {
+      return undefined;
+    }
+    // A session the server no longer knows. The request was not handled;
+    // the next one needs a new session.
+    return code === 404 ? "lost" : "not-sent";
+  });
 }
 
 /** The HTTP status a transport failed with, when it failed with one. */

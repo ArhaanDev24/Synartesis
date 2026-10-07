@@ -984,6 +984,34 @@ describe("two undos where the first is still mid-inverse", () => {
       expect(report.halted?.reason).toMatch(/still running/);
     }
   });
+
+  it("leaves a row to the live undo holding it, even when its inverse has visibly landed", async () => {
+    const active = await session();
+    await active.client.callTool({
+      name: "update_customer",
+      arguments: { id: "c_001", plan: "free", notes: "agent edit" },
+    });
+    const [action] = active.journal.getActions(active.runId);
+    if (action === undefined) {
+      throw new Error("nothing recorded");
+    }
+    // A live undo has claimed it and its inverse has landed, but it has not
+    // yet written that down. Settling the row from here made that undo's own
+    // write fail when it got there.
+    expect(active.journal.markRollingBack(action.id)).toBe(true);
+    const old = active.before.customers["c_001"];
+    active.store.updateCustomer("c_001", { plan: old?.plan, notes: old?.notes });
+    expect(active.store.__snapshot()).toEqual(active.before);
+
+    const report = await rollback({ journal: active.journal, router: active.router, runId: active.runId });
+
+    expect(report.halted?.reason).toMatch(/still running/);
+    expect(active.journal.getAction(action.id)?.status).toBe("rolling_back");
+    // And the holder can still finish it.
+    expect(() => {
+      active.journal.markRolledBack(action.id);
+    }).not.toThrow();
+  });
 });
 
 describe("why a call is held", () => {

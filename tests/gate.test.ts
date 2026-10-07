@@ -253,6 +253,15 @@ describe("the on_write heuristic", () => {
     expect(shouldGateOnWrite({ sql: 'SELECT "drop" FROM t' })).toBe(false);
   });
 
+  it("does not let a comment marker inside a string hide what follows it", () => {
+    // Stripping comments before literals read the first as `SELECT '`, a
+    // single read, and passed the delete through ungated.
+    expect(shouldGateOnWrite({ sql: "SELECT '--'; DELETE FROM users" })).toBe(true);
+    expect(shouldGateOnWrite({ sql: "SELECT '/*'; DROP TABLE users; SELECT '*/'" })).toBe(true);
+    expect(shouldGateOnWrite({ sql: "SELECT 'it''s -- fine' FROM t" })).toBe(false);
+    expect(shouldGateOnWrite({ sql: "SELECT 1 -- '\n; DELETE FROM users" })).toBe(true);
+  });
+
   it("gates anything it cannot classify", () => {
     // Fail closed (D4): not recognising a statement is not evidence that it is
     // safe, and a silent passthrough on an unknown destructive call is the one

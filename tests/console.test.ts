@@ -378,6 +378,32 @@ describe("a journal with more in it than fits", () => {
     expect(frame.split("\n").length).toBeLessThanOrEqual(24);
   });
 
+  it("scrolls a long session with j, rather than leaving the rest out of reach", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-long-"));
+    dirs.push(dir);
+    const path = join(dir, "journal.db");
+    const journal = openJournal(path);
+    const run = journal.beginRun("long");
+    for (let i = 0; i < 40; i += 1) {
+      const action = journal.recordPending({
+        runId: run,
+        server: "fs",
+        tool: `step_${String(i).padStart(2, "0")}`,
+        args: {},
+        class: "readonly",
+      });
+      journal.markApplied(action.actionId, { result: {} });
+    }
+    journal.endRun(run, "complete");
+    journal.close();
+
+    const top = await frameFor(path, ["\r"], 24);
+    expect(top).not.toContain("step_39");
+    const scrolled = await frameFor(path, ["\r", ...Array.from({ length: 120 }, () => "j")], 24);
+    expect(scrolled).toContain("step_39");
+    expect(scrolled.split("\n").length).toBeLessThanOrEqual(24);
+  });
+
   it("says how many are not being shown", async () => {
     const path = manyRuns(40);
     const frame = await frameFor(path, [], 24);

@@ -122,3 +122,32 @@ describe("a server whose args span several lines", () => {
     );
   });
 });
+
+describe("comments at the end of a line", () => {
+  const text = [
+    "[mcp_servers.fs] # files",
+    'command = "npx"  # pinned',
+    'args = ["-y", "fs#1"] # the # inside the string is not a comment',
+    "",
+    "[mcp_servers.github]",
+    'command = "gh-mcp"',
+    "",
+  ].join("\n");
+
+  it("reads the value, not the comment, and still sees the header", () => {
+    expect(readServers(text)).toEqual({
+      fs: { command: "npx", args: ["-y", "fs#1"] },
+      github: { command: "gh-mcp" },
+    });
+  });
+
+  it("writes the new value and keeps the comment", () => {
+    const written = writeServers(text, {
+      fs: { command: "synartesis", args: ["proxy", "--server", "fs"] },
+      github: { command: "gh-mcp" },
+    });
+    expect(written).toContain('command = "synartesis" # pinned');
+    expect(readServers(written)["fs"]).toEqual({ command: "synartesis", args: ["proxy", "--server", "fs"] });
+    expect(readServers(written)["github"]).toEqual({ command: "gh-mcp" });
+  });
+});

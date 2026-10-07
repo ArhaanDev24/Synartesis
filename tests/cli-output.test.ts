@@ -206,8 +206,11 @@ describe("status, when the policy does not load", () => {
     const policy = join(dir, "synartesis.yaml");
     writeFileSync(policy, "version: 1\nservers:\n  fs: [oops\n");
     const said = await run(["status", "--manifest", policy, "--journal", join(dir, "j.db")]);
-    expect(said.stdout).toContain("Your policy cannot be read");
+    expect(said.stdout).toContain("cannot be read, so the servers it covers will not start");
     expect(said.stdout).toMatch(/synartesis\.yaml:\d+:\d+/);
-    expect(said.stdout).toContain("synartesis uninstall");
+    expect(said.stdout).toContain(" uninstall to put");
+    // And never that all is well: 2, as the help promises for configuration.
+    expect(said.stdout).not.toContain("Everything found is covered");
+    expect(said.code).toBe(2);
   });
 });

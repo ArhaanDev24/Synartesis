@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readSync, renameSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readSync, renameSync, statSync } from "node:fs";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 
@@ -322,6 +322,12 @@ export interface Journal {
    */
   endRun(runId: string, status: RunStatus, from?: readonly RunStatus[]): void;
   /**
+   * The process that opened this session has finished with it. Until then a
+   * session is in use whatever its status says: undoing a live session marks
+   * it rolled back while its proxy goes on recording into it.
+   */
+  releaseRun(runId: string): void;
+  /**
    * Closes a run whose proxy went away without saying so. Only a person can
    * ask for this: several proxies may share one journal, so a run left active
    * is indistinguishable from a run still being worked on, and closing one
@@ -536,6 +542,12 @@ export interface Journal {
   /** Removes runs and their actions. Returns what actually went. */
   deleteRuns(runIds: readonly string[]): { runs: number; actions: number };
   /**
+   * Removes those of `runIds` that `cleanable(idleBefore)` still lists,
+   * deciding and deleting in one transaction: what a person agreed to clear,
+   * less anything that came back into use while they were reading it.
+   */
+  cleanRuns(runIds: readonly string[], idleBefore: string): { runs: number; actions: number };
+  /**
    * What one of a session's servers was started with: its working directory,
    * and a keyed fingerprint of each variable the client entry or the policy
    * declared. Never the values. An undo compares against this before acting,
@@ -628,8 +640,9 @@ function restrictToOwner(path: string): void {
  * meant, which is unhelpful precisely when the path was the mistake.
  */
 function openDatabase(path: string): Database.Database {
+  let db: Database.Database | undefined;
   try {
-    const db = new Database(path);
+    db = new Database(path);
     // Before the first pragma, so the window in which the file exists at the
     // umask's mode is as short as it can be made from here.
     if (path !== ":memory:") {
@@ -688,6 +701,10 @@ function openDatabase(path: string): Database.Database {
     }
     return db;
   } catch (error) {
+    // Closed before anything is said about it: a damaged file is renamed
+    // aside next, and it should not be renamed with this process still
+    // holding it open.
+    db?.close();
     const detail = error instanceof Error ? error.message : String(error);
     if (damaged(detail) && isSqlite(path)) {
       throw new DamagedJournalError(path);
@@ -743,16 +760,33 @@ class SqliteJournal implements Journal {
     // WAL so a reader (the CLI) never blocks the proxy mid-run.
     this.#db = openDatabase(path);
 
-    const existing = z.number().parse(this.#db.pragma("user_version", { simple: true }));
-    const populated =
-      z
-        .object({ count: z.number() })
-        .parse(
-          this.#db
-            .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'runs'")
-            .get(),
-        ).count > 0;
+    // Everything up to the version check reads the schema, so damage past the
+    // header can surface in any of it; one place reads it as damage.
+    const failed = (error: unknown): never => {
+      this.#db.close();
+      const detail = error instanceof Error ? error.message : String(error);
+      if (damaged(detail) && isSqlite(path)) {
+        throw new DamagedJournalError(path);
+      }
+      throw error;
+    };
+    let existing = 0;
+    let populated = false;
+    try {
+      existing = z.number().parse(this.#db.pragma("user_version", { simple: true }));
+      populated =
+        z
+          .object({ count: z.number() })
+          .parse(
+            this.#db
+              .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'runs'")
+              .get(),
+          ).count > 0;
+    } catch (error: unknown) {
+      failed(error);
+    }
     if (populated && existing !== SCHEMA_VERSION) {
+      this.#db.close();
       // Reinterpreting an older journal under a newer schema would risk
       // reading a rollback state that was never written.
       throw new JournalError(
@@ -767,12 +801,7 @@ class SqliteJournal implements Journal {
       // reads the schema, rather than in the middle of somebody's session.
       this.#db.exec(SCHEMA_SQL);
     } catch (error: unknown) {
-      this.#db.close();
-      const detail = error instanceof Error ? error.message : String(error);
-      if (damaged(detail) && isSqlite(path)) {
-        throw new DamagedJournalError(path);
-      }
-      throw error;
+      failed(error);
     }
     this.#db.pragma(`user_version = ${String(SCHEMA_VERSION)}`);
   }
@@ -804,6 +833,12 @@ class SqliteJournal implements Journal {
       this.#db
         .prepare(`UPDATE runs SET ended_at = ?, status = ? WHERE id = ? AND status IN (${allowed})`)
         .run(new Date().toISOString(), status, runId, ...from);
+    });
+  }
+
+  releaseRun(runId: string): void {
+    this.#run("releaseRun", () => {
+      this.#db.prepare("DELETE FROM run_owners WHERE run_id = ?").run(runId);
     });
   }
 
@@ -1057,17 +1092,25 @@ class SqliteJournal implements Journal {
     // inverse had landed -- and no later undo could tell that from one still
     // being sent. Found by SIGKILLing undo at random (tests/kill-undo.test.ts),
     // the same gap markRollingBack had at the other end of the claim.
-    this.#db.transaction(() => {
-      // Only the holder of the claim gets here. Where the resource turned out
-      // to be already in the state the inverse would produce, the row is still
-      // applied and nothing was sent -- both are the caller's to settle.
-      this.#settle("markRolledBack", actionId, "rolled_back", [
-        "rolling_back",
-        "applied",
-        "unrecoverable",
-      ]);
-      this.#release(actionId);
-    }).immediate();
+    // Inside #run like every other write, so a busy journal comes back as a
+    // JournalError rather than a raw SqliteError on the one path, undo, where
+    // the caller most needs to know what it is holding.
+    this.#run("markRolledBack", () => {
+      this.#db
+        .transaction(() => {
+          // Only the holder of the claim gets here. Where the resource turned
+          // out to be already in the state the inverse would produce, the row
+          // is still applied and nothing was sent -- both are the caller's to
+          // settle.
+          this.#settle("markRolledBack", actionId, "rolled_back", [
+            "rolling_back",
+            "applied",
+            "unrecoverable",
+          ]);
+          this.#release(actionId);
+        })
+        .immediate();
+    });
   }
 
   /**
@@ -1082,10 +1125,14 @@ class SqliteJournal implements Journal {
     // would make the next attempt ask whether a process that has moved on is
     // still working on it.
     // Together, for the reason markRolledBack is.
-    this.#db.transaction(() => {
-      this.#settle("markInverseRejected", actionId, "applied", ["rolling_back"], error);
-      this.#release(actionId);
-    }).immediate();
+    this.#run("markInverseRejected", () => {
+      this.#db
+        .transaction(() => {
+          this.#settle("markInverseRejected", actionId, "applied", ["rolling_back"], error);
+          this.#release(actionId);
+        })
+        .immediate();
+    });
   }
 
   /**
@@ -1540,15 +1587,23 @@ class SqliteJournal implements Journal {
             status: z.enum(["active", "complete", "rolled_back", "partial"]),
             at: z.string(),
             actions: z.number(),
+            host: z.string().nullable(),
+            pid: z.number().nullable(),
           }),
         )
         .parse(
           this.#db
             .prepare(
               `SELECT r.id, r.label, r.status, COALESCE(r.ended_at, r.started_at) AS at,
-                      (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS actions
-                 FROM runs r
+                      (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS actions,
+                      o.host, o.pid
+                 FROM runs r LEFT JOIN run_owners o ON o.run_id = r.id
                 WHERE NOT EXISTS (
+                        -- A person's recent no: the agent's retry is refused
+                        -- by it, and clearing it would ask them again.
+                        SELECT 1 FROM denials d JOIN actions a ON a.id = d.action_id
+                         WHERE a.run_id = r.id AND d.denied_at >= ?)
+                  AND NOT EXISTS (
                         SELECT 1 FROM actions a
                          WHERE a.run_id = r.id
                            AND a.status IN ('pending','gated','approved','rolling_back','unrecoverable'))
@@ -1557,9 +1612,18 @@ class SqliteJournal implements Journal {
                          WHERE a.run_id = r.id AND a.status = 'applied' AND a.inverse_json IS NOT NULL)
                 ORDER BY at, r.rowid`,
             )
-            .all(),
+            .all(idleBefore),
         )
-        .filter((run) => run.status !== "active" || closing.has(run.id))
+        // Still owned by a live process: in use, whatever its status says.
+        // Undoing a session that is still connected marks it rolled back
+        // while its proxy goes on recording into it, and deleting it then
+        // fails every call that proxy makes. Owned from another machine
+        // cannot be asked about, so it is in use too.
+        .filter((run) =>
+          run.status === "active"
+            ? closing.has(run.id)
+            : run.pid === null || (run.host === here && !running(run.pid)),
+        )
         .map((run) => ({
           id: run.id,
           label: run.label ?? undefined,
@@ -1618,39 +1682,49 @@ class SqliteJournal implements Journal {
     );
   }
 
+  cleanRuns(runIds: readonly string[], idleBefore: string): { runs: number; actions: number } {
+    return this.#run("cleanRuns", () =>
+      this.#db
+        .transaction(() => {
+          const still = new Set(this.cleanable(idleBefore).finished.map((run) => run.id));
+          return this.#remove(runIds.filter((id) => still.has(id)));
+        })
+        .immediate(),
+    );
+  }
+
   deleteRuns(runIds: readonly string[]): { runs: number; actions: number } {
-    return this.#run("deleteRuns", () => {
-      const remove = this.#db.transaction((ids: readonly string[]) => {
-        let runs = 0;
-        let actions = 0;
-        const dropActions = this.#db.prepare("DELETE FROM actions WHERE run_id = ?");
-        const dropRun = this.#db.prepare("DELETE FROM runs WHERE id = ?");
-        // Every row that points at a run or at one of its actions goes first:
-        // foreign keys are on, so the other order is rejected rather than
-        // cascading, and a table added later that nobody taught this about
-        // would make every session that used it impossible to prune.
-        const dropServers = this.#db.prepare("DELETE FROM run_servers WHERE run_id = ?");
-        const dropLeases = this.#db.prepare(
-          "DELETE FROM leases WHERE action_id IN (SELECT id FROM actions WHERE run_id = ?)",
-        );
-        const dropDenials = this.#db.prepare(
-          "DELETE FROM denials WHERE action_id IN (SELECT id FROM actions WHERE run_id = ?)",
-        );
-        const dropOwner = this.#db.prepare("DELETE FROM run_owners WHERE run_id = ?");
-        for (const id of ids) {
-          dropOwner.run(id);
-          dropServers.run(id);
-          dropLeases.run(id);
-          dropDenials.run(id);
-          actions += dropActions.run(id).changes;
-          runs += dropRun.run(id).changes;
-        }
-        return { runs, actions };
-      });
-      // immediate, for the same reason recordPending is: this reads before it
-      // writes, and a deferred transaction cannot take the write lock later.
-      return remove.immediate(runIds);
-    });
+    // immediate, for the same reason recordPending is: this reads before it
+    // writes, and a deferred transaction cannot take the write lock later.
+    return this.#run("deleteRuns", () => this.#db.transaction(() => this.#remove(runIds)).immediate());
+  }
+
+  #remove(ids: readonly string[]): { runs: number; actions: number } {
+    let runs = 0;
+    let actions = 0;
+    const dropActions = this.#db.prepare("DELETE FROM actions WHERE run_id = ?");
+    const dropRun = this.#db.prepare("DELETE FROM runs WHERE id = ?");
+    // Every row that points at a run or at one of its actions goes first:
+    // foreign keys are on, so the other order is rejected rather than
+    // cascading, and a table added later that nobody taught this about
+    // would make every session that used it impossible to prune.
+    const dropServers = this.#db.prepare("DELETE FROM run_servers WHERE run_id = ?");
+    const dropLeases = this.#db.prepare(
+      "DELETE FROM leases WHERE action_id IN (SELECT id FROM actions WHERE run_id = ?)",
+    );
+    const dropDenials = this.#db.prepare(
+      "DELETE FROM denials WHERE action_id IN (SELECT id FROM actions WHERE run_id = ?)",
+    );
+    const dropOwner = this.#db.prepare("DELETE FROM run_owners WHERE run_id = ?");
+    for (const id of ids) {
+      dropOwner.run(id);
+      dropServers.run(id);
+      dropLeases.run(id);
+      dropDenials.run(id);
+      actions += dropActions.run(id).changes;
+      runs += dropRun.run(id).changes;
+    }
+    return { runs, actions };
   }
 
   denyByPerson(actionId: string, by: string, reason: string): boolean {
@@ -1872,11 +1946,25 @@ export function openJournal(path: string, options: OpenOptions = {}): Journal {
   if (options.mustExist === true && path !== ":memory:" && !existsSync(path)) {
     throw new JournalError("open", `there is no journal at ${path}`);
   }
+  const inode = (): number | undefined => {
+    try {
+      return statSync(path).ino;
+    } catch {
+      return undefined;
+    }
+  };
+  const opened = inode();
   try {
     return new SqliteJournal(path);
   } catch (error: unknown) {
     if (!(error instanceof DamagedJournalError) || options.setAsideDamaged === undefined) {
       throw error;
+    }
+    // Another process found the same damage first and has already put a new
+    // journal here. Renaming that one aside too would split the agents
+    // sharing it across two files.
+    if (inode() !== opened) {
+      return new SqliteJournal(path);
     }
     // A damaged journal used to stop the proxy starting at all, and with it
     // every server it covers: the AI app simply lost its tools, with the only
@@ -1884,7 +1972,9 @@ export function openJournal(path: string, options: OpenOptions = {}): Journal {
     // it is the history of everything an agent did, and may be recoverable --
     // and a new journal takes its place.
     const aside = `${path}.damaged-${new Date().toISOString().replace(/[:.]/g, "-")}`;
-    for (const suffix of ["", "-wal", "-shm"]) {
+    // The sidecars first. Moving the database first and failing on its WAL
+    // would leave that WAL beside a new, empty database, to be read into it.
+    for (const suffix of ["-wal", "-shm", ""]) {
       if (existsSync(`${path}${suffix}`)) {
         renameSync(`${path}${suffix}`, `${aside}${suffix}`);
       }

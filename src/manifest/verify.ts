@@ -33,6 +33,12 @@ const listSchema = z.looseObject({
 
 async function toolShapes(upstream: Upstream): Promise<ToolShape[]> {
   const shapes: ToolShape[] = [];
+  // A server that offers only resources or prompts answers tools/list with
+  // "method not found", and asking it anyway stopped the proxy starting.
+  if (upstream.client.getServerCapabilities()?.tools === undefined) {
+    return shapes;
+  }
+  const seen = new Set<string>();
   let cursor: string | undefined;
   do {
     const page = listSchema.parse(
@@ -49,6 +55,13 @@ async function toolShapes(upstream: Upstream): Promise<ToolShape[]> {
       });
     }
     cursor = page.nextCursor;
+    // The same cursor twice is a server that would be asked for ever.
+    if (cursor !== undefined && seen.has(cursor)) {
+      break;
+    }
+    if (cursor !== undefined) {
+      seen.add(cursor);
+    }
   } while (cursor !== undefined);
   return shapes;
 }

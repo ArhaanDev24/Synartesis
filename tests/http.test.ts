@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { openJournal } from "../src/journal/journal.js";
+
 const PROXY = resolve("dist/proxy.js");
 const FIXTURE = resolve("dist/toy-crm.js");
 const TOKEN = "a-token-long-enough-to-pass";
@@ -28,7 +30,7 @@ function workspace(): { manifest: string; journal: string } {
   return { manifest, journal: join(dir, "journal.db") };
 }
 
-async function serve(extra: readonly string[] = []): Promise<{ port: number; child: ChildProcess }> {
+async function serve(extra: readonly string[] = []): Promise<{ port: number; child: ChildProcess; journal: string }> {
   const space = workspace();
   const port = 9200 + Math.floor(Math.random() * 400);
   const child = spawn(
@@ -48,7 +50,7 @@ async function serve(extra: readonly string[] = []): Promise<{ port: number; chi
       await new Promise((r) => setTimeout(r, 100));
     }
   }
-  return { port, child };
+  return { port, child, journal: space.journal };
 }
 
 function post(port: number, body: unknown, token: string | undefined, session?: string): Promise<Response> {
@@ -135,5 +137,29 @@ describe("a session whose client vanished", () => {
     // as "start a new one", where a 400 reads as a malformed request.
     expect(late.status).toBe(404);
     expect(await late.text()).toMatch(/session has ended/i);
+  });
+});
+
+describe("a session its client closes", () => {
+  it("ends its run, rather than leaving it open for ever", async () => {
+    // Closing replaced the server's own close handler, so a session that was
+    // DELETEd went from the map but its run stayed `active`: every HTTP
+    // session looked live, and `clean` could never close one.
+    const { port, journal } = await serve(["--token", TOKEN]);
+    const opened = await post(port, INIT, TOKEN);
+    const session = opened.headers.get("mcp-session-id") ?? "";
+    await post(port, { jsonrpc: "2.0", method: "notifications/initialized" }, TOKEN, session);
+    const closed = await fetch(`http://127.0.0.1:${String(port)}/mcp`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${TOKEN}`, "mcp-session-id": session },
+    });
+    expect(closed.status).toBe(200);
+
+    const read = openJournal(journal);
+    try {
+      expect(read.listRuns().map((run) => run.status)).toEqual(["complete"]);
+    } finally {
+      read.close();
+    }
   });
 });

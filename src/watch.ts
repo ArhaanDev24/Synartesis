@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 
 import { openJournal, wasRefused, type ActionRow, type Journal } from "./journal/journal.js";
-import { keysIn } from "./keys.js";
+import { keysIn, restoreTerminal } from "./keys.js";
 import { shortTime } from "./clock.js";
 import { plainly, subject } from "./describe.js";
 import { NOTHING_RECORDED_YET, rule, style, WORDMARK } from "./style.js";
@@ -42,6 +42,15 @@ interface View {
   stop: boolean;
   /** Which waiting call the keys act on. */
   cursor: number;
+  /**
+   * The call the cursor was drawn on, by id. The keys act on this one, not
+   * on whatever sits at the cursor's position when the key arrives: a call
+   * answered elsewhere between frames moved the next one under the cursor,
+   * and `a` approved a call the person had never seen highlighted.
+   */
+  shown: string | undefined;
+  /** How many calls were waiting when the frame was drawn. */
+  waiting: number;
   notice: string;
   /** The tick the notice stops being shown at. */
   noticeUntil: number;
@@ -97,7 +106,7 @@ function line(action: ActionRow, now: Date): string {
  * the frame changes to answer it, because every time on it is a wall clock
  * reading of something that already happened.
  */
-function waitingForJournal(options: WatchOptions, tick: number): string {
+function waitingForJournal(options: WatchOptions, tick: number, view?: View): string {
   const spinner = options.live ? `${style.accent(FRAMES[tick % FRAMES.length] ?? "")} ` : "";
   return [
     "",
@@ -108,6 +117,10 @@ function waitingForJournal(options: WatchOptions, tick: number): string {
     "",
     ...NOTHING_RECORDED_YET.map((line) => `  ${style.quiet(line)}`),
     "",
+    // Keys are read here too, and a key that is read and never answered
+    // looks like a screen that has hung; nor did anything say how to leave.
+    ...(view !== undefined && view.notice !== "" ? [`  ${style.accent(view.notice)}`, ""] : []),
+    ...(options.live && canDecide(options) ? [`  ${style.quiet("q quit")}`, ""] : []),
   ].join("\n");
 }
 
@@ -142,8 +155,11 @@ function render(journal: Journal, options: WatchOptions, tick: number, view: Vie
     }
   }
 
+  view.waiting = waiting.length;
+  view.shown = undefined;
   if (waiting.length > 0) {
     const at = Math.min(view.cursor, waiting.length - 1);
+    view.shown = canDecide(options) ? waiting[at]?.id : undefined;
     out.push("");
     out.push(`  ${style.label("awaiting approval")}`);
     waiting.forEach((action, index) => {
@@ -253,13 +269,13 @@ export async function watch(options: WatchOptions): Promise<number> {
   const clear = "\u001b[H\u001b[2J\u001b[3J";
   // A holder, not plain locals: these are written from a signal handler and a
   // key loop, neither of which narrowing can see.
-  const view: View = { stop: false, cursor: 0, notice: "", noticeUntil: 0 };
+  const view: View = { stop: false, cursor: 0, notice: "", noticeUntil: 0, waiting: 0, shown: undefined };
   let tick = 0;
 
   const frame = (tick: number): string => {
     const ready = open();
     return ready === undefined
-      ? waitingForJournal(options, tick)
+      ? waitingForJournal(options, tick, view)
       : render(ready, options, tick, view);
   };
 
@@ -277,13 +293,23 @@ export async function watch(options: WatchOptions): Promise<number> {
   // same question has just been asked for the third time.
   const decide = (approve: boolean, forAnHour = false): void => {
     const ready = open();
-    if (ready === undefined || options.decideAs === undefined) {
+    if (options.decideAs === undefined) {
+      return;
+    }
+    if (ready === undefined) {
+      view.notice = "Nothing is waiting: no agent has used a connected tool yet.";
+      view.noticeUntil = tick + NOTICE_TICKS;
       return;
     }
     const waiting = ready.listGated();
-    const action = waiting[Math.min(view.cursor, waiting.length - 1)];
-    if (action === undefined) {
+    if (waiting.length === 0 || view.shown === undefined) {
       view.notice = "Nothing is waiting right now. When an agent's call is held, it appears above and this key answers it.";
+      view.noticeUntil = tick + NOTICE_TICKS;
+      return;
+    }
+    const action = waiting.find((one) => one.id === view.shown);
+    if (action === undefined) {
+      view.notice = "That call was answered somewhere else a moment ago. Nothing was changed; look again.";
       view.noticeUntil = tick + NOTICE_TICKS;
       return;
     }
@@ -328,7 +354,9 @@ export async function watch(options: WatchOptions): Promise<number> {
         return;
       case "j":
       case "\u001b[B":
-        view.cursor += 1;
+        // No further than the last one, or `k` does nothing for as many
+        // presses as `j` overshot.
+        view.cursor = Math.min(view.cursor + 1, Math.max(0, view.waiting - 1));
         return;
       case "k":
       case "\u001b[A":
@@ -373,7 +401,16 @@ export async function watch(options: WatchOptions): Promise<number> {
             if (next.done === true || stopped()) {
               return;
             }
-            press(next.value);
+            try {
+              press(next.value);
+            } catch (error: unknown) {
+              // A key that failed -- the journal busy, a row it could not
+              // read -- is said on the screen. Thrown from here it was an
+              // unhandled rejection: the process died with the cursor hidden
+              // and the terminal raw.
+              view.notice = `That did not work: ${error instanceof Error ? error.message : String(error)}`;
+              view.noticeUntil = tick + NOTICE_TICKS;
+            }
             if (stopped()) {
               return;
             }
@@ -417,6 +454,15 @@ export async function watch(options: WatchOptions): Promise<number> {
       })(),
       new Promise<void>((resolve) => setTimeout(resolve, 50).unref()),
     ]);
+    // And put back by hand, whether or not the reader got there. A reader
+    // waiting on a key does not run its own clean-up when asked to stop --
+    // only when its next key arrives -- so leaving any way but `q` (a signal,
+    // a journal that would not open) left the terminal raw and the process
+    // held open by stdin until somebody pressed something.
+    if (source !== undefined && options.keys === undefined) {
+      restoreTerminal();
+    }
     journal?.close();
   }
 }
+

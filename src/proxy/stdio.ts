@@ -323,10 +323,10 @@ async function main(): Promise<void> {
     });
     const stop = (): void => {
       void (async (): Promise<void> => {
-        await served.close();
-        for (const upstream of upstreams) {
-          await upstream.close();
-        }
+        // Every step attempted whatever the one before it did: one server
+        // that would not close left the rest running and the process up.
+        await served.close().catch(() => undefined);
+        await Promise.allSettled(upstreams.map((upstream) => upstream.close()));
         journal.close();
         process.exit(0);
       })();
@@ -351,10 +351,11 @@ async function main(): Promise<void> {
         proxy.whenIdle(),
         new Promise<void>((resolve) => setTimeout(resolve, 5000).unref()),
       ]);
-      await proxy.server.close();
-      for (const upstream of upstreams) {
-        await upstream.close();
-      }
+      // Each step whatever the one before it did: a server that would not
+      // close used to leave the others running and this process up, its
+      // rejection unhandled.
+      await proxy.server.close().catch(() => undefined);
+      await Promise.allSettled(upstreams.map((upstream) => upstream.close()));
       journal.close();
       process.exit(code);
     })();
