@@ -4,6 +4,7 @@ import { canonical } from "../canonical.js";
 import { createPolicyResolver } from "./match.js";
 import { parseManifest } from "./load.js";
 import type { Manifest, ToolPolicy } from "./types.js";
+import { yamlKey } from "./yaml-key.js";
 
 /** Why an edit could not be made, in words for the person who asked for it. */
 export class PolicyEditError extends Error {
@@ -98,11 +99,18 @@ export function allowAlways(input: AllowAlwaysInput): AllowAlways {
     if (tools !== undefined && (!isSeq(tools) || tools.flow === true || tools.items.length === 0)) {
       throw new PolicyEditError(`the tools list in ${file} is not written one rule to a line; add the rule by hand`);
     }
-    const base: Record<string, unknown> = current.matched
-      ? { ...current.policy }
-      : { class: "irreversible" };
+    // Copied from the rule as written, not from the policy it loads as: the
+    // loaded form spells `absent_when` as `absentWhen`, which the schema
+    // refuses, and copying that broke every edit of a pattern with one --
+    // while dropping `refusal` quietly changed how its errors are read.
+    const written = current.matched && isSeq(tools)
+      ? tools.items.find((item) => isMap(item) && item.get("match") === current.policy.match)
+      : undefined;
+    const raw: unknown = isMap(written) ? written.toJSON() : undefined;
+    const base: Record<string, unknown> =
+      raw !== null && typeof raw === "object" ? Object.fromEntries(Object.entries(raw)) : { class: "irreversible" };
     delete base["match"];
-    delete base["refusal"];
+    delete base["gate"];
     const rule = { match: qualified, ...base, gate: "never" };
     const said = [`# Let through without asking, by ${input.by} on ${input.date}.`];
     if (base["class"] === "irreversible") {
@@ -171,7 +179,7 @@ function addPin(text: string, server: string, tool: string, pin: string, qualifi
   }
   const at = rangeOf(map, "pins")[0];
   const indent = " ".repeat(at - lineStart(text, at));
-  return insertAfter(text, rangeOf(map, "pins")[2], `\n${indent}${tool}: ${JSON.stringify(pin)}\n`);
+  return insertAfter(text, rangeOf(map, "pins")[2], `\n${indent}${yamlKey(tool)}: ${JSON.stringify(pin)}\n`);
 }
 
 /**

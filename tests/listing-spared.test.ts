@@ -72,3 +72,29 @@ describe("one server failing to list its tools", () => {
     expect(tools.map((tool) => tool.name)).toEqual(["a__a_tool"]);
   });
 });
+
+describe("two servers whose tools come out with the same name", () => {
+  it("lists the name once, rather than offering a name that goes to only one of them", async () => {
+    const one = new McpServer({ name: "a", version: "1" });
+    one.registerTool("_x", {}, () => ({ content: [] }));
+    const two = new McpServer({ name: "a_", version: "1" });
+    two.registerTool("x", {}, () => ({ content: [] }));
+    const a = await inMemoryUpstream(one, "a");
+    const b = await inMemoryUpstream(two, "a_");
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-collide-"));
+    const journal = openJournal(join(dir, "journal.db"));
+    cleanups.push(() => {
+      journal.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const manifest = parseManifest('version: 1\nservers:\n  a:\n    command: "true"\n  a_:\n    command: "true"\n', "m.yaml");
+    const proxy = createProxyServer({ upstreams: [a, b], manifest, journal, gate: autoApproveGate });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const agent = new Client({ name: "agent", version: "0" });
+    await Promise.all([proxy.server.connect(st), agent.connect(ct)]);
+    cleanups.push(() => agent.close(), () => a.close(), () => b.close());
+
+    const names = (await agent.listTools()).tools.map((tool) => tool.name);
+    expect(names.filter((name) => name === "a___x")).toHaveLength(1);
+  });
+});

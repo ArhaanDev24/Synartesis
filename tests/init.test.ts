@@ -101,6 +101,27 @@ tools:
   });
 });
 
+describe("adding a server to a pinned policy", () => {
+  it("puts the server and its rules in their blocks, not at the end where the pins are", async () => {
+    // pin tells people to paste its output at the end of the file, so the
+    // rules appended there landed inside pins: and the file did not load.
+    for (const order of ["pins last", "pins between"]) {
+      const pins = `pins:\n  other:\n    ping: "sha256:abc"\n`;
+      const servers = `servers:\n  other:\n    command: node\n    args: ["other.js"]\n`;
+      const tools = `tools:\n  - match: "other.ping"\n    class: readonly\n`;
+      const existing =
+        order === "pins last"
+          ? `version: 1\n${servers}${tools}\n${pins}`
+          : `version: 1\n${servers}\n${pins}\n${tools}`;
+      const yaml = (await draftManifest({ name: "crm", command: "node", args: [FIXTURE], existing })).yaml;
+      const manifest = parseManifest(yaml, "merged.yaml");
+      expect(Object.keys(manifest.servers).sort(), order).toEqual(["crm", "other"]);
+      expect(manifest.tools.some((t) => t.match === "crm.get_customer"), order).toBe(true);
+      expect(manifest.pins?.["other"], order).toEqual({ ping: "sha256:abc" });
+    }
+  });
+});
+
 describe("a server we already have a finished policy for", () => {
   const FS_SERVER = resolve("node_modules/@modelcontextprotocol/server-filesystem/dist/index.js");
 

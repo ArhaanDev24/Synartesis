@@ -34,6 +34,13 @@ export interface RunOptions {
   readonly onEvent?: (event: AgentEvent) => void;
   readonly signal?: AbortSignal;
   /**
+   * The conversation as it stands, every time it grows. A turn that fails
+   * part-way -- a provider error, a Stop -- has still sent calls and had
+   * answers, and only the return value carried them: the model's next turn
+   * started without the request, the write it made, or what came back.
+   */
+  readonly onHistory?: (messages: readonly Exchange[]) => void;
+  /**
    * A ceiling on rounds of tool use in one turn. Not a safety mechanism --
    * the gate and the journal are that -- but a model that has misunderstood
    * its task should stop and say so rather than work all afternoon.
@@ -47,6 +54,7 @@ export async function run(options: RunOptions): Promise<readonly Exchange[]> {
   const { engine, provider, onEvent } = options;
   const emit = (event: AgentEvent): void => onEvent?.(event);
   const messages: Exchange[] = [...options.history, { role: "user", text: options.say }];
+  options.onHistory?.(messages);
 
   // Asked once per turn rather than once per round: a server that gains a tool
   // mid-conversation is rare, and re-listing between every round would change
@@ -85,6 +93,7 @@ export async function run(options: RunOptions): Promise<readonly Exchange[]> {
       // next round if the signature does not come back with the call.
       ...(turn.thoughts === undefined ? {} : { thoughts: turn.thoughts }),
     });
+    options.onHistory?.(messages);
 
     if (turn.calls.length === 0) {
       emit({ kind: "done" });
@@ -102,7 +111,7 @@ export async function run(options: RunOptions): Promise<readonly Exchange[]> {
       // and the journal would record a call the model never actually made.
       const result =
         call.malformed === undefined
-          ? await engine.call(call.name, call.args)
+          ? await engine.call(call.name, call.args, options.signal)
           : { text: `This call was not sent. ${call.malformed}`, failed: true };
       emit({ kind: "result", call, result });
       messages.push({
@@ -112,6 +121,7 @@ export async function run(options: RunOptions): Promise<readonly Exchange[]> {
         text: result.text,
         failed: result.failed,
       });
+      options.onHistory?.(messages);
     }
   }
 

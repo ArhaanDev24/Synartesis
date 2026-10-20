@@ -68,6 +68,8 @@ export interface ProxyOptions {
    * fire one by accident.
    */
   readonly notify?: Notifier;
+  /** Whether tool names carry their server; see RouterOptions. */
+  readonly prefixed?: boolean;
 }
 
 export interface ProxyServer {
@@ -426,7 +428,7 @@ export function recoverInverse(
 
 export function createProxyServer(options: ProxyOptions): ProxyServer {
   const { upstreams, manifest, journal } = options;
-  const router = createRouter(upstreams, manifest);
+  const router = createRouter(upstreams, manifest, options.prefixed === undefined ? {} : { prefixed: options.prefixed });
   const policies: PolicyResolver = createPolicyResolver(manifest);
   // What each server said about its own tools, the last time they were
   // listed. A client lists before it calls; one that does not gets the
@@ -635,6 +637,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
       ListToolsRequestSchema,
       async (_request, extra) => {
         const tools: Passthrough[] = [];
+        const seen = new Map<string, string>();
         for (const upstream of router.upstreams) {
           if (!supports(upstream, "tools")) {
             continue;
@@ -653,8 +656,22 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             return { items: page.tools, nextCursor: page.nextCursor };
             }),
           );
+          router.learn(upstream.name, items.map((tool) => tool.name));
           for (const tool of items) {
             const qualified = qualify(upstream.name, tool.name);
+            const exposed = router.expose(upstream.name, tool.name);
+            // Two servers whose prefixed names meet -- `a` with `_x` and `a_`
+            // with `x` both make `a___x` -- would list the name twice, and
+            // every call to it would go to one of them. The first is kept and
+            // the other named, rather than offering a name that lies.
+            if (seen.has(exposed)) {
+              log?.warn(
+                { tool: exposed, servers: [seen.get(exposed), upstream.name] },
+                "two servers' tools have the same name here; the second is left out",
+              );
+              continue;
+            }
+            seen.set(exposed, upstream.name);
             if (tool.annotations?.readOnlyHint === true) {
               markedReadOnly.add(qualified);
             } else {
@@ -670,7 +687,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
                     `the dialect was dropped so clients that only accept 2020-12 can call it`,
                 );
               }),
-              name: router.expose(upstream.name, tool.name),
+              name: exposed,
             });
           }
         }

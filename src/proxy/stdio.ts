@@ -31,9 +31,10 @@ import { loadManifest } from "../manifest/load.js";
 import { listAll, verifyAgainstServers, withoutMissingTools } from "../manifest/verify.js";
 import { trustsMarks, ungoverned, untested, warnUntested } from "../manifest/standing.js";
 import { createProxyServer } from "./proxy.js";
-import { connectUpstream, startAll, type Upstream } from "./upstream.js";
+import { connectUpstream, startTogether, type Upstream } from "./upstream.js";
 import { declaredNames, fingerprint, upstreamEnv } from "./environment.js";
-import { clientEnvFor } from "../install/entry-env.js";
+import { clientEnvsFor } from "../install/entry-env.js";
+import { coversServer } from "../manifest/match.js";
 
 /**
  * The manifest is the configuration (D3): it already declares every server and
@@ -194,17 +195,34 @@ async function main(): Promise<void> {
   // the same store the session wrote to. Recorded against each run below.
   const key = journal.fingerprintKey();
   const startedWith = new Map<string, { cwd: string; fingerprints: Record<string, string> }>();
-  upstreams.push(...(await startAll([...wanted], ([name, spec]) => connectUpstream(name, spec, { env: source }))));
-  for (const [name, spec] of wanted) {
-    let client: Readonly<Record<string, string>> | undefined;
-    try {
-      client = source.kind === "inherit" ? clientEnvFor(argv.manifest, name)?.env : undefined;
-    } catch {
-      // Two differing entries for one server. Only the undo that later reads
-      // this needs to refuse over it; the session itself runs as the client
-      // started it.
-      client = undefined;
-    }
+  // Each on its own: one server that will not start -- a token expired, a
+  // package that moved -- used to take every other server in the policy away
+  // from the AI app with it. The rest start; that one is named in the log and
+  // its tools are simply not offered. With nothing started there is nothing
+  // to serve, and that is still a failure.
+  const { started, failed } = await startTogether([...wanted], ([name, spec]) =>
+    connectUpstream(name, spec, { env: source }),
+  );
+  const first = failed[0];
+  if (started.length === 0 && first !== undefined) {
+    throw first.error;
+  }
+  for (const { item: [name], error } of failed) {
+    log.warn({ server: name, error: describe(error) }, "this server did not start; its tools are not offered");
+  }
+  upstreams.push(...started);
+  const running = new Set(started.map((upstream) => upstream.name));
+  for (const [name, spec] of wanted.filter(([name]) => running.has(name))) {
+    // The entry this proxy was started from, when several wrap the same
+    // server: the one whose variables are the ones this process was given.
+    // Taking none of them recorded only the policy's names, and left the undo
+    // nothing to tell the two apart by.
+    const client =
+      source.kind === "inherit"
+        ? clientEnvsFor(argv.manifest, name).find((one) =>
+            Object.entries(one.env).every(([variable, value]) => process.env[variable] === value),
+          )?.env
+        : undefined;
     startedWith.set(name, {
       cwd: process.cwd(),
       fingerprints: fingerprint(key, upstreamEnv(name, spec, source), declaredNames(spec, client)),
@@ -229,10 +247,17 @@ async function main(): Promise<void> {
   await verifyAgainstServers(
     upstreams,
     argv.server === undefined
-      ? served
+      ? {
+          ...served,
+          // Only what can be checked: a server that did not start has no
+          // tools to check its rules against.
+          tools: served.tools.filter((rule) => [...running].some((name) => coversServer(rule.match, name))),
+        }
       : {
           ...served,
-          tools: served.tools.filter((rule) => rule.match.startsWith(`${String(argv.server)}.`)),
+          // By the rule's server part as a pattern: `*.write_file` covers this
+          // server too, and dropping it left its tools out of the pin check.
+          tools: served.tools.filter((rule) => coversServer(rule.match, String(argv.server))),
         },
     listed,
   );
@@ -278,6 +303,9 @@ async function main(): Promise<void> {
       manifest: served,
       journal,
       logger: log,
+      // By what was asked for, not what started: a server that failed to
+      // start must not rename every other server's tools for the session.
+      prefixed: wanted.length > 1,
       // Absolute, because whoever approves may be in any directory at all.
       approveHint: (actionId: string): string =>
         `${cliCommandFrom(import.meta.url)} approve ${actionId.slice(0, 8)} --journal ${resolve(argv.journal)}`,
@@ -411,3 +439,4 @@ try {
   process.stderr.write(`synartesis: ${describe(error)}\n`);
   process.exit(1);
 }
+

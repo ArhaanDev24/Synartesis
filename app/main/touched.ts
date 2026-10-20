@@ -50,9 +50,21 @@ export function pathsIn(args: unknown, found: string[] = []): string[] {
   return found;
 }
 
+/**
+ * A path as this machine's file system compares it. Windows and macOS do not
+ * tell `C:\Users\A` from `c:\users\a`, and Windows takes either slash: the
+ * folder picker and the agent spell the same file differently, and the file
+ * was missing from the report or listed twice.
+ */
+export function comparable(path: string, platform: NodeJS.Platform = process.platform): string {
+  const resolved = resolve(path);
+  const slashed = platform === "win32" ? resolved.replace(/\//g, "\\") : resolved;
+  return platform === "win32" || platform === "darwin" ? slashed.toLowerCase() : slashed;
+}
+
 function under(folder: string, path: string): boolean {
-  const root = resolve(folder);
-  const target = resolve(path);
+  const root = comparable(folder);
+  const target = comparable(path);
   return target === root || target.startsWith(root.endsWith(sep) ? root : root + sep);
 }
 
@@ -99,10 +111,12 @@ export function touchedUnder(journal: Journal, folder: string): TouchedFile[] {
       if (action.class === "readonly") {
         continue;
       }
-      for (const path of new Set(pathsIn(action.args))) {
-        if (!under(folder, path)) {
+      for (const written of new Set(pathsIn(action.args))) {
+        if (!under(folder, written)) {
           continue;
         }
+        // One row per file, however it was spelled.
+        const path = files.has(written) ? written : ([...files.keys()].find((one) => comparable(one) === comparable(written)) ?? written);
         const seen = files.get(path) ?? {
           changes: 0,
           recoverable: 0,

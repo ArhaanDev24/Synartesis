@@ -58,3 +58,22 @@ describe("naming a tool when several servers are guarded", () => {
     expect(router.route("write_file")).toBeUndefined();
   });
 });
+
+describe("a tool whose own name begins with its server's", () => {
+  it("is that tool, once the server has said it has one", () => {
+    // fs__sync was read as the qualified spelling of `sync`, and called a
+    // tool that is not there, under a policy for the wrong name.
+    const router = createRouter([upstream("fs")], manifestFor("fs"));
+    router.learn("fs", ["fs__sync", "write_file"]);
+    expect(router.route("fs__sync")?.tool).toBe("fs__sync");
+    expect(router.route("fs__write_file")?.tool).toBe("write_file");
+  });
+});
+
+describe("prefixing, when the proxy says how many servers it was asked for", () => {
+  it("keeps the prefix with one server left, so a failed one renames nothing", () => {
+    const router = createRouter([upstream("crm")], manifestFor("crm", "gone"), { prefixed: true });
+    expect(router.expose("crm", "get_customer")).toBe("crm__get_customer");
+    expect(router.route("crm__get_customer")?.tool).toBe("get_customer");
+  });
+});

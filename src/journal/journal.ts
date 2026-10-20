@@ -327,6 +327,8 @@ export interface Journal {
    * it rolled back while its proxy goes on recording into it.
    */
   releaseRun(runId: string): void;
+  /** Whether the process that opened this session may still be using it. */
+  runInUse(runId: string): boolean;
   /**
    * Closes a run whose proxy went away without saying so. Only a person can
    * ask for this: several proxies may share one journal, so a run left active
@@ -486,6 +488,11 @@ export interface Journal {
     args: unknown;
   }): ActionRow | undefined;
   getAction(actionId: string): ActionRow | undefined;
+  /**
+   * An action by its full id, or by a prefix only one action has -- the short
+   * form every command prints. Undefined when nothing matches or several do.
+   */
+  findAction(idOrPrefix: string): ActionRow | undefined;
   listRuns(): readonly RunRow[];
   getRun(runId: string): RunRow | undefined;
   getActions(runId: string): readonly ActionRow[];
@@ -833,6 +840,17 @@ class SqliteJournal implements Journal {
       this.#db
         .prepare(`UPDATE runs SET ended_at = ?, status = ? WHERE id = ? AND status IN (${allowed})`)
         .run(new Date().toISOString(), status, runId, ...from);
+    });
+  }
+
+  runInUse(runId: string): boolean {
+    return this.#run("runInUse", () => {
+      const row = z
+        .object({ host: z.string(), pid: z.number() })
+        .optional()
+        .parse(this.#db.prepare("SELECT host, pid FROM run_owners WHERE run_id = ?").get(runId));
+      // Another machine cannot be asked, so it may be.
+      return row !== undefined && (row.host !== hostname() || running(row.pid));
     });
   }
 
@@ -1330,6 +1348,24 @@ class SqliteJournal implements Journal {
     });
   }
 
+  findAction(idOrPrefix: string): ActionRow | undefined {
+    if (idOrPrefix === "") {
+      return undefined;
+    }
+    const exact = this.getAction(idOrPrefix);
+    if (exact !== undefined) {
+      return exact;
+    }
+    return this.#run("findAction", () => {
+      // Escaped, so a `%` or `_` in what was typed is matched as itself.
+      const like = `${idOrPrefix.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const rows = this.#db
+        .prepare("SELECT * FROM actions WHERE id LIKE ? ESCAPE '\\' LIMIT 2")
+        .all(like);
+      return rows.length === 1 ? toAction(rows[0]) : undefined;
+    });
+  }
+
   getAction(actionId: string): ActionRow | undefined {
     return this.#run("getAction", () => {
       const raw = this.#db.prepare("SELECT * FROM actions WHERE id = ?").get(actionId);
@@ -1609,7 +1645,10 @@ class SqliteJournal implements Journal {
                            AND a.status IN ('pending','gated','approved','rolling_back','unrecoverable'))
                   AND NOT EXISTS (
                         SELECT 1 FROM actions a
-                         WHERE a.run_id = r.id AND a.status = 'applied' AND a.inverse_json IS NOT NULL)
+                         WHERE a.run_id = r.id AND a.status = 'applied'
+                           -- or a write with no recorded undo, which --replan
+                           -- can still give one under a policy fixed since
+                           AND (a.inverse_json IS NOT NULL OR a.class IN ('reversible', 'compensable')))
                 ORDER BY at, r.rowid`,
             )
             .all(idleBefore),
@@ -1642,8 +1681,9 @@ class SqliteJournal implements Journal {
           // COALESCE, because a run that was closed is dated by when it
           // finished and one that was not is dated by when it began.
           `SELECT r.id, r.label, r.status, COALESCE(r.ended_at, r.started_at) AS at,
-                  (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS actions
-             FROM runs r
+                  (SELECT COUNT(*) FROM actions a WHERE a.run_id = r.id) AS actions,
+                  o.host, o.pid
+             FROM runs r LEFT JOIN run_owners o ON o.run_id = r.id
             WHERE r.status != 'active'
               AND COALESCE(r.ended_at, r.started_at) < ?
               -- Everything a person still has business with. approved is
@@ -1669,9 +1709,14 @@ class SqliteJournal implements Journal {
               status: z.enum(["complete", "rolled_back", "partial"]),
               at: z.string(),
               actions: z.number(),
+              host: z.string().nullable(),
+              pid: z.number().nullable(),
             })
             .parse(row),
         )
+        // In use, whatever its status says, as for clean: a session undone
+        // while its app is still connected is still being recorded into.
+        .filter((row) => row.pid === null || (row.host === hostname() && !running(row.pid)))
         .map((row) => ({
           id: row.id,
           label: row.label ?? undefined,

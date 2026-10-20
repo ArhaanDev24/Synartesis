@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { canonical } from "../canonical.js";
 import { createPolicyResolver } from "./match.js";
 import { qualify, type Manifest } from "./types.js";
+import { yamlKey } from "./yaml-key.js";
 
 /**
  * A fingerprint of the shape a tool accepts.
@@ -96,9 +97,9 @@ export function pinBlock(shapes: ReadonlyMap<string, readonly ToolShape[]>, mani
     if (governed.length === 0) {
       continue;
     }
-    lines.push(`  ${server}:`);
+    lines.push(`  ${yamlKey(server)}:`);
     for (const tool of governed) {
-      lines.push(`    ${tool.name}: "${fingerprint(tool.inputSchema)}"`);
+      lines.push(`    ${yamlKey(tool.name)}: "${fingerprint(tool.inputSchema)}"`);
     }
   }
   return lines.join("\n");

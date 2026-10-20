@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseManifest } from "../src/manifest/load.js";
-import { createPolicyResolver } from "../src/manifest/match.js";
+import { coversServer, createPolicyResolver } from "../src/manifest/match.js";
 
 function resolverFor(patterns: readonly (readonly [string, string])[]) {
   const tools = patterns
@@ -79,5 +79,29 @@ describe("policy matching", () => {
   it("fails closed on a tool from a server with no rules at all", () => {
     const resolver = resolverFor([["crm.get_customer", "readonly"]]);
     expect(resolver.resolve("gmail.send_email").policy.class).toBe("irreversible");
+  });
+});
+
+describe("two patterns that match a name equally well", () => {
+  it("are settled toward the cautious one, whichever was written first", () => {
+    for (const order of [0, 1]) {
+      const rules = [
+        "  - match: \"fs.read_*\"\n    class: readonly\n",
+        "  - match: \"fs.*_file\"\n    class: irreversible\n",
+      ];
+      const text = `version: 1\nservers:\n  fs:\n    command: node\ntools:\n${(order === 0 ? rules : [...rules].reverse()).join("")}`;
+      const resolved = createPolicyResolver(parseManifest(text, "m.yaml")).resolve("fs.read_file");
+      expect(resolved.policy.class, String(order)).toBe("irreversible");
+    }
+  });
+});
+
+describe("which rules belong to one server", () => {
+  it("counts a rule whose server part is a pattern", () => {
+    expect(coversServer("fs.write_file", "fs")).toBe(true);
+    expect(coversServer("*.write_file", "fs")).toBe(true);
+    expect(coversServer("f*.write_file", "fs")).toBe(true);
+    expect(coversServer("git.commit", "fs")).toBe(false);
+    expect(coversServer("fsx.write", "fs")).toBe(false);
   });
 });

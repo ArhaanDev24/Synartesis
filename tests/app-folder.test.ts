@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { candidates, findDesktop, whereToGetIt } from "../src/desktop.js";
-import { pathsIn } from "../app/main/touched.js";
+import { comparable, pathsIn } from "../app/main/touched.js";
 
 /**
  * Two small pieces that are easy to get quietly wrong.
@@ -66,5 +66,15 @@ describe("opening the desktop application", () => {
     // The reason it is a separate download, so nobody files this as a bug.
     expect(said).toMatch(/browser engine/);
     expect(findDesktop("darwin", () => false)).toBeUndefined();
+  });
+});
+
+describe("paths spelled two ways", () => {
+  it("are one file where the file system says they are", () => {
+    // The folder picker and the agent spell the same file differently on
+    // Windows and macOS, and the file went missing from the report.
+    expect(comparable("C:\\Users\\A\\proj\\x.txt", "win32")).toBe(comparable("c:/users/a/proj/x.txt", "win32"));
+    expect(comparable("/Users/A/Proj/x.txt", "darwin")).toBe(comparable("/users/a/proj/x.txt", "darwin"));
+    expect(comparable("/home/A/x", "linux")).not.toBe(comparable("/home/a/x", "linux"));
   });
 });

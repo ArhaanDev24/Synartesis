@@ -65,6 +65,33 @@ export function clientEnvFor(
   server: string,
   cwd: string = process.cwd(),
 ): ClientServerEnv | undefined {
+  const found = clientEnvsFor(manifestPath, server, cwd);
+  const [first, ...rest] = found;
+  if (first === undefined) {
+    return undefined;
+  }
+  const differing = rest.filter((other) => !sameEnv(other.env, first.env) || other.cwd !== first.cwd);
+  if (differing.length > 0) {
+    throw new ConfigError(
+      `server ${server} is wrapped by more than one client entry, with different settings: ` +
+        [first, ...differing].map((one) => one.from).join("; ") +
+        `. Starting it with one of them could act on a different store from the one a session used, so it is not started.`,
+    );
+  }
+  return first;
+}
+
+/**
+ * Every client entry that wraps this server under this policy. Two projects
+ * can each wrap `memory` with their own file, and refusing outright made every
+ * undo of either impossible; a caller that knows which one a session used --
+ * by its fingerprints -- can pick it.
+ */
+export function clientEnvsFor(
+  manifestPath: string,
+  server: string,
+  cwd: string = process.cwd(),
+): readonly ClientServerEnv[] {
   const wanted = resolve(manifestPath);
   const found: ClientServerEnv[] = [];
   for (const site of discover(cwd)) {
@@ -96,17 +123,5 @@ export function clientEnvFor(
     }
   }
 
-  const [first, ...rest] = found;
-  if (first === undefined) {
-    return undefined;
-  }
-  const differing = rest.filter((other) => !sameEnv(other.env, first.env) || other.cwd !== first.cwd);
-  if (differing.length > 0) {
-    throw new ConfigError(
-      `server ${server} is wrapped by more than one client entry, with different settings: ` +
-        [first, ...differing].map((one) => one.from).join("; ") +
-        `. Starting it with one of them could act on a different store from the one a session used, so it is not started.`,
-    );
-  }
-  return first;
+  return found;
 }

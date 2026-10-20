@@ -79,31 +79,14 @@ tools:
     class: irreversible
     gate: always
 
-  # pullNumber, not pull_number, in 1.12 -- the previous policy's inverse would
-  # have lost the one argument that says which pull request to put back.
+  # Held, not undone, until an undo has been shown to work on a real account.
+  # The undo this used to declare put back only the title, the body and the
+  # state: a pull request whose base branch or draft flag the agent changed was
+  # reported as restored and left changed, and one with no body was sent
+  # `body: null`, which GitHub refuses.
   - match: "github.update_pull_request"
-    class: reversible
-    snapshot:
-      tool: "github.pull_request_read"
-      args:
-        method: "get"
-        owner: "$.owner"
-        repo: "$.repo"
-        pullNumber: "$.pullNumber"
-      # What GitHub says when the thing is not there. Anything else the
-      # pre-read reports -- a permissions change, a rate limit -- is a failed
-      # snapshot rather than absence, and the write is refused instead of being
-      # offered for approval as a creation.
-      absent_when: ["Not Found", "404"]
-    inverse:
-      tool: "github.update_pull_request"
-      args:
-        owner: "$.owner"
-        repo: "$.repo"
-        pullNumber: "$.pullNumber"
-        title: "$snapshot.title"
-        body: "$snapshot.body"
-        state: "$snapshot.state"
+    class: irreversible
+    gate: always
 
   - match: "github.merge_pull_request"
     class: irreversible
@@ -118,34 +101,14 @@ tools:
 
   # --- file contents -----------------------------------------------------
 
-  # The sha must be the blob being replaced at the moment of the revert, which
-  # is the one this very call created, not the one it replaced. Passing
-  # $snapshot.sha here is the natural mistake and GitHub rejects it as a
-  # conflict.
+  # Held, not undone, until an undo has been shown to work on a real account.
+  # get_file_contents answers with two blocks -- the text and the resource --
+  # and the undo this used to declare sent that whole answer back as the
+  # file's content, which GitHub refuses as not a string. It could never have
+  # put a file back, and said it would.
   - match: "github.create_or_update_file"
-    class: reversible
-    snapshot:
-      tool: "github.get_file_contents"
-      args:
-        owner: "$.owner"
-        repo: "$.repo"
-        path: "$.path"
-        ref: "$.branch"
-      # What GitHub says when the thing is not there. Anything else the
-      # pre-read reports -- a permissions change, a rate limit -- is a failed
-      # snapshot rather than absence, and the write is refused instead of being
-      # offered for approval as a creation.
-      absent_when: ["Not Found", "404"]
-    inverse:
-      tool: "github.create_or_update_file"
-      args:
-        owner: "$.owner"
-        repo: "$.repo"
-        path: "$.path"
-        branch: "$.branch"
-        content: "$snapshot.content"
-        sha: "$result.content.sha"
-        message: "Revert agent change to $.path"
+    class: irreversible
+    gate: always
 
   # A commit removing the file. The contents are gone from the branch head and
   # would have to be read first to be put back, which this server's read does

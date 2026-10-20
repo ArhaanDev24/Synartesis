@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ConfigError } from "../src/install/clients.js";
-import { clientEnvFor } from "../src/install/entry-env.js";
+import { clientEnvFor, clientEnvsFor } from "../src/install/entry-env.js";
+import { declaredNames, upstreamEnv } from "../src/proxy/environment.js";
 
 /**
  * What undo starts a server with, read from the client entry that wraps it.
@@ -81,5 +82,35 @@ describe("the environment a client gives a wrapped server", () => {
     writeFileSync(join(dir, ".cursor", "mcp.json"), "{ broken");
     write(join(dir, ".gemini", "settings.json"), { memory: wrapped("memory", { FILE: "/m.json" }) });
     expect(clientEnvFor(MANIFEST, "memory", dir)?.env).toEqual({ FILE: "/m.json" });
+  });
+});
+
+describe("two entries wrapping one server differently", () => {
+  it("are both offered, so the one a session used can be picked", () => {
+    const dir = home();
+    write(join(dir, ".cursor", "mcp.json"), { memory: wrapped("memory", { FILE: "/one.json" }) });
+    write(join(dir, ".gemini", "settings.json"), { memory: wrapped("memory", { FILE: "/other.json" }) });
+    expect(clientEnvsFor(MANIFEST, "memory", dir).map((one) => one.env["FILE"]).sort()).toEqual([
+      "/one.json",
+      "/other.json",
+    ]);
+  });
+});
+
+describe("the launcher's own variables in a client entry", () => {
+  it("are neither given to the server nor fingerprinted, under the proxy or under undo", () => {
+    // SYNARTESIS_NOTIFY in the entry was stripped under the proxy and passed
+    // under undo, so the fingerprints never matched and every undo refused.
+    const entry = { SYNARTESIS_NOTIFY: "0", npm_config_registry: "https://r.example", FILE: "/m.json" };
+    const spec = { command: "node", args: [] };
+    const env = upstreamEnv("memory", spec, { kind: "client", env: entry, own: false });
+    expect(env).toEqual({ FILE: "/m.json" });
+    expect(declaredNames(spec, entry)).toEqual(["FILE"]);
+  });
+
+  it("does not reach into this process's own environment when told to keep out", () => {
+    process.env["SYN_ENTRY_TOKEN"] = "the app's own key";
+    const spec = { command: "node", args: [], env: { TOKEN: "${SYN_ENTRY_TOKEN}" } };
+    expect(() => upstreamEnv("memory", spec, { kind: "client", env: {}, own: false })).toThrow(/SYN_ENTRY_TOKEN/);
   });
 });

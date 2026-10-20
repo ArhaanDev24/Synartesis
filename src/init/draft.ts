@@ -1,8 +1,10 @@
+import { isMap, isSeq, parseDocument } from "yaml";
 import { z } from "zod";
 
 import { ManifestError, UpstreamError, describe } from "../errors.js";
 import { connectUpstream } from "../proxy/upstream.js";
 import { knownPolicyFor, toolsReferencedBy } from "./known.js";
+import { yamlKey } from "../manifest/yaml-key.js";
 
 export interface Draft {
   readonly yaml: string;
@@ -246,7 +248,7 @@ export async function draftManifest(options: DraftOptions): Promise<Draft> {
                 ),
               ]),
         ];
-  const server = [`  ${options.name}:`, ...reach, ...claim].join("\n");
+  const server = [`  ${yamlKey(options.name)}:`, ...reach, ...claim].join("\n");
 
   const adopted = known === undefined ? undefined : adopt(known, options.name, tools);
   const policies =
@@ -305,27 +307,43 @@ export async function draftManifest(options: DraftOptions): Promise<Draft> {
  * Textual merge rather than parse-and-reserialise: a round trip through the
  * YAML AST would strip the author's comments, which in this format carry the
  * reasoning behind every classification.
+ *
+ * Where each block ends is read from the parsed document, not found by
+ * splitting on `tools:`. Splitting put the new rules at the end of the file,
+ * which in a pinned policy is the pins block -- `synartesis pin` tells people
+ * to paste it there -- so adding a second server to a pinned policy wrote a
+ * file that did not load.
  */
 function mergeInto(existing: string, server: string, policies: string, name: string): string {
-  const serversAt = existing.indexOf("\nservers:");
-  const toolsAt = existing.indexOf("\ntools:");
-  if (serversAt === -1 || toolsAt === -1 || toolsAt < serversAt) {
+  const doc = parseDocument(existing);
+  const servers = doc.get("servers", true);
+  const tools = doc.get("tools", true);
+  if (
+    !isMap(servers) || servers.flow === true || servers.range == null ||
+    !isSeq(tools) || tools.flow === true || tools.range == null
+  ) {
     throw new ManifestError(
-      "the existing manifest does not have a servers: block followed by a tools: block, so it cannot be extended automatically",
+      "the existing manifest does not have a servers: block and a tools: list written one entry to a line, so it cannot be extended automatically",
     );
   }
-
-  const head = existing.slice(0, toolsAt);
-  const tail = existing.slice(toolsAt);
-  return [
-    head.trimEnd(),
-    server,
-    tail.trimEnd(),
-    ``,
-    `  # --- added by synartesis init for ${name} ---`,
-    policies,
-    ``,
-  ].join("\n");
+  // After the last thing written in the block, before the blank lines and
+  // whatever top-level key follows it.
+  const endOf = (at: number): number => {
+    let end = at;
+    while (end > 0 && /\s/.test(existing.charAt(end - 1))) {
+      end -= 1;
+    }
+    return end;
+  };
+  const inserts = [
+    { at: endOf(servers.range[1]), text: `\n${server}` },
+    { at: endOf(tools.range[1]), text: `\n\n  # --- added by synartesis init for ${name} ---\n${policies}` },
+  ].sort((one, two) => two.at - one.at);
+  let merged = existing;
+  for (const insert of inserts) {
+    merged = merged.slice(0, insert.at) + insert.text + merged.slice(insert.at);
+  }
+  return merged.endsWith("\n") ? merged : `${merged}\n`;
 }
 
 export { describe };

@@ -15,6 +15,15 @@ export type { ProviderConfig, Reasoning };
 export type Theme = "light" | "dark";
 
 /** One tool call, as the window draws it. */
+/**
+ * What came of answering a held call: whether this answer counted, and what
+ * the call had already become when it did not.
+ */
+export interface Answered {
+  readonly changed: boolean;
+  readonly status?: string;
+}
+
 export interface CallCard {
   readonly id: string;
   /** Qualified, as the model sees it: `fs__write_file`. */
@@ -232,10 +241,10 @@ export interface Bridge {
   send(id: string, text: string): Promise<void>;
   stop(id: string): Promise<void>;
 
-  approve(actionId: string): Promise<void>;
+  approve(actionId: string): Promise<Answered>;
   /** Approve this call, and stop asking about its tool for an hour. */
-  approveForAnHour(actionId: string): Promise<void>;
-  deny(actionId: string, why: string): Promise<void>;
+  approveForAnHour(actionId: string): Promise<Answered>;
+  deny(actionId: string, why: string): Promise<Answered>;
 
   /** A real read of every resource the session touched. Costs upstream calls. */
   verify(id: string): Promise<string>;
@@ -282,9 +291,9 @@ export interface Answers {
   "chat:open": OpenConversation;
   "chat:send": undefined;
   "chat:stop": undefined;
-  "gate:approve": undefined;
-  "gate:approve-hour": undefined;
-  "gate:deny": undefined;
+  "gate:approve": Answered;
+  "gate:approve-hour": Answered;
+  "gate:deny": Answered;
   "folder:choose": string | undefined;
   "folder:report": FolderReport;
   "undo:verify": string;

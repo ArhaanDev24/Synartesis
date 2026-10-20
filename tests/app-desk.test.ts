@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -654,5 +654,74 @@ describe("pointing a model somewhere else", () => {
   it("refuses an empty name rather than saving one nothing can use", async () => {
     const { desk } = await bench();
     expect(() => desk.setModel("bench", "   ")).toThrow(/needs a name/i);
+  });
+});
+
+describe("a held call answered after it was settled", () => {
+  it("says the answer changed nothing, and the card goes when the call gave up", async () => {
+    // A card left from a call that had timed out said "allowed" for a call
+    // that had been refused.
+    const { desk, files, script, events } = await bench({ gateTimeoutMs: 250 });
+    const opened = await desk.start();
+    script.calls = [{ name: WRITE, args: { path: join(files, "late.txt"), content: "x\n" } }];
+    await desk.send(opened.id, "make a file");
+
+    const ask = events.find((one) => one.event.kind === "approval");
+    if (ask?.event.kind !== "approval") {
+      throw new Error("expected a held call");
+    }
+    const actionId = ask.event.request.actionId;
+    expect(events.some((one) => one.event.kind === "approval-resolved" && one.event.actionId === actionId)).toBe(true);
+    const late = desk.approve(actionId);
+    expect(late.changed).toBe(false);
+    expect(() => readFileSync(join(files, "late.txt"), "utf8")).toThrow();
+  });
+});
+
+describe("two chats started at once", () => {
+  it("ends up with one running, not two with one forgotten", async () => {
+    const { desk, root } = await bench();
+    const [one, two] = await Promise.all([desk.start(), desk.start()]);
+    expect(one.id).not.toBe(two.id);
+    await desk.close();
+    desks.length = 0;
+    // Every engine was closed, so every empty session it opened was tidied
+    // away. One replaced without being closed left its session open for good.
+    const journal = openJournal(join(root, "journal.db"));
+    try {
+      expect(journal.listRuns().filter((run) => run.status === "active")).toEqual([]);
+    } finally {
+      journal.close();
+    }
+  });
+});
+
+describe("a chat picked back up", () => {
+  it("gives the model what it had been told, not only the window", async () => {
+    const first = await bench();
+    const opened = await first.desk.start();
+    await first.desk.send(opened.id, "remember the word teal");
+    await first.desk.close();
+    desks.length = 0;
+
+    const again = first.reopen();
+    await again.open(opened.id);
+    first.model.sent.length = 0;
+    await again.send(opened.id, "what was the word?");
+    const sent = JSON.stringify(first.model.sent.at(-1) ?? {});
+    expect(sent).toContain("remember the word teal");
+  });
+});
+
+describe("a conversations file that will not parse", () => {
+  it("is set aside, not quietly replaced", async () => {
+    const first = await bench();
+    writeFileSync(join(first.root, "conversations.json"), "{ this is not json");
+    await first.desk.close();
+    desks.length = 0;
+    const again = first.reopen();
+    expect(again.conversations()).toEqual([]);
+    const kept = readdirSync(first.root).filter((name) => name.startsWith("conversations.json.damaged-"));
+    expect(kept).toHaveLength(1);
   });
 });

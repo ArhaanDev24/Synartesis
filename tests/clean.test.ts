@@ -65,6 +65,9 @@ function world(): { path: string; ids: Record<string, string> } {
     journal.markRolledBack(action);
   });
   ids["undoable"] = finished("undoable", (id) => write(journal, id, true));
+  // A write recorded with no undo, under a policy that was wrong: --replan
+  // can still undo it, and the snapshot it needs goes with the session.
+  ids["replannable"] = finished("replannable", (id) => write(journal, id, false));
   ids["waiting"] = finished("waiting", (id) => {
     const held = journal.recordPending({ runId: id, server: "fs", tool: "move_file", args: {}, class: "irreversible" });
     journal.markGated(held.actionId);
@@ -114,7 +117,7 @@ describe("synartesis clean", () => {
     const { path } = world();
     const ran = clean(path, "--yes");
     expect(ran.code).toBe(0);
-    expect(remaining(path).sort()).toEqual(["denied", "live", "undoable", "undone-live", "unknown", "waiting"]);
+    expect(remaining(path).sort()).toEqual(["denied", "live", "replannable", "undoable", "undone-live", "unknown", "waiting"]);
     expect(ran.stdout).toContain("cleared 4 sessions");
     expect(ran.stdout).toContain("closed 1");
   });
@@ -125,7 +128,7 @@ describe("synartesis clean", () => {
     expect(ran.stdout).toContain("4 finished sessions");
     expect(ran.stdout).toContain("1 session left open");
     expect(ran.stdout).toContain("Nothing was changed");
-    expect(remaining(path)).toHaveLength(10);
+    expect(remaining(path)).toHaveLength(11);
   });
 
   it("asks before changing anything, and changes nothing without a terminal to ask at", () => {
@@ -133,7 +136,7 @@ describe("synartesis clean", () => {
     const ran = clean(path);
     expect(ran.code).toBe(1);
     expect(ran.stdout).toContain("add --yes");
-    expect(remaining(path)).toHaveLength(10);
+    expect(remaining(path)).toHaveLength(11);
   });
 
   it("says so when there is nothing to clear", () => {

@@ -139,15 +139,9 @@ export function answersFor(
       need(desk).stop(asString(id));
     },
 
-    "gate:approve": (actionId) => {
-      need(desk).approve(asString(actionId));
-    },
-    "gate:approve-hour": (actionId) => {
-      need(desk).approve(asString(actionId), { forAnHour: true });
-    },
-    "gate:deny": (actionId, why) => {
-      need(desk).deny(asString(actionId), asString(why));
-    },
+    "gate:approve": (actionId) => need(desk).approve(asString(actionId)),
+    "gate:approve-hour": (actionId) => need(desk).approve(asString(actionId), { forAnHour: true }),
+    "gate:deny": (actionId, why) => need(desk).deny(asString(actionId), asString(why)),
 
     "folder:choose": async () => await host.pickFolder(),
     "folder:report": (path) => need(desk).folder(asString(path)),

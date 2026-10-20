@@ -156,3 +156,16 @@ describe("a field whose name every object inherits", () => {
     expect(resolveTemplate({ v: "$snapshot.__proto__.x" }, { args: {}, snapshot })).toEqual({ v: 1 });
   });
 });
+
+describe("a reference followed by words", () => {
+  it("fills the reference into the text, rather than reading the whole string as a key", () => {
+    // Loaded, passed check, and failed the first time an undo needed it.
+    expect(resolveTemplate("$.path reverted by agent", { args: { path: "notes.md" } })).toBe(
+      "notes.md reverted by agent",
+    );
+    expect(resolveTemplate("$snapshot.title (restored)", { args: {}, snapshot: { title: "Plan" } })).toBe(
+      "Plan (restored)",
+    );
+    expect(resolveTemplate("$snapshot.title", { args: {}, snapshot: { title: 3 } })).toBe(3);
+  });
+});

@@ -41,7 +41,7 @@ export function cliCommand(): string {
   }
 
   // Run straight out of a checkout. Spell out what actually works.
-  cached = `node ${invokedAs ?? "dist/cli.js"}`;
+  cached = `node ${shellPath(invokedAs ?? "dist/cli.js")}`;
   return cached;
 }
 
@@ -53,7 +53,7 @@ export function cliCommandFrom(moduleUrl: string): string {
   if (onPath("synartesis")) {
     return "synartesis";
   }
-  return `node ${fileURLToPath(new URL("cli.js", moduleUrl))}`;
+  return `node ${shellPath(fileURLToPath(new URL("cli.js", moduleUrl)))}`;
 }
 
 /**
@@ -74,9 +74,9 @@ export function proxyCommand(): string {
   }
   const invokedAs = process.argv[1];
   if (invokedAs !== undefined && invokedAs.endsWith("cli.js")) {
-    return `node ${invokedAs} proxy`;
+    return `node ${shellPath(invokedAs)} proxy`;
   }
-  return `node ${fileURLToPath(new URL("cli.js", import.meta.url))} proxy`;
+  return `node ${shellPath(fileURLToPath(new URL("cli.js", import.meta.url)))} proxy`;
 }
 
 /**
@@ -99,4 +99,15 @@ export function pathBinaryMatches(ourVersion: string): boolean {
     // A binary we cannot ask is one we should not point a client at.
     return false;
   }
+}
+
+/**
+ * A path as it has to be typed into a shell. A checkout under "My Projects"
+ * printed `node /Users/a/My Projects/dist/cli.js`, which runs nothing.
+ */
+export function shellPath(path: string): string {
+  if (/^[\w./:@%+=,~-]+$/.test(path)) {
+    return path;
+  }
+  return process.platform === "win32" ? `"${path.replace(/"/g, '\\"')}"` : `'${path.replace(/'/g, "'\\''")}'`;
 }

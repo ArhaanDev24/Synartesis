@@ -127,10 +127,14 @@ export function upstreamEnv(
     source.kind === "inherit"
       ? own
       : source.kind === "client"
-        ? { ...(source.own === false ? {} : own), ...source.env }
+        ? { ...(source.own === false ? {} : own), ...withoutLauncher(source.env) }
         : {};
 
-  const lookup = (name: string): string | undefined => base[name] ?? process.env[name];
+  // Not this process's own environment where it was told to keep out of it:
+  // the desktop app's carries model API keys, and a policy's `${VAR}` reached
+  // straight past `own: false` into it.
+  const lookup = (name: string): string | undefined =>
+    base[name] ?? (source.kind === "client" && source.own === false ? undefined : process.env[name]);
   const declared: Record<string, string> = {};
   for (const [key, value] of Object.entries(spec.env ?? {})) {
     declared[key] = expandReferences(server, key, value, lookup);
@@ -184,5 +188,14 @@ export function declaredNames(
   spec: ServerSpec,
   client: Readonly<Record<string, string>> | undefined,
 ): readonly string[] {
-  return [...new Set([...Object.keys(spec.env ?? {}), ...Object.keys(client ?? {})])].sort();
+  // Not the launcher's: a `SYNARTESIS_NOTIFY` set in the client entry is the
+  // proxy's setting, never reaches the server under the proxy, and does under
+  // undo -- so fingerprinting it made every undo of that session refuse, over
+  // something the person could not change.
+  return [...new Set([...Object.keys(spec.env ?? {}), ...Object.keys(withoutLauncher(client ?? {}))])].sort();
+}
+
+/** A client entry's variables, less the ones that belong to whoever launched us. */
+function withoutLauncher(env: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !ownedByTheLauncher(name)));
 }

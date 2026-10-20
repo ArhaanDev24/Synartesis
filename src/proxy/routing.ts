@@ -21,9 +21,28 @@ export interface Router {
   expose(server: string, name: string): string;
   route(exposed: string): Route | undefined;
   byName(server: string): Upstream | undefined;
+  /**
+   * The names a server really has, from its last tool list. With one server,
+   * a tool whose own name begins `server__` is that tool, not a qualified
+   * spelling of a shorter one.
+   */
+  learn(server: string, tools: readonly string[]): void;
 }
 
-export function createRouter(upstreams: readonly Upstream[], manifest: Manifest): Router {
+export interface RouterOptions {
+  /**
+   * Whether names carry their server. By default, whether there is more than
+   * one; the proxy says so itself, because a server that failed to start
+   * would otherwise rename every other server's tools for the session.
+   */
+  readonly prefixed?: boolean;
+}
+
+export function createRouter(
+  upstreams: readonly Upstream[],
+  manifest: Manifest,
+  options: RouterOptions = {},
+): Router {
   if (upstreams.length === 0) {
     throw new ManifestError("no upstream servers were connected");
   }
@@ -51,7 +70,8 @@ export function createRouter(upstreams: readonly Upstream[], manifest: Manifest)
   // explicit edit to the manifest, so the rename that comes with it is not a
   // surprise; what would be surprising is a name whose meaning depends on
   // which other servers happen to be configured beside it.
-  const prefixed = upstreams.length > 1;
+  const prefixed = options.prefixed ?? upstreams.length > 1;
+  const real = new Map<string, ReadonlySet<string>>();
 
   // Longest first so that servers named `a` and `a_b` cannot both claim the
   // same exposed name.
@@ -81,6 +101,9 @@ export function createRouter(upstreams: readonly Upstream[], manifest: Manifest)
         // Only this server's own name is unwrapped; a tool whose real name
         // begins with it would be written `fs.fs__write_file` in the manifest.
         const prefix = `${only.name}${SEPARATOR}`;
+        if (real.get(only.name)?.has(exposed) === true) {
+          return { upstream: only, tool: exposed };
+        }
         return exposed.startsWith(prefix)
           ? { upstream: only, tool: exposed.slice(prefix.length) }
           : { upstream: only, tool: exposed };
@@ -98,6 +121,9 @@ export function createRouter(upstreams: readonly Upstream[], manifest: Manifest)
     },
     byName(server: string): Upstream | undefined {
       return byName.get(server);
+    },
+    learn(server: string, tools: readonly string[]): void {
+      real.set(server, new Set(tools));
     },
   };
 }

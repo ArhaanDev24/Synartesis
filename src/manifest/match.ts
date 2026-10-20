@@ -38,6 +38,16 @@ function failClosed(qualifiedName: string): ToolPolicy {
   return { match: qualifiedName, class: "irreversible", gate: "always", refusal: "uncertain" };
 }
 
+/** The more a class costs if it is wrong, the higher. */
+const CAUTION: Readonly<Record<ToolPolicy["class"], number>> = {
+  readonly: 0,
+  reversible: 1,
+  compensable: 2,
+  irreversible: 3,
+};
+
+const GATED: Readonly<Record<ToolPolicy["gate"], number>> = { never: 0, on_write: 1, always: 2 };
+
 export function createPolicyResolver(manifest: Manifest): PolicyResolver {
   const compiled: CompiledPolicy[] = manifest.tools
     .map((policy) => ({
@@ -46,9 +56,18 @@ export function createPolicyResolver(manifest: Manifest): PolicyResolver {
       specificity: literalLength(policy.match),
       wildcards: policy.match.split("*").length - 1,
     }))
-    // Longest literal wins, ties broken by fewer wildcards. Ordering is a
-    // property of the patterns, never of the order they were written in.
-    .sort((a, b) => b.specificity - a.specificity || a.wildcards - b.wildcards);
+    // Longest literal wins, ties broken by fewer wildcards, and a tie past
+    // that by the more cautious rule. Ordering is a property of the patterns,
+    // never of the order they were written in: `fs.read_*` and `fs.*_file`
+    // both match `fs.read_file`, are equally specific, and whichever was
+    // written first decided whether it was a read or something held.
+    .sort(
+      (a, b) =>
+        b.specificity - a.specificity ||
+        a.wildcards - b.wildcards ||
+        CAUTION[b.policy.class] - CAUTION[a.policy.class] ||
+        GATED[b.policy.gate] - GATED[a.policy.gate],
+    );
 
   const cache = new Map<string, PolicyMatch>();
 
@@ -67,4 +86,12 @@ export function createPolicyResolver(manifest: Manifest): PolicyResolver {
       return match;
     },
   };
+}
+
+/**
+ * Whether a rule's server part -- itself a pattern -- names this server.
+ * `*.write_file` covers every server, which a prefix check did not see.
+ */
+export function coversServer(match: string, server: string): boolean {
+  return toRegExp(match.split(".")[0] ?? "").test(server);
 }

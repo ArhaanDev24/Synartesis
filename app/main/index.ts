@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +32,12 @@ const PRELOAD = join(here, "../preload/bridge.cjs");
  * from the outside.
  */
 const keychain: SecretStore = {
-  available: () => safeStorage.isEncryptionAvailable(),
+  // Not the fallback. With no keyring, Chromium on Linux still reports
+  // encryption as available and seals with a password built into every copy
+  // of it, which is a lock anyone holding the file can open.
+  available: () =>
+    safeStorage.isEncryptionAvailable() &&
+    (process.platform !== "linux" || safeStorage.getSelectedStorageBackend() !== "basic_text"),
   seal: (plain) => safeStorage.encryptString(plain).toString("base64"),
   open: (sealed) => safeStorage.decryptString(Buffer.from(sealed, "base64")),
 };
@@ -159,12 +165,58 @@ const host: Host = {
   },
 };
 
+/**
+ * The PATH a terminal has, for an app opened from the Finder or the Dock.
+ *
+ * Launched that way on macOS the app gets the bare system PATH, without
+ * Homebrew, nvm or anything a shell profile adds, so a server started with
+ * `npx` or `uvx` failed as "did not start" here and worked from a terminal.
+ * Read once from a login shell, with a short limit; on any failure the PATH
+ * is left as it was.
+ */
+function adoptLoginPath(): void {
+  if (process.platform !== "darwin" || !app.isPackaged) {
+    return;
+  }
+  try {
+    const shell = process.env["SHELL"] ?? "/bin/zsh";
+    const printed = execFileSync(shell, ["-ilc", "printf '%s' \"$PATH\""], {
+      encoding: "utf8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const found = printed.trim().split("\n").pop() ?? "";
+    if (found.includes("/")) {
+      process.env["PATH"] = found;
+    }
+  } catch {
+    // The PATH the app was given, then.
+  }
+}
+
 async function main(): Promise<void> {
   // Before anything asks for a path: userData is derived from the name, and a
   // window that quietly stored a person's conversations under "Electron" would
   // lose them the moment this is packaged properly.
   app.setName("Synartesis");
+  // One at a time. Each copy kept its own list of conversations and rewrote
+  // the file whole, so a second launch wiped what the first had saved -- and
+  // its keys with it. A second launch brings the first to the front instead.
+  if (!app.requestSingleInstanceLock()) {
+    app.quit();
+    return;
+  }
+  app.on("second-instance", () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (window !== undefined) {
+      if (window.isMinimized()) {
+        window.restore();
+      }
+      window.focus();
+    }
+  });
   await app.whenReady();
+  adoptLoginPath();
   const { manifestPath, journalPath } = places();
 
   // Nothing here can guess which servers a person wants guarded, and a

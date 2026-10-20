@@ -320,6 +320,7 @@ describe("pruning a session that recorded how its servers started", () => {
       const runId = journal.beginRun("an-agent");
       journal.recordRunServer(runId, "crm", "/work", { CRM_TOKEN: "f00d" });
       journal.endRun(runId, "complete");
+      journal.releaseRun(runId);
 
       const far = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       const stale = journal.prunableRuns(far).map((run) => run.id);
@@ -353,6 +354,7 @@ describe("pruning a session somebody said no in", () => {
       journal.markGated(held.actionId);
       expect(journal.denyByPerson(held.actionId, "arhaan", "wrong person")).toBe(true);
       journal.endRun(runId, "complete");
+      journal.releaseRun(runId);
 
       const far = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
       const stale = journal.prunableRuns(far).map((run) => run.id);

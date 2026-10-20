@@ -422,12 +422,19 @@ export function App(): React.JSX.Element {
           ? engine.approveForAnHour(actionId)
           : engine.approve(actionId)
         : engine.deny(actionId, "you said no in the window");
-      return request.then(() => {
+      return request.then((result) => {
         setAsks((was) => was.filter((one) => one.actionId !== actionId));
         input.current?.focus();
+        // Not this answer: it had already been settled -- given up on, or
+        // answered in a terminal. Saying nothing let "Allow" read as allowed.
+        if (!result.changed) {
+          complain(
+            `That call had already been settled${result.status === undefined ? "" : ` (${result.status})`}, so your answer changed nothing.`,
+          );
+        }
       });
     },
-    [],
+    [complain],
   );
 
   /**
@@ -602,6 +609,8 @@ export function App(): React.JSX.Element {
                       go: () => {
                         setSheet(undefined);
                         engine.forget(one.id).then((left) => {
+                          // The unsent draft goes with the chat it was for.
+                          saveDraft(one.id, "");
                           setList(left);
                           if (one.id !== openId) {
                             return;

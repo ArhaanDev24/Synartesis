@@ -135,6 +135,24 @@ const EMBEDDED =
 
 const ESCAPE = "\u0000synartesis-dollar\u0000";
 
+/**
+ * A string that is a reference and nothing else, which keeps the referenced
+ * value's type. `"$.path reverted by agent"` was read as one reference to a
+ * key called "path reverted by agent": it loaded, passed `check`, and failed
+ * the first time an undo needed it.
+ */
+const WHOLE = /^\$(?:snapshot|result)?(?:\.[A-Za-z0-9_-]+|\[\d*\])*$/;
+
+function isWhole(raw: string): boolean {
+  if (raw.startsWith("$$") || !raw.startsWith("$") || /\s/.test(raw)) {
+    return false;
+  }
+  // Read even when it is not a bare path, so an unknown namespace --
+  // `$upstream.id` -- is still refused rather than sent as text.
+  parseReference(raw);
+  return WHOLE.test(raw);
+}
+
 function stringify(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value);
 }
@@ -143,7 +161,7 @@ function resolveString(raw: string, context: TemplateContext): unknown {
   // A string that is nothing but a reference keeps the referenced value's
   // type. Anything else is text with references substituted into it, which is
   // what people write without being told they can.
-  const whole = raw.startsWith("$$") ? undefined : parseReference(raw);
+  const whole = isWhole(raw) ? parseReference(raw) : undefined;
   if (whole !== undefined) {
     return readNamespace(whole, raw, context);
   }
@@ -195,7 +213,7 @@ export function referencesIn(template: TemplateValue): string[] {
     if (template.startsWith("$$")) {
       return [];
     }
-    if (parseReference(template) !== undefined) {
+    if (isWhole(template) && parseReference(template) !== undefined) {
       return [template];
     }
     // Embedded references are validated too, so a namespace that is not

@@ -50,7 +50,7 @@ import {
 } from "./manifest/standing.js";
 import { createRouter, type Router } from "./proxy/routing.js";
 import { connectUpstream, startAll, startTogether, type Upstream } from "./proxy/upstream.js";
-import { clientEnvFor } from "./install/entry-env.js";
+import { clientEnvFor, clientEnvsFor, type ClientServerEnv } from "./install/entry-env.js";
 import { differing, fingerprint, upstreamEnv, type EnvSource } from "./proxy/environment.js";
 import { PROXY_FLAGS } from "./proxy/flags.js";
 import { rollback, type RollbackReport, type StepKind } from "./rollback/rollback.js";
@@ -74,7 +74,7 @@ import {
 } from "./hints.js";
 import { watch } from "./watch.js";
 import { openConsole } from "./console.js";
-import { cliCommand, proxyCommand } from "./invocation.js";
+import { cliCommand, shellPath, proxyCommand } from "./invocation.js";
 import { ago, fullTime, shortTime } from "./clock.js";
 import { plainly, subject, summariseArgs } from "./describe.js";
 import {
@@ -117,9 +117,12 @@ const COMMANDS = `
                                                         cannot start one
   synartesis desktop
   synartesis watch [--by <name>] [--once] [--journal <path>]
-  synartesis approve [actionId|--all] [--by <name>] [--journal <path>]
-  synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--journal <path>]
+  synartesis approve [actionId|--all] [--by <name>] [--unattended] [--journal <path>]
+  synartesis deny [actionId|--all] [--by <name>] [--reason <text>] [--unattended]
+                  [--journal <path>]
   synartesis allow [<server.tool> --for <30m|2h> | --always | --stop]
+                  [--by <name>] [--unattended [--confirm <server.tool>]]
+                  [--manifest <path>] [--journal <path>]
   synartesis resolve [actionId] --applied|--failed [--by <name>] [--reason <text>]
   synartesis notify --test
   synartesis undo [runId] [--to <seq>] [--dry-run] [--replan] [--force [--yes]]
@@ -177,8 +180,10 @@ resource back as the run left it and --replan, or --force to overwrite.
   --once      watch prints the current state and exits
   --json      machine-readable output for list, show and gates
   --dry-run   read current state and print the plan without changing anything
-  --unattended  approve with no terminal, from a script. Recorded as unattended,
-              so it can be told apart from a yes a person typed
+  --unattended  approve, deny or allow with no terminal, from a script.
+              Recorded as unattended, so it can be told apart from a person
+  --confirm   allow --always --unattended on a tool that cannot be undone:
+              the tool's name again, typed out, as a person would at the prompt
   --applied   resolve: the call did land, though nothing recorded it
   --failed    resolve: the call never landed
   --replan    rebuild each undo from the current manifest, for a run recorded
@@ -297,9 +302,29 @@ async function startAsTheClientWould(
   spec: ServerSpec,
   session?: { readonly journal: Journal; readonly runId: string },
 ): Promise<Upstream> {
-  const client = clientEnvFor(manifestPath, name);
-  const source: EnvSource =
-    client === undefined ? { kind: "manifest" } : { kind: "client", env: client.env };
+  const recorded = session?.journal.runServer(session.runId, name);
+  // Looked up from where the session ran, not from wherever this was typed:
+  // a project's own .mcp.json is found relative to the folder, and undo run
+  // from anywhere else found no entry, started the server on the policy's env
+  // alone, and either refused or reached the wrong store.
+  const lookFrom = recorded?.cwd ?? process.cwd();
+  const candidates = clientEnvsFor(manifestPath, name, lookFrom);
+  const sourceOf = (one: ClientServerEnv | undefined): EnvSource =>
+    one === undefined ? { kind: "manifest" } : { kind: "client", env: one.env };
+  const matches = (one: ClientServerEnv | undefined): boolean =>
+    session === undefined ||
+    recorded === undefined ||
+    differing(
+      recorded.fingerprints,
+      fingerprint(session.journal.fingerprintKey(), upstreamEnv(name, spec, sourceOf(one)), Object.keys(recorded.fingerprints)),
+    ).length === 0;
+  // With a session to go by, the entry it was started from; without one, the
+  // only entry, or the refusal that says there is more than one.
+  const client =
+    recorded !== undefined && candidates.length > 1
+      ? (candidates.find(matches) ?? candidates[0])
+      : clientEnvFor(manifestPath, name, lookFrom);
+  const source = sourceOf(client);
 
   // Before acting for a session, check this is the server that session used.
   // Reading the environment from the client entry is right, but the entry can
@@ -307,7 +332,6 @@ async function startAsTheClientWould(
   // then the inverse goes to a store the session never touched, and the undo
   // says it worked. Refusing names the variable; nothing is printed of any
   // value.
-  const recorded = session?.journal.runServer(session.runId, name);
   if (session !== undefined && recorded !== undefined) {
     const now = fingerprint(
       session.journal.fingerprintKey(),
@@ -964,7 +988,7 @@ async function runInit(argv: readonly string[]): Promise<number> {
   // The home unless a project already has one above where you are standing.
   // Setting a server up should not mean choosing a directory to keep it in.
   const path = findManifest(flag(argv, "--manifest"));
-  const force = argv.includes("--force");
+  const force = passed(argv, "--force");
   const present = existsSync(path);
   if (present && force) {
     throw new UsageError(
@@ -1491,7 +1515,7 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
     out(`  ${spoiled ? style.accent(verdict(inspection)) : style.quiet(verdict(inspection))}`);
     if (spoiled) {
       out(
-        `  ${style.quiet("undo stops at the first of them; ")}${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force`)}${style.quiet(" shows what it would write")}`,
+        `  ${style.quiet("undo stops at the first of them; ")}${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force${pathArgs(["manifest", "journal"])}`)}${style.quiet(" shows what it would write")}`,
       );
     } else if (actions.some((action) => action.status === "applied" && action.inverse !== undefined)) {
       // The whole point of having just read every resource is that the answer
@@ -1516,7 +1540,7 @@ async function runShow(argv: readonly string[], journal: Journal, asJson: boolea
   } else {
     out("");
     out(
-      `  ${style.quiet("has anything changed since? ")}${style.strong(`${cliCommand()} show ${runId.slice(0, 8)} --live`)}`,
+      `  ${style.quiet("has anything changed since? ")}${style.strong(`${cliCommand()} show ${runId.slice(0, 8)} --live${pathArgs(["manifest", "journal"])}`)}`,
     );
   }
   out("");
@@ -1710,7 +1734,9 @@ const PRUNE_MAX_DAYS = 36500;
  */
 function runPrune(argv: readonly string[], journal: Journal, journalPath: string): number {
   const given = flag(argv, "--older-than");
-  const days = given === undefined ? PRUNE_DEFAULT_DAYS : Number(given);
+  // A number written out, never an empty one: `Number("")` is 0, so an
+  // unset `$DAYS` pruned every finished session at once.
+  const days = given === undefined ? PRUNE_DEFAULT_DAYS : /^\s*\d+(\.\d+)?\s*$/.test(given) ? Number(given) : NaN;
   if (!Number.isFinite(days) || days < 0 || days > PRUNE_MAX_DAYS) {
     throw new UsageError(
       `--older-than takes a number of days from 0 to ${String(PRUNE_MAX_DAYS)}, not ${given ?? ""}`,
@@ -1723,7 +1749,7 @@ function runPrune(argv: readonly string[], journal: Journal, journalPath: string
   const sizeBefore = sizeOf(journalPath);
 
   out("");
-  out(`  ${style.label(planned ? "would prune" : "prune")}  ${style.quiet(`older than ${String(days)} days`)}`);
+  out(`  ${style.label(planned ? "would prune" : "prune")}  ${style.quiet(`older than ${counted(days, "day")}`)}`);
   out(`  ${rule(54)}`);
   out("");
   // Named, because a journal is found by walking up from here and this is the
@@ -1733,7 +1759,7 @@ function runPrune(argv: readonly string[], journal: Journal, journalPath: string
   out("");
 
   if (stale.length === 0) {
-    out(`  ${style.quiet(`Nothing is older than ${String(days)} days and finished with.`)}`);
+    out(`  ${style.quiet(`Nothing is older than ${counted(days, "day")} and finished with.`)}`);
     out("");
     out(`  ${style.quiet(`The journal is ${sizeBefore}. Runs still active, and any`)}`);
     out(`  ${style.quiet("holding a call that is waiting or in flight, are never pruned.")}`);
@@ -1763,12 +1789,22 @@ function runPrune(argv: readonly string[], journal: Journal, journalPath: string
   const removed = journal.deleteRuns(stale.map((run) => run.id));
   // After the delete and outside its transaction, which is the only place
   // VACUUM can run -- and without it the file stays exactly as big as it was.
-  journal.vacuum();
+  // Busy is a proxy writing, as in clean: what was removed is removed, and
+  // failing here reported an error for a prune that had worked.
+  let compacted = true;
+  try {
+    journal.vacuum();
+  } catch {
+    compacted = false;
+  }
 
   out(
     `  ${style.accent(counted(removed.runs, "run"))} ${style.quiet(`and ${counted(removed.actions, "action")} removed.`)}`,
   );
   out(`  ${style.quiet(`Journal ${sizeBefore} \u2192 ${sizeOf(journalPath)}.`)}`);
+  if (!compacted) {
+    out(`  ${style.quiet("The file was not made smaller: an app was writing to it. Run prune again later.")}`);
+  }
   out("");
   return 0;
 }
@@ -1902,7 +1938,7 @@ function runResolve(argv: readonly string[], journal: Journal): number {
   // became of it rather than "no such action" -- the same courtesy approve
   // pays, and for the same reason: the id came from somewhere.
   if (given !== undefined) {
-    const already = journal.getAction(given);
+    const already = journal.findAction(given);
     if (already !== undefined && already.status !== "pending") {
       process.stderr.write(
         `synartesis: ${given} is not waiting to be resolved (it is ${labelFor(already)})\n`,
@@ -1912,6 +1948,17 @@ function runResolve(argv: readonly string[], journal: Journal): number {
   }
 
   const action = pick(journal.listPending(), given, UNSETTLED);
+  // Still on its way: pending is also every call being sent right now, and a
+  // guess recorded over one made the proxy's own answer fail to land when it
+  // came back. Only a call whose outcome the proxy gave up on carries an
+  // error; one still in flight in a live session has none.
+  if (action.error === undefined && journal.runInUse(action.runId)) {
+    process.stderr.write(
+      `synartesis: ${action.id.slice(0, 8)} may still be on its way: its app is running and has not said how it went.\n` +
+        `  Wait for it to finish, or close that app first.\n`,
+    );
+    return 1;
+  }
   const outcome = applied ? "applied" : "failed";
   // Who said so and why, on the row, because this is the one status in the
   // journal that was decided by a person rather than observed. An audit that
@@ -1938,7 +1985,7 @@ function runResolve(argv: readonly string[], journal: Journal): number {
         : "Undo will now pass it, as a call that never applied:",
     )}`,
   );
-  out(`  ${style.strong(`${cliCommand()} undo ${action.runId.slice(0, 8)}`)}`);
+  out(`  ${style.strong(`${cliCommand()} undo ${action.runId.slice(0, 8)}${pathArgs(["manifest", "journal"])}`)}`);
   out("");
   return 0;
 }
@@ -1970,7 +2017,10 @@ function runClose(argv: readonly string[], journal: Journal): number {
     return 0;
   }
   const run =
-    given === undefined ? pick(active, undefined, RUN, true) : pick([...all].reverse(), given, RUN, true);
+    // Never the newest of several. That is usually the one still running --
+    // a second proxy, or the session that killed one replaced -- and closing
+    // it left a live proxy recording into a session marked finished.
+    given === undefined ? pick(active, undefined, RUN) : pick([...all].reverse(), given, RUN, true);
   const closed = journal.closeAbandonedRun(run.id);
   out("");
   out(
@@ -2054,10 +2104,16 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
   const by = approving && unattended ? `${named} (unattended)` : named;
   const reason = flag(argv, "--reason") ?? "denied by operator";
 
+  // One or all, not both: with --all the id was ignored, and everything
+  // waiting was decided when one call had been named.
+  if (given !== undefined && argv.includes("--all")) {
+    throw new UsageError(`name one call or use --all, not both`, false);
+  }
+
   // Looked up among everything first, so an action that has already been
   // settled gets told what became of it rather than "no such action".
   if (given !== undefined) {
-    const settled = journal.getAction(given);
+    const settled = journal.findAction(given);
     // Changing your mind. A person's no stands against the agent's retries
     // for an hour; approving the same row is how it is taken back, and the
     // row goes back to waiting for the agent's next attempt as any approval
@@ -2079,6 +2135,12 @@ function runDecision(argv: readonly string[], journal: Journal, approving: boole
     }
   }
 
+  // Nothing waiting is the ordinary state, and the same answer with or
+  // without --all: one exited 2 and the other 0.
+  if (given === undefined && waiting.length === 0) {
+    out("nothing is awaiting approval");
+    return 0;
+  }
   const targets = argv.includes("--all")
     ? waiting
     : [pick(waiting, given, WAITING)];
@@ -2180,6 +2242,14 @@ async function runAllow(argv: readonly string[], journalPath: string): Promise<n
     if (forFlag !== undefined || always || stop) {
       throw new UsageError("allow needs the tool, as server.tool -- for example crm.send_email");
     }
+    // Before any agent has run there is no journal, and nothing allowed:
+    // that is an answer, not a mistake.
+    if (!existsSync(journalPath)) {
+      out("");
+      out(`  ${style.quiet("Nothing is being let through without asking.")}`);
+      out("");
+      return 0;
+    }
     const journal = openJournalOrExplain(journalPath);
     try {
       const current = journal.listAllowances(now.toISOString());
@@ -2247,12 +2317,22 @@ async function runAllow(argv: readonly string[], journalPath: string): Promise<n
       `${manifestPath} has no server called ${named.server}${near === undefined ? "" : `; did you mean ${near}?`}`,
     );
   }
-  const { policy } = createPolicyResolver(manifest).resolve(given);
+  const { policy, matched } = createPolicyResolver(manifest).resolve(given);
+  // Only the server could be checked without starting it, so a misspelt tool
+  // was "allowed", the real one went on being held, and nothing said why.
+  if (!matched) {
+    process.stderr.write(
+      `synartesis: no rule in ${manifestPath} names ${given}. If that is the tool's real name this works; ` +
+        `if it is a typo it lets nothing through. The names a server has: ${cliCommand()} check\n`,
+    );
+  }
 
   if (forFlag !== undefined) {
     const minutes = allowFor(forFlag);
     const until = new Date(now.getTime() + minutes * 60_000).toISOString();
-    const journal = openJournalOrExplain(journalPath);
+    // Made if there is none yet: allowing a tool straight after install,
+    // before an agent has run, is the natural moment to do it.
+    const journal = openJournal(journalPath);
     try {
       journal.allow(named.server, named.tool, by, until);
     } finally {
@@ -2267,7 +2347,7 @@ async function runAllow(argv: readonly string[], journalPath: string): Promise<n
     } else if (policy.class === "irreversible") {
       out(`  ${style.quiet("These cannot be undone. Nothing will ask before each one goes out.")}`);
     }
-    out(`  ${style.quiet(`Takes effect on its next call. To end it sooner: synartesis allow ${given} --stop`)}`);
+    out(`  ${style.quiet(`Takes effect on its next call. To end it sooner: ${cliCommand()} allow ${given} --stop`)}`);
     out("");
     return 0;
   }
@@ -2346,7 +2426,7 @@ async function runAllow(argv: readonly string[], journalPath: string): Promise<n
     out(`  ${style.quiet("Pinned at the shape it has now, as the rest of the server is.")}`);
   }
   out(`  ${style.quiet("Takes effect when your client next starts the server. Until then:")}`);
-  out(`  ${style.quiet(`synartesis allow ${given} --for 1h`)}`);
+  out(`  ${style.quiet(`${cliCommand()} allow ${given} --for 1h`)}`);
   out("");
   return 0;
 }
@@ -2402,7 +2482,7 @@ function resultWords(status: RollbackReport["status"], dryRun: boolean): string 
   }
 }
 
-function report(result: RollbackReport, alreadyForcing = false, as = ""): number {
+function report(result: RollbackReport, alreadyForcing = false, as = "", unconfirmed = false): number {
   out("");
   out(`  ${style.label(result.dryRun ? "dry run" : "undo")}  ${style.strong(result.runId)}`);
   out(`  ${rule(72)}`);
@@ -2506,14 +2586,23 @@ function report(result: RollbackReport, alreadyForcing = false, as = ""): number
       // three, which is enough to stop a menu reading as a menu.
       const ways: readonly (readonly [string, string])[] = [
         ["keep the change, drop the undo:", style.quiet("nothing to do")],
-        ["put the resource back, then:", style.strong(`${self} undo ${id} --replan`)],
-        ["undo anyway, losing the change:", style.strong(`${self} undo ${id} --force`)],
+        ["put the resource back, then:", style.strong(`${self} undo ${id} --replan${pathArgs(["manifest", "journal"])}`)],
+        ["undo anyway, losing the change:", style.strong(`${self} undo ${id} --force${pathArgs(["manifest", "journal"])}`)],
       ];
       const column = Math.max(...ways.map(([label]) => label.length));
       for (const [label, command] of ways) {
         out(`  ${style.quiet(label.padEnd(column))}   ${command}`);
       }
     }
+  }
+  // --force without --yes that still stopped: nothing was found to write
+  // over beforehand, so nothing asked for the second flag, and the halt said
+  // nothing about it either -- a dead end for the one person who had already
+  // decided to force.
+  if (result.halted !== undefined && unconfirmed && !result.dryRun) {
+    out("");
+    out(`  ${style.quiet("to go past this and write over whatever is there:")}`);
+    out(`  ${style.strong(`${cliCommand()} undo ${result.runId.slice(0, 8)} --force --yes${pathArgs(["manifest", "journal"])}`)}`);
   }
   const permanent = result.steps.filter((step) => step.kind === "permanent");
   if (permanent.length > 0) {
@@ -2664,6 +2753,26 @@ async function performUndo(
   );
 }
 
+/**
+ * Anything an undo would still act on, which is not the same as `applied`.
+ *
+ * An action stopped by drift is `unrecoverable`, keeps its inverse, and is
+ * exactly what --force and --replan exist for. `rolling_back` is a half
+ * finished attempt. But a read is `applied` too, and so is a call that cannot
+ * be undone, and counting them read a session of nothing but reads as work.
+ * With --replan, an applied write recorded without an inverse is work as well,
+ * since a policy fixed since may give it one.
+ */
+function stillToUndo(action: ActionRow, replanning: boolean): boolean {
+  if (action.status === "rolling_back" || action.status === "unrecoverable") {
+    return true;
+  }
+  if (action.status !== "applied" || action.class === "readonly") {
+    return false;
+  }
+  return action.inverse !== undefined || (replanning && action.class !== "irreversible");
+}
+
 async function runUndo(argv: readonly string[], journal: Journal): Promise<number> {
   // Before anything is chosen or printed. This used to sit below the line that
   // says which session was picked, so `undo --to 0` announced "no session
@@ -2722,13 +2831,15 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     !argv.includes("--yes") &&
     !argv.includes("--dry-run")
   ) {
-    throw new UsageError(
-      `${runId.slice(0, 8)} has not ended, so an agent may still be writing to it.\n` +
-        `  See what an undo would do:  ${cliCommand()} undo ${runId.slice(0, 8)} --dry-run\n` +
-        `  If its proxy is gone:       ${cliCommand()} close ${runId.slice(0, 8)}\n` +
-        `  Undo it anyway:             ${cliCommand()} undo ${runId.slice(0, 8)} --yes`,
-      false,
+    // Refused, which the help says is 1; 2 is for something mistyped, and
+    // nothing here was.
+    process.stderr.write(
+      `synartesis: ${runId.slice(0, 8)} has not ended, so an agent may still be writing to it.\n` +
+        `  See what an undo would do:  ${cliCommand()} undo ${runId.slice(0, 8)} --dry-run${pathArgs(["manifest", "journal"])}\n` +
+        `  If its proxy is gone:       ${cliCommand()} close ${runId.slice(0, 8)}${pathArgs(["journal"])}\n` +
+        `  Undo it anyway:             ${cliCommand()} undo ${runId.slice(0, 8)} --yes${pathArgs(["manifest", "journal"])}\n`,
     );
+    return 1;
   }
 
   // Say which one, before touching it. Without an id this picks the newest
@@ -2744,12 +2855,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     // been undone" about a change still sitting in the file, and refused the
     // very command its own halt had just recommended. `rolling_back` is a half
     // finished attempt, which is likewise something rather than nothing.
-    const left = actions.filter(
-      (action) =>
-        action.status === "applied" ||
-        action.status === "rolling_back" ||
-        action.status === "unrecoverable",
-    ).length;
+    const left = actions.filter((action) => stillToUndo(action, argv.includes("--replan"))).length;
     out("");
     out(
       `  ${style.quiet(
@@ -2767,7 +2873,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
         `  ${style.quiet(
           actions.length === 0
             ? "Nothing was recorded in it, so there is nothing to undo."
-            : "Nothing in it is still applied; it has already been undone.",
+            : "Nothing in it is left to undo: what it did was reading, has been undone, or cannot be undone.",
         )}`,
       );
       // A client that connects and calls nothing still opens a session, so the
@@ -2793,7 +2899,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
           `  ${style.quiet("The session that did something:")} ${style.strong(other.id.slice(0, 8))} ` +
             style.quiet(`${other.label ?? "an agent"}, ${shortTime(other.startedAt).trim()}`),
         );
-        out(`  ${style.quiet(`${cliCommand()} undo ${other.id.slice(0, 8)}`)}`);
+        out(`  ${style.quiet(`${cliCommand()} undo ${other.id.slice(0, 8)}${pathArgs(["manifest", "journal"])}`)}`);
       } else {
         out(
           `  ${style.quiet(`Name one to undo a different session: ${cliCommand()} undo <session>`)}`,
@@ -2802,6 +2908,21 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
       out("");
       return 0;
     }
+  }
+
+  // Named, and still open, with nothing in it to undo: reads, or a call that
+  // cannot be undone. Rolling it back would undo nothing and then mark a
+  // session that is still running as ended -- `list` called it undone, and
+  // `clean` and `prune` treated it as finished under a live proxy.
+  if (
+    given !== undefined &&
+    journal.getRun(runId)?.status === "active" &&
+    !journal.getActions(runId).some((action) => stillToUndo(action, argv.includes("--replan")))
+  ) {
+    out("");
+    out(`  ${style.quiet(`Nothing in ${runId.slice(0, 8)} can be undone yet, and it is still open, so it was left as it is.`)}`);
+    out("");
+    return 0;
   }
 
   // Past the end, every action is below the floor, so nothing is planned and
@@ -2830,10 +2951,13 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
   const said = argv.includes("--yes");
   const manifestPath = findManifest(flag(argv, "--manifest"));
 
-  if (said && !forcing) {
+  // --yes is also how an open session is undone, which this suggests itself,
+  // so it is only ignored where neither applies.
+  const open = journal.getRun(runId)?.status === "active";
+  if (said && !forcing && !open) {
     // Silently doing nothing with a flag somebody typed is how they come to
     // believe it did something.
-    process.stderr.write("synartesis: --yes only means anything with --force; ignoring it\n");
+    process.stderr.write("synartesis: --yes only means anything with --force or on a session still open; ignoring it\n");
   }
 
   const dryRun = argv.includes("--dry-run");
@@ -2883,7 +3007,7 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
       // the footer either way.
       if (!dryRun) {
         out(`  ${style.quiet("nothing has been written. To go ahead and lose that:")}`);
-        out(`  ${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force --yes`)}`);
+        out(`  ${style.strong(`${cliCommand()} undo ${runId.slice(0, 8)} --force --yes${pathArgs(["manifest", "journal"])}`)}`);
         out("");
         return 1;
       }
@@ -2906,7 +3030,10 @@ async function runUndo(argv: readonly string[], journal: Journal): Promise<numbe
     // forcePlan, not `forcing && said`: on a dry run the command that does
     // this for real is the forced one, and offering it without --force would
     // hand back something that halts on the drift the preview just showed.
-    `${replan ? " --replan" : ""}${forcePlan ? " --force --yes" : ""}`,
+    // And --yes for a session still open, which is refused without it: the
+    // dry run's own suggestion used to be the command the guard turned away.
+    `${replan ? " --replan" : ""}${forcePlan ? " --force --yes" : open ? " --yes" : ""}`,
+    forcing && !forcePlan,
   );
 }
 
@@ -3006,12 +3133,68 @@ function unknownCommand(typed: string): string {
   return meant === undefined ? `unknown command ${typed}` : `unknown command ${typed}; did you mean ${meant}?`;
 }
 
+/**
+ * Flags that change what a command does, and the commands that read them.
+ *
+ * One list served every command, so `uninstall --dry-run` was accepted and
+ * then restored every client config for real, and so did `init`, `approve`,
+ * `close` and `allow` with it. A flag that is accepted is believed.
+ */
+const ONLY_FOR: Readonly<Record<string, readonly string[]>> = {
+  "--dry-run": ["install", "prune", "clean", "undo"],
+  "--print": ["install"],
+  "--remote": ["install"],
+  "--client": ["install", "uninstall"],
+  "--force": ["init", "undo"],
+  "--yes": ["clean", "undo"],
+  "--replan": ["undo"],
+  "--to": ["undo"],
+  "--all": ["approve", "deny"],
+  "--reason": ["deny", "resolve"],
+  "--applied": ["resolve"],
+  "--failed": ["resolve"],
+  "--unattended": ["approve", "deny", "allow"],
+  "--older-than": ["prune"],
+  "--full": ["show"],
+  "--live": ["show"],
+  "--json": ["list", "show", "gates", "watch"],
+  "--once": ["watch"],
+  "--test": ["notify"],
+  "--for": ["allow"],
+  "--always": ["allow"],
+  "--stop": ["allow"],
+  "--confirm": ["allow"],
+};
+
+/** Whether a flag was given to this command, not as a value or after `--`. */
+function passed(argv: readonly string[], name: string): boolean {
+  const mine = ours(argv);
+  for (let i = 0; i < mine.length; i += 1) {
+    const token = mine[i] ?? "";
+    if (TAKES_VALUE.has(token)) {
+      i += 1;
+      continue;
+    }
+    if (token === name) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function rejectUnknownFlags(argv: readonly string[]): void {
   // Everything past a bare `--` belongs to the command init is starting, and
   // that command has flags of its own.
   const mine = ours(argv);
   for (let i = 0; i < mine.length; i += 1) {
     const token = mine[i] ?? "";
+    const command = positional(argv)[0];
+    const only = ONLY_FOR[token];
+    if (only !== undefined && command !== undefined && !only.includes(command)) {
+      throw new UsageError(
+        `${token} does nothing for ${command}; it is for ${only.join(", ")}. Nothing was changed.`,
+      );
+    }
     // The value of a flag is not a flag. Scanning every token meant any value
     // that happened to begin with a dash was read as one: `approve --by
     // -alice` and `prune --older-than -5` were both refused as unknown flags,
@@ -3068,11 +3251,13 @@ async function main(argv: readonly string[]): Promise<number> {
   // before they have read anything, and answering `synartesis version` with
   // "unknown command" while `--version` works is a riddle, not an answer.
   const first = positional(argv)[0];
-  if (argv.includes("--help") || argv.includes("-h") || first === "help") {
+  // Ours only: after `--` they belong to the server init is starting, and
+  // `init fs -- node srv.js --version` printed this version and stopped.
+  if (passed(argv, "--help") || passed(argv, "-h") || first === "help") {
     process.stdout.write(`${banner()}\n${COMMANDS}`);
     return 0;
   }
-  if (argv.includes("--version") || argv.includes("-V") || argv.includes("-v") || first === "version") {
+  if (passed(argv, "--version") || passed(argv, "-V") || passed(argv, "-v") || first === "version") {
     // Bare, with no styling around it: this is read by people filing issues
     // and by scripts, and both want the string and nothing else.
     process.stdout.write(`${version()}\n`);
@@ -3093,8 +3278,8 @@ async function main(argv: readonly string[]): Promise<number> {
   // commands that never open one -- check, status -- print hints too.
   const givenJournal = flag(argv, "--journal");
   const givenManifest = flag(argv, "--manifest");
-  journalArg = givenJournal === undefined ? "" : ` --journal ${resolve(givenJournal)}`;
-  manifestArg = givenManifest === undefined ? "" : ` --manifest ${resolve(givenManifest)}`;
+  journalArg = givenJournal === undefined ? "" : ` --journal ${shellPath(resolve(givenJournal))}`;
+  manifestArg = givenManifest === undefined ? "" : ` --manifest ${shellPath(resolve(givenManifest))}`;
   // Nothing typed opens the screen. Being handed a page of eight commands is a
   // fine answer for a script and a poor one for a person, who wants to see
   // what happened rather than be told the names of the words for asking.

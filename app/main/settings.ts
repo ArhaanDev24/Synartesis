@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 
 import { createProvider, PRESETS, type ProviderConfig, type Provider } from "../providers/index.js";
 import type { ModelChoice, Reasoning, Settings, Theme } from "../shared/ipc.js";
+import { setAside } from "./aside.js";
 
 type ModelSettings = Omit<Settings, "account" | "canSignIn">;
 
@@ -122,10 +123,19 @@ function asConfig(value: Record<string, unknown>): ProviderConfig | undefined {
  * replaced with the defaults.
  */
 function read(path: string): Stored {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return seed();
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf8"));
+    parsed = JSON.parse(text);
   } catch {
+    // Moved aside first: replaced by the defaults and then written over, it
+    // took every saved key with it, and said nothing.
+    setAside(path);
     return seed();
   }
   if (!isRecord(parsed) || !Array.isArray(parsed["models"])) {
@@ -319,7 +329,17 @@ export class Library {
     if (model.needsKey && model.sealedKey === undefined) {
       throw new Error(`${model.name} needs an API key. Add one in Models.`);
     }
-    const key = model.sealedKey === undefined ? undefined : this.secrets.open(model.sealedKey);
+    let key: string | undefined;
+    try {
+      key = model.sealedKey === undefined ? undefined : this.secrets.open(model.sealedKey);
+    } catch {
+      // A key this machine can no longer unseal: a different build of the
+      // app, a keychain item reset, a keyring that changed. Electron's own
+      // words for it are about ciphertext, and say nothing about what to do.
+      throw new Error(
+        `The saved key for ${model.name} can no longer be read on this computer. Enter it again in Models.`,
+      );
+    }
     return createProvider(model.config, key);
   }
 

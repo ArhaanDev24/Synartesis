@@ -57,6 +57,7 @@ describe("prunableRuns", () => {
     // nobody knows yet, and those are never prunable at any age.
     journal.markApplied(action.actionId, { result: { ok: true } });
     journal.endRun(runId, "complete");
+    journal.releaseRun(runId);
     backdate(path, runId, ago(60));
 
     const stale = journal.prunableRuns(before(30));
@@ -64,10 +65,21 @@ describe("prunableRuns", () => {
     expect(stale[0]?.actions).toBe(1);
   });
 
+  it("leaves a run whose app is still running, whatever its status says", () => {
+    // Undone while its app was connected: marked rolled back, still being
+    // recorded into, and deleting it fails every call that app makes.
+    const { journal, path } = journalAt();
+    const runId = journal.beginRun("undone while live");
+    journal.endRun(runId, "rolled_back");
+    backdate(path, runId, ago(60));
+    expect(journal.prunableRuns(before(30))).toHaveLength(0);
+  });
+
   it("leaves a run that is finished but recent", () => {
     const { journal } = journalAt();
     const runId = journal.beginRun("recent");
     journal.endRun(runId, "complete");
+    journal.releaseRun(runId);
 
     expect(journal.prunableRuns(before(30))).toHaveLength(0);
   });
@@ -94,6 +106,7 @@ describe("prunableRuns", () => {
     });
     journal.markGated(action.actionId, "this action cannot be undone");
     journal.endRun(runId, "complete");
+    journal.releaseRun(runId);
     backdate(path, runId, ago(400));
 
     // Age is not an answer to a question nobody answered.
@@ -113,6 +126,7 @@ describe("prunableRuns", () => {
     journal.markGated(action.actionId, "this action cannot be undone");
     journal.approve(action.actionId, "arhaan");
     journal.endRun(runId, "complete");
+    journal.releaseRun(runId);
     backdate(path, runId, ago(400));
 
     // A person said yes and the agent has not come back yet. Deleting that is
@@ -177,11 +191,13 @@ describe("deleteRuns", () => {
       journal.markApplied(action.actionId, { result: { ok: true } });
     }
     journal.endRun(doomed, "complete");
+    journal.releaseRun(doomed);
     backdate(path, doomed, ago(60));
 
     const kept = journal.beginRun("recent");
     journal.recordPending({ runId: kept, server: "s", tool: "t", args: {}, class: "readonly" });
     journal.endRun(kept, "complete");
+    journal.releaseRun(kept);
 
     const removed = journal.deleteRuns([doomed]);
     expect(removed).toEqual({ runs: 1, actions: 3 });
@@ -211,6 +227,7 @@ describe("deleteRuns", () => {
       journal.markApplied(action.actionId, { result: { ok: true }, inverse: { content: payload } });
     }
     journal.endRun(runId, "complete");
+    journal.releaseRun(runId);
     backdate(path, runId, ago(60));
 
     // Checkpoint first: until WAL is folded in, the size on disk says more

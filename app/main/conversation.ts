@@ -56,6 +56,8 @@ export interface ConversationOptions {
   readonly id?: string;
   /** Its title and transcript, likewise. */
   readonly title?: string;
+  /** What the model had been told and done, likewise. */
+  readonly history?: readonly Exchange[];
   readonly messages?: readonly ChatMessage[];
   /** Named so a test can make a transcript that does not move. */
   readonly newId?: () => string;
@@ -83,6 +85,7 @@ export class Conversation {
     }
     // Copied, not adopted: what is handed in belongs to whoever stored it, and
     // a turn appended to their array would edit a record they still hold.
+    this.#history = [...(options.history ?? [])];
     this.#messages = (options.messages ?? []).map((message) => ({
       id: message.id,
       role: message.role,
@@ -93,6 +96,11 @@ export class Conversation {
 
   get title(): string {
     return this.#title;
+  }
+
+  /** What the model has been told and done so far. */
+  get history(): readonly Exchange[] {
+    return this.#history;
   }
 
   get engine(): Engine {
@@ -219,6 +227,10 @@ export class Conversation {
     const engine = this.options.engine();
     const before = engine.journal.getActions(engine.runId).length;
 
+    // What the model has been told and done, as it grows. Assigned only from
+    // the result, a turn that failed part-way lost its request, its calls and
+    // their answers, and the next turn could make the same write again.
+    let sofar: readonly Exchange[] = [...this.#history, { role: "user", text }];
     try {
       this.#history = [
         ...(await run({
@@ -229,6 +241,9 @@ export class Conversation {
           history: this.#history,
           say: text,
           signal: controller.signal,
+          onHistory: (messages) => {
+            sofar = messages;
+          },
           onEvent: (event) => {
             if (event.kind === "text" && event.text !== undefined) {
               emit({ kind: "text", chunk: event.text });
@@ -278,6 +293,12 @@ export class Conversation {
       // has its own dialect for, because "404 NOT_FOUND {json}" tells nobody
       // that the model was retired last week and what to put in its place.
       const raw = error instanceof Error ? error.message : String(error);
+      // Kept, ending on a line of the model's own, so the next request is a
+      // well-formed conversation and the model knows this one was cut short.
+      this.#history = [
+        ...sofar,
+        { role: "assistant", text: `(This turn stopped before it finished: ${controller.signal.aborted ? "the person stopped it" : raw})` },
+      ];
       const read = explain(provider.id, raw);
       emit({
         kind: "error",

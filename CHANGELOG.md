@@ -2,6 +2,120 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.9.5 — 2026-10-20
+
+Bug fixes in the commands people type when something has gone wrong, in
+policies and the environment servers are started with, and in the desktop
+app. Also the three items 0.9.4 left for later. Each fix has a test that fails
+without it.
+
+### Fixed: undo and the other commands
+
+- **Bare `close` closed the newest open session**, which is usually the one
+  still running. With more than one open, it now lists them and asks which.
+- **`undo` on an open session with nothing to undo marked it ended.** A
+  session of only reads, or only calls that cannot be undone, was "undone"
+  under its live app. It is left open now. `prune`, like `clean`, also keeps
+  any session whose app is still running.
+- **Short ids now work for calls already settled.** After a deny, the
+  command it suggested (`approve <8 characters>`) did not find the call; only
+  the full id did. `approve`, `deny` and `resolve` take any unique prefix.
+- **Flags after `--` belong to the server.** `init fs -- server -v` printed
+  Synartesis's version instead of setting the server up; `--help` and
+  `--force` had the same problem.
+- **A flag a command ignores is refused.** `uninstall --dry-run` was
+  accepted and then restored every client config for real. The same went for
+  `init`, `approve`, `close` and `allow`.
+- **`prune --older-than ""` pruned everything**, because an empty number
+  read as 0. Anything but a number is refused now, and a busy journal no
+  longer makes a prune that worked report failure.
+- **`resolve` could settle a call still being sent**, and the proxy's own
+  answer then failed to land. A call that hasn't come back, in a session whose
+  app is still running, is refused until it does.
+- **`undo --yes` and `--force`.** The warning about `--yes` being ignored no
+  longer appears when it was used to undo an open session, which is what it
+  is for. A dry run of an open session suggests the command that will actually
+  run. `--force` without `--yes` that still stops says how to go on.
+- **`allow`:**
+  - It says when no rule names the tool, since a typo lets nothing through.
+  - It works before any agent has run.
+  - It lists nothing, instead of an error, when there is no journal.
+  - `approve <id> --all` is refused instead of approving everything.
+- Printed commands keep `--journal` and `--manifest` when you gave them,
+  paths with spaces are quoted, and exit codes match the help.
+
+### Fixed: policies and environments
+
+- **A template like `"$.path reverted by agent"` loaded and then failed at
+  undo time**, read as one reference to a key with spaces in it. Text after a
+  reference is filled in, as it is anywhere else in the string.
+- **`allow --always` on a tool matched by a pattern broke on `absent_when`**,
+  and dropped the rule's `refusal`. The new rule is copied as written.
+- **Adding a server to a policy with a `pins:` block wrote a file that did
+  not load.** New servers and rules now go at the end of their own blocks.
+- **Undo refused over the proxy's own settings.** A `SYNARTESIS_*` or `npm_*`
+  variable set in a client entry made every undo of that session refuse.
+- **Undo looks up the client entry from the session's folder**, not from the
+  terminal's, so a project's own config is found.
+- **Two projects wrapping the same server with different settings** made
+  every undo of either refuse. Undo now picks the entry that session was
+  actually started with.
+- **Two equally specific patterns** were settled by which came first in the
+  file. The more cautious one wins now.
+- **Under `--server`, a rule like `*.write_file` was left out of the pin
+  check.**
+- **Names that YAML reads differently** are quoted in generated policies:
+  a tool called `null`, or one starting with `&`. `install` turns a server
+  name like `context7.com` into one a policy can use.
+- **GitHub:** the undos for `create_or_update_file` and `update_pull_request`
+  could never work as written. The first sent the read's whole answer back as
+  the file's content; the second put back only three fields. Both are held
+  now, until an undo is shown to work on a real account.
+
+### Fixed: the desktop app
+
+- **A held call gave up after a minute** while the window waited five for an
+  answer, so a card answered after 61 seconds found the call already refused.
+  Long tools were cut off the same way.
+- **"Allow" on a card for a call already settled said it was allowed.** The
+  window now says the answer changed nothing. Cards go away when a call is
+  settled anywhere: timed out, or answered in a terminal.
+- **Two chats started at once** (a double click on New chat) left one
+  chat's servers running for the life of the app.
+- **Leaving a chat didn't stop its turn**, and Stop didn't cancel a call
+  waiting for approval. Both do now.
+- **The model forgot the conversation** after any error, and whenever a chat
+  was reopened: it saw an empty history while the window showed everything.
+  Its history is now kept through errors and saved with the chat.
+- **A chat that failed to start** left its servers running.
+- **Two copies of the app** overwrote each other's chats and saved keys. A
+  second launch now brings the first to the front.
+- **Keys:**
+  - On Linux without a keyring, the app refuses to store keys instead of
+    using Chromium's built-in password.
+  - A key that can no longer be read says to enter it again.
+  - A sign-in whose save failed no longer looks signed in.
+- **An unreadable `conversations.json` or `models.json` was silently
+  replaced.** It is moved aside now.
+- **With every server down, the app's own tools were labelled "not
+  recorded".**
+- **Smaller fixes:**
+  - The folder report treats `C:\A` and `c:/a` as the same file on Windows,
+    and ignores case on macOS.
+  - The Google avatar loads.
+  - An app opened from the Finder finds `npx` and `uvx`.
+  - A chat's unsent draft goes when the chat is deleted.
+
+### Carried from 0.9.4
+
+- **One server that won't start no longer takes the others away.** The rest
+  start, the failed one is logged, and every tool keeps its name.
+- **`clean` keeps sessions that `undo --replan` could still undo.**
+- **Tool name collisions:**
+  - A tool whose own name starts with `server__` keeps it.
+  - Two servers whose tools come out with the same name list it once, and
+    the clash is logged.
+
 ## 0.9.4 — 2026-10-07
 
 Bug fixes. 0.9.3 never reached npm, so this release also carries everything

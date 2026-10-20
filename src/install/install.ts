@@ -165,6 +165,12 @@ function kept(key: string, value: unknown): boolean {
   return !REPLACED.has(key);
 }
 
+/** A client's name for a server, as one the policy can use. */
+export function policyName(name: string): string {
+  const safe = name.replace(/[^A-Za-z0-9_-]+/g, "-").replace(/_{2,}/g, "_").replace(/^-+|-+$/g, "");
+  return safe === "" ? "server" : safe;
+}
+
 export function isWrapped(entry: ServerEntry): boolean {
   const args = entry.args ?? [];
   return (
@@ -434,7 +440,11 @@ export async function planInstall(
       // reads as covered and left it unwrapped. The same command and
       // arguments, under a name nothing else is wrapped to, is the same
       // server: wrap the entry to it again and draft nothing.
-      const again = [name, `${name}-${site.client}`].find((candidate) => {
+      // What the policy may call it. A `.` qualifies tool names and `__`
+      // separates them, so an entry called `context7.com` drafted rules for
+      // a server `context7` and a policy that did not load.
+      const safe = policyName(name);
+      const again = [safe, `${safe}-${site.client}`].find((candidate) => {
         const spec = existing[candidate];
         const args = entry.args ?? [];
         if (native !== undefined) {
@@ -460,7 +470,7 @@ export async function planInstall(
         continue;
       }
 
-      const key = claimed.has(name) ? `${name}-${site.client}` : name;
+      const key = claimed.has(safe) ? `${safe}-${site.client}` : safe;
       if (claimed.has(key)) {
         skipped.push({ name, why: `already in the policy as ${key}` });
         continue;

@@ -118,3 +118,40 @@ describe("letting one tool through for good", () => {
     expect(() => allowAlways({ ...base, text: flow, tool: "send_email" })).toThrow(/by hand/);
   });
 });
+
+describe("letting through one tool a pattern covers, when the pattern says more", () => {
+  const PATTERNED = `version: 1
+servers:
+  fs:
+    command: node
+    args: ["server.js"]
+tools:
+  - match: "fs.write_*"
+    class: reversible
+    gate: always
+    refusal: clean
+    snapshot:
+      tool: "fs.read_file"
+      args:
+        path: "$.path"
+      absent_when: "ENOENT"
+    inverse:
+      tool: "fs.write_file"
+      args:
+        path: "$.path"
+        content: "$snapshot.content"
+`;
+
+  it("copies the rule as written, absent_when and refusal included", () => {
+    // Copied from the loaded policy, absent_when came out as absentWhen,
+    // which the schema refuses, and refusal was dropped on purpose.
+    const edit = allowAlways({ ...base, server: "fs", text: PATTERNED, tool: "write_note" });
+    expect(edit.how).toBe("added");
+    const now = resolved(edit.text, "fs.write_note").policy;
+    expect(now.gate).toBe("never");
+    expect(now.refusal).toBe("clean");
+    expect(edit.text).toContain("absent_when");
+    // And nothing else the pattern covers changed.
+    expect(resolved(edit.text, "fs.write_other").policy.gate).toBe("always");
+  });
+});

@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
-import { createJournalGate, type GateRequest } from "../../src/gate/gate.js";
+import { createJournalGate, type Gate, type GateRequest } from "../../src/gate/gate.js";
 import { openJournal, type Journal } from "../../src/journal/journal.js";
 import { loadManifest } from "../../src/manifest/load.js";
 import type { Manifest } from "../../src/manifest/types.js";
@@ -9,7 +9,7 @@ import { createProxyServer } from "../../src/proxy/proxy.js";
 import { createRouter, SEPARATOR, type Router } from "../../src/proxy/routing.js";
 import { createPolicyResolver } from "../../src/manifest/match.js";
 import { noteFor } from "./briefing.js";
-import { connectUpstream, type Upstream } from "../../src/proxy/upstream.js";
+import { CALL_TIMEOUT_MS, connectUpstream, type Upstream } from "../../src/proxy/upstream.js";
 import { clientEnvFor } from "../../src/install/entry-env.js";
 import type { ProviderTool } from "../providers/types.js";
 import { connectToolset, createToolset, TOOLSET_POLICY } from "./toolset.js";
@@ -38,6 +38,13 @@ export interface EngineOptions {
    * which is what a window can do and a terminal cannot.
    */
   readonly onApprovalNeeded?: (request: GateRequest) => void;
+  /**
+   * The question is no longer open, however it was settled: answered here or
+   * from a terminal, or given up on. Only an answer in the window took its
+   * card away, so a card for a call that had timed out stayed, and "Allow"
+   * on it reported success for a call that had been refused.
+   */
+  readonly onApprovalSettled?: (actionId: string) => void;
   /** How long a held call waits before giving up. */
   readonly gateTimeoutMs?: number;
   /**
@@ -74,7 +81,8 @@ export interface Engine {
    * changes when a server is added. Callers ask rather than assume.
    */
   ownTool(bare: string): string;
-  call(name: string, args: Record<string, unknown>): Promise<{ text: string; failed: boolean }>;
+  /** `signal` is Stop: it abandons a call still waiting, a held one included. */
+  call(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<{ text: string; failed: boolean }>;
   close(): Promise<void>;
 }
 
@@ -150,6 +158,22 @@ function flatten(result: unknown): { text: string; failed: boolean } {
   return { text: said === "" ? JSON.stringify(content) : said, failed };
 }
 
+/** A gate that says when each question it asked is over. */
+function settling(gate: Gate, settled: ((actionId: string) => void) | undefined): Gate {
+  if (settled === undefined) {
+    return gate;
+  }
+  return {
+    async decide(request) {
+      try {
+        return await gate.decide(request);
+      } finally {
+        settled(request.actionId);
+      }
+    },
+  };
+}
+
 export async function startEngine(options: EngineOptions): Promise<Engine> {
   const manifest = loadManifest(options.manifestPath);
   /**
@@ -202,63 +226,89 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
     }
   }
 
-  // Synartesis's own operations, as an upstream like any other. Going through
-  // the proxy rather than around it is deliberate: the policy below is what
-  // makes list and preview readonly and undo_session gated, using exactly the
-  // machinery every other server is held to.
-  const offerOwnTools = options.ownTools ?? true;
-  if (offerOwnTools) {
-    const toolset = createToolset({
-      journal,
-      router: () => {
-        if (live.router === undefined) {
-          throw new Error("the router is not ready yet");
-        }
-        return live.router;
-      },
-      manifestPath: options.manifestPath,
-      currentRun: () => live.runId,
-    });
-    upstreams.push(await connectToolset(toolset, "synartesis"));
-  }
-
-  // The manifest the proxy is given, not the one on disk: the user should not
-  // have to write a policy for tools the app itself supplies.
-  const covering: Manifest = offerOwnTools
-    ? {
-        ...manifest,
-        servers: {
-          ...manifest.servers,
-          // Never started as a process -- it is already connected -- but the
-          // router insists every upstream is declared, and that check has
-          // caught real mistakes.
-          synartesis: { command: "node", args: [] },
+  // Everything from here can fail -- a locked journal, a toolset that will
+  // not connect -- and a failure left every server already started running,
+  // unowned, until the app quit. Each failed new chat added another set.
+  let client: Client;
+  let proxy: ReturnType<typeof createProxyServer>;
+  let covering: Manifest;
+  let policy: ReturnType<typeof createPolicyResolver>;
+  let runId: string;
+  let prefixed: boolean;
+  let offerOwnTools: boolean;
+  try {
+    // Synartesis's own operations, as an upstream like any other. Going through
+    // the proxy rather than around it is deliberate: the policy below is what
+    // makes list and preview readonly and undo_session gated, using exactly the
+    // machinery every other server is held to.
+    offerOwnTools = options.ownTools ?? true;
+    if (offerOwnTools) {
+      const toolset = createToolset({
+        journal,
+        router: () => {
+          if (live.router === undefined) {
+            throw new Error("the router is not ready yet");
+          }
+          return live.router;
         },
-        tools: [...TOOLSET_POLICY, ...manifest.tools],
-      }
-    : manifest;
+        manifestPath: options.manifestPath,
+        currentRun: () => live.runId,
+      });
+      upstreams.push(await connectToolset(toolset, "synartesis"));
+    }
 
-  const proxy = createProxyServer({
-    upstreams,
-    manifest: covering,
-    journal,
-    gate: createJournalGate(journal, {
-      ...(options.gateTimeoutMs === undefined ? {} : { timeoutMs: options.gateTimeoutMs }),
-      ...(options.onApprovalNeeded === undefined ? {} : { notify: options.onApprovalNeeded }),
-    }),
-  });
+    // The manifest the proxy is given, not the one on disk: the user should not
+    // have to write a policy for tools the app itself supplies.
+    covering = offerOwnTools
+      ? {
+          ...manifest,
+          servers: {
+            ...manifest.servers,
+            // Never started as a process -- it is already connected -- but the
+            // router insists every upstream is declared, and that check has
+            // caught real mistakes.
+            synartesis: { command: "node", args: [] },
+          },
+          tools: [...TOOLSET_POLICY, ...manifest.tools],
+        }
+      : manifest;
 
-  // The same resolution the proxy uses to decide what to do with a call, used
-  // here to say so in advance. Two answers from one table, which is the only
-  // way they stay the same answer.
-  const policy = createPolicyResolver(covering);
+    // Whether names carry their server. Fixed by what this app offers, not by
+    // what happened to start: with every one of the person's servers down the
+    // only upstream left was the app's own, its tools came through bare, and
+    // the window read them as belonging to no server -- "not recorded" on every
+    // card, about calls that were.
+    prefixed = offerOwnTools || upstreams.length > 1;
+    proxy = createProxyServer({
+      upstreams,
+      manifest: covering,
+      journal,
+      prefixed,
+      gate: settling(
+        createJournalGate(journal, {
+          ...(options.gateTimeoutMs === undefined ? {} : { timeoutMs: options.gateTimeoutMs }),
+          ...(options.onApprovalNeeded === undefined ? {} : { notify: options.onApprovalNeeded }),
+        }),
+        options.onApprovalSettled,
+      ),
+    });
 
-  const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: options.label ?? "synartesis-desktop", version: "0.1.0" });
-  await Promise.all([proxy.server.connect(serverSide), client.connect(clientSide)]);
-  const runId = await proxy.ready;
-  live.runId = runId;
-  live.router = createRouter(upstreams, covering);
+    // The same resolution the proxy uses to decide what to do with a call, used
+    // here to say so in advance. Two answers from one table, which is the only
+    // way they stay the same answer.
+    policy = createPolicyResolver(covering);
+
+    const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+    client = new Client({ name: options.label ?? "synartesis-desktop", version: "0.1.0" });
+    await Promise.all([proxy.server.connect(serverSide), client.connect(clientSide)]);
+    runId = await proxy.ready;
+    live.runId = runId;
+    live.router = createRouter(upstreams, covering, { prefixed });
+  } catch (error: unknown) {
+    await Promise.allSettled(upstreams.map((upstream) => upstream.close()));
+    journal.close();
+    throw error;
+  }
 
   return {
     client,
@@ -277,11 +327,21 @@ export async function startEngine(options: EngineOptions): Promise<Engine> {
       );
     },
     ownTool(bare) {
-      return offerOwnTools && upstreams.length > 1 ? `synartesis${SEPARATOR}${bare}` : bare;
+      return prefixed ? `synartesis${SEPARATOR}${bare}` : bare;
     },
-    async call(name, args) {
+    async call(name, args, signal) {
       try {
-        return flatten(await client.callTool({ name, arguments: args }));
+        // As long as the proxy allows. The SDK's own default is a minute,
+        // and the gate waits five for a person: a card answered after 61
+        // seconds found the call already given up, denied as "the client
+        // disconnected", and the model told the request had timed out.
+        return flatten(
+          await client.callTool({ name, arguments: args }, undefined, {
+            timeout: CALL_TIMEOUT_MS,
+            resetTimeoutOnProgress: true,
+            ...(signal === undefined ? {} : { signal }),
+          }),
+        );
       } catch (error: unknown) {
         // A refusal from the proxy -- a held call, a blocked write -- arrives
         // as a thrown protocol error. The model has to be told, in the words

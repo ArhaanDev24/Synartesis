@@ -400,7 +400,8 @@ describe("the cli", () => {
     for (const command of ["show", "undo", "approve"]) {
       // --unattended so approve reaches its own check on the id rather than
       // stopping first at the one about a terminal.
-      const empty = await run("node", [CLI, command, "", "--journal", space.journal, "--unattended"]);
+      const extra = command === "approve" ? ["--unattended"] : [];
+      const empty = await run("node", [CLI, command, "", "--journal", space.journal, ...extra]);
       expect(empty.code, command).toBe(2);
       expect(empty.stderr, command).toContain("empty id");
     }
@@ -946,6 +947,26 @@ describe("a run left active by a proxy that was killed", () => {
     const after = openJournal(space.journal);
     expect(after.getRun(abandoned)?.status).toBe("complete");
     expect(after.getRun(abandoned)?.endedAt).toBeTruthy();
+    after.close();
+  });
+
+  it("asks which, rather than closing the newest, when several are open", async () => {
+    // The newest is usually the one still running: closing it left a live
+    // proxy recording into a session marked finished.
+    const space = workspace();
+    const journal = openJournal(space.journal);
+    const older = journal.beginRun("killed");
+    const newer = journal.beginRun("live");
+    journal.close();
+
+    const closed = await run("node", [CLI, "close", "--journal", space.journal]);
+    expect(closed.code).toBe(2);
+    expect(closed.stderr).toContain(older);
+    expect(closed.stderr).toContain(newer);
+
+    const after = openJournal(space.journal);
+    expect(after.getRun(older)?.status).toBe("active");
+    expect(after.getRun(newer)?.status).toBe("active");
     after.close();
   });
 

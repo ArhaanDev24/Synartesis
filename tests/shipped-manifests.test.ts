@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 
-import { parseManifest } from "../src/manifest/load.js";
+import { loadManifest, parseManifest } from "../src/manifest/load.js";
 import { createPolicyResolver } from "../src/manifest/match.js";
 import { knownPolicyFor } from "../src/init/known.js";
 
@@ -234,6 +234,18 @@ describe("the read-only pack", () => {
       ["uvx", ["awslabs.aws-documentation-mcp-server@latest"], "aws-docs"],
     ] as const) {
       expect(knownPolicyFor(command, args)?.name).toBe(name);
+    }
+  });
+});
+
+describe("the GitHub policy's undos that could not work", () => {
+  it("holds them instead of promising an undo that fails", () => {
+    // create_or_update_file sent the read's two content blocks back as the
+    // file's content; update_pull_request put back only three fields.
+    const github = loadManifest("manifests/github.yaml");
+    const resolver = createPolicyResolver(github);
+    for (const tool of ["github.create_or_update_file", "github.update_pull_request"]) {
+      expect(resolver.resolve(tool).policy, tool).toMatchObject({ class: "irreversible", gate: "always" });
     }
   });
 });

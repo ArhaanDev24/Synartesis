@@ -2,8 +2,12 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
+import { z } from "zod";
+
 import { Signed, signInWithGoogle } from "./account.js";
+import { setAside } from "./aside.js";
 import { Conversation } from "./conversation.js";
+import type { Exchange } from "../providers/index.js";
 import { startEngine, type Engine } from "./engine.js";
 import { openJournal } from "../../src/journal/journal.js";
 import { Library, type SecretStore } from "./settings.js";
@@ -11,6 +15,7 @@ import { touchedUnder } from "./touched.js";
 import { inspect, tally, verdict } from "../../src/rollback/inspect.js";
 import { rollback } from "../../src/rollback/rollback.js";
 import type {
+  Answered,
   ChatMessage,
   ConversationSummary,
   FolderReport,
@@ -59,6 +64,46 @@ interface StoredConversation {
   readonly sessions: string[];
   readonly messages: ChatMessage[];
   readonly pinned: boolean;
+  /**
+   * What the model was told and did, so a reopened chat carries on from it.
+   * Only the transcript was kept, so every reopened chat showed the whole
+   * conversation while the model started from nothing.
+   */
+  readonly history?: readonly Exchange[];
+}
+
+/** Enough to carry on from; a very long chat keeps its most recent part. */
+const HISTORY_KEPT = 400;
+
+const toolCall = z.looseObject({ id: z.string(), name: z.string(), args: z.record(z.string(), z.unknown()) });
+const exchange = z.union([
+  z.object({ role: z.literal("user"), text: z.string() }),
+  z.object({ role: z.literal("assistant"), text: z.string(), calls: z.array(toolCall).optional() }),
+  z.object({ role: z.literal("tool"), callId: z.string(), name: z.string(), text: z.string(), failed: z.boolean() }),
+]);
+
+/**
+ * The history as it is stored: without the provider's signed reasoning,
+ * which only that provider can read and a different model would refuse, and
+ * cut at a turn the person started so it never opens on a tool's answer.
+ */
+function storable(history: readonly Exchange[]): Exchange[] {
+  const bare = history.map((one): Exchange =>
+    one.role === "assistant"
+      ? { role: "assistant", text: one.text, ...(one.calls === undefined ? {} : { calls: one.calls }) }
+      : one,
+  );
+  if (bare.length <= HISTORY_KEPT) {
+    return bare;
+  }
+  const from = bare.findIndex((one, index) => index >= bare.length - HISTORY_KEPT && one.role === "user");
+  return from === -1 ? [] : bare.slice(from);
+}
+
+
+
+function answered(changed: boolean, status: string | undefined): Answered {
+  return changed ? { changed } : { changed, ...(status === undefined ? {} : { status }) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -66,10 +111,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function readConversations(path: string): StoredConversation[] {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    // Not there yet: the ordinary first run.
+    return [];
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf8"));
+    parsed = JSON.parse(text);
   } catch {
+    setAside(path);
     return [];
   }
   if (!Array.isArray(parsed)) {
@@ -90,6 +143,20 @@ function readConversations(path: string): StoredConversation[] {
       // of history, not the ability to undo anything.
       messages: Array.isArray(messages) ? messages.filter(isChatMessage) : [],
       pinned: one["pinned"] === true,
+      history: Array.isArray(one["history"])
+        ? one["history"].flatMap((item: unknown) => {
+            const read = exchange.safeParse(item);
+            if (!read.success) {
+              return [];
+            }
+            const one = read.data;
+            return [
+              one.role === "assistant"
+                ? { role: "assistant" as const, text: one.text, ...(one.calls === undefined ? {} : { calls: one.calls }) }
+                : one,
+            ];
+          })
+        : [],
     });
   }
   return kept;
@@ -286,6 +353,9 @@ export class Desk {
           },
         });
       },
+      onApprovalSettled: (actionId) => {
+        this.options.emit(conversationId, { kind: "approval-resolved", actionId });
+      },
     });
   }
 
@@ -293,10 +363,31 @@ export class Desk {
     const live = this.#live;
     this.#live = undefined;
     if (live !== undefined) {
+      // Its turn stops with it. Left running, a closed window went on asking
+      // the model for up to two dozen rounds, every call failing on a closed
+      // engine, and its events landed in whichever chat was open next.
+      live.conversation.stop();
       this.#remember(live.conversation);
       await live.engine.close();
     }
   }
+
+  /**
+   * One change of conversation at a time. Two at once -- a double click on
+   * New chat, two quick clicks in the list -- both started an engine, and the
+   * second replaced the first without closing it: its servers, its journal
+   * handle and an empty session were left behind for the life of the app.
+   */
+  #serial<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.#switching.then(work, work);
+    this.#switching = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  #switching: Promise<void> = Promise.resolve();
 
   /**
    * A conversation, with an engine of its own started underneath it.
@@ -307,7 +398,9 @@ export class Desk {
    */
   async #bring(
     id: string,
-    was: { title: string; messages: readonly ChatMessage[]; sessions: string[] } | undefined,
+    was:
+      | { title: string; messages: readonly ChatMessage[]; sessions: string[]; history?: readonly Exchange[] }
+      | undefined,
   ): Promise<Conversation> {
     await this.#leave();
     const held: { engine?: Engine } = {};
@@ -322,7 +415,7 @@ export class Desk {
       // Carried forward, so what an older session did is still summarised and
       // still reversible after this one is picked back up.
       sessions: was === undefined ? [] : [...was.sessions],
-      ...(was === undefined ? {} : { title: was.title, messages: was.messages }),
+      ...(was === undefined ? {} : { title: was.title, messages: was.messages, history: was.history ?? [] }),
       emit: (event) => {
         this.options.emit(id, event);
       },
@@ -341,11 +434,15 @@ export class Desk {
     return conversation;
   }
 
-  async start(): Promise<OpenConversation> {
-    return this.#view(await this.#bring(randomUUID(), undefined));
+  start(): Promise<OpenConversation> {
+    return this.#serial(async () => this.#view(await this.#bring(randomUUID(), undefined)));
   }
 
-  async open(id: string): Promise<OpenConversation> {
+  open(id: string): Promise<OpenConversation> {
+    return this.#serial(() => this.#openNow(id));
+  }
+
+  async #openNow(id: string): Promise<OpenConversation> {
     if (this.#live?.conversation.id === id) {
       return this.#view(this.#live.conversation);
     }
@@ -358,6 +455,7 @@ export class Desk {
         title: stored.title,
         messages: stored.messages,
         sessions: stored.sessions,
+        ...(stored.history === undefined ? {} : { history: stored.history }),
       }),
     );
   }
@@ -388,12 +486,19 @@ export class Desk {
    * read afterwards. Signed out it says "you", which is honest and useless;
    * signed in it says who.
    */
-  approve(actionId: string, options: { readonly forAnHour?: boolean } = {}): void {
+  /**
+   * Whether this answer was the one that counted. The journal changes a call
+   * only while it is still waiting, and its "no" was ignored here: a card left
+   * over from a call that had timed out, or been answered in a terminal, said
+   * "allowed" in the window for a call that had been refused.
+   */
+  approve(actionId: string, options: { readonly forAnHour?: boolean } = {}): Answered {
     const journal = this.#journal();
     // For an hour: the same row `synartesis allow --for 1h` writes, so the
     // window, the terminal and the console all agree on what is let through.
-    const action = options.forAnHour === true ? journal.getAction(actionId) : undefined;
-    if (journal.approve(actionId, this.#signed.actor) && action !== undefined) {
+    const action = journal.getAction(actionId);
+    const changed = journal.approve(actionId, this.#signed.actor);
+    if (changed && options.forAnHour === true && action !== undefined) {
       journal.allow(
         action.server,
         action.tool,
@@ -402,11 +507,14 @@ export class Desk {
       );
     }
     this.#announce(actionId);
+    return answered(changed, journal.getAction(actionId)?.status);
   }
 
-  deny(actionId: string, why: string): void {
-    this.#journal().denyByPerson(actionId, this.#signed.actor, why);
+  deny(actionId: string, why: string): Answered {
+    const journal = this.#journal();
+    const changed = journal.denyByPerson(actionId, this.#signed.actor, why);
     this.#announce(actionId);
+    return answered(changed, journal.getAction(actionId)?.status);
   }
 
   #announce(actionId: string): void {
@@ -526,6 +634,7 @@ export class Desk {
       sessions: [...conversation.sessions],
       messages: [...conversation.messages],
       pinned: this.#stored[at]?.pinned ?? false,
+      history: storable(conversation.history),
     };
     if (at === -1) this.#stored.push(row);
     else this.#stored[at] = row;
@@ -544,6 +653,6 @@ export class Desk {
   }
 
   async close(): Promise<void> {
-    await this.#leave();
+    await this.#serial(() => this.#leave());
   }
 }

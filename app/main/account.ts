@@ -272,11 +272,14 @@ export class Signed {
   }
 
   keep(account: Account): void {
-    this.#who = account;
+    // Sealed first: set before, a seal that failed reported the sign-in as
+    // failed while the window went on showing the person signed in.
+    const sealed = this.secrets.seal(JSON.stringify(account));
     mkdirSync(dirname(this.path), { recursive: true });
     const beside = `${this.path}.writing`;
-    writeFileSync(beside, this.secrets.seal(JSON.stringify(account)), { mode: 0o600 });
+    writeFileSync(beside, sealed, { mode: 0o600 });
     renameSync(beside, this.path);
+    this.#who = account;
   }
 
   forget(): void {
