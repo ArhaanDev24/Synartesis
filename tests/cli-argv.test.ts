@@ -348,7 +348,10 @@ describe("a client name that is not one", () => {
     expect(said.stdout).not.toContain("nothing was changed");
   });
 
-  it("still takes the four it knows", async () => {
+  // Four processes one after another, each reading the client configs on
+  // this machine: past five seconds on a loaded one, and the publish failed
+  // on a timeout rather than on anything this checks.
+  it("still takes the four it knows", { timeout: 60000 }, async () => {
     for (const known of ["claude-code", "claude-desktop", "cursor", "codex"]) {
       const said = await run(["install", "--client", known, "--print"]);
       expect(said.stderr).not.toContain("is not a client this knows");

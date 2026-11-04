@@ -762,7 +762,11 @@ describe("the gate, driven from a second process", () => {
         process.env["PATH"] = saved;
         await client?.close();
       }
-      for (let i = 0; i < 100 && !existsSync(said); i += 1) {
+      // The stand-in notifier is a shell starting node, detached from the
+      // proxy: with the whole suite running, two seconds was not always
+      // enough for it to get as far as writing. It is given the proxy's own
+      // limit for a notifier, and the test its own ceiling to match.
+      for (let i = 0; i < 300 && !existsSync(said); i += 1) {
         await new Promise((resolveWait) => setTimeout(resolveWait, 20));
       }
 
@@ -786,6 +790,7 @@ describe("the gate, driven from a second process", () => {
       });
       expect(listed).toContain("send_email");
     },
+    20000,
   );
 
   it("will not take a yes from something with no terminal, unless told it is a script", async () => {
