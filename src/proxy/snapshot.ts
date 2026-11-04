@@ -92,6 +92,19 @@ function resolveArgs(call: CallTemplate, context: TemplateContext): Record<strin
  * time the upstream may have drifted and the old value may no longer be
  * readable anywhere.
  */
+/**
+ * The inverse, with the read that must find nothing before it runs, when the
+ * policy declares one. Resolved at capture time like the inverse itself, so
+ * the undo needs nothing it does not already hold.
+ */
+export function guardedInverse(
+  inverse: InversePlan,
+  guard: CallTemplate | undefined,
+  context: TemplateContext,
+): InversePlan & { readonly requiresAbsent?: ResolvedRead } {
+  return guard === undefined ? inverse : { ...inverse, requiresAbsent: planRead(guard, context) };
+}
+
 export function planInverse(call: CallTemplate, context: TemplateContext): InversePlan {
   const target = splitQualified(call.tool);
   if (target === undefined) {
@@ -248,9 +261,19 @@ export async function runRead(
     // for approval as a creation. Where it says nothing, every error has to be
     // read as absence, because the protocol gives no way to tell.
     const said = JSON.stringify(raw);
+    // Matched against what the server said, with what it was asked about
+    // taken out: an error quotes the path, and a permission error on a file
+    // whose name contains "no such file" read as absence -- which lets the
+    // write through as a creation over a file nobody could read.
+    let words = said;
+    for (const value of Object.values(read.args)) {
+      if (typeof value === "string" && value !== "") {
+        words = words.split(JSON.stringify(value).slice(1, -1)).join(" ").split(value).join(" ");
+      }
+    }
     const absent =
       read.absentWhen === undefined ||
-      read.absentWhen.some((phrase) => said.toLowerCase().includes(phrase.toLowerCase()));
+      read.absentWhen.some((phrase) => words.toLowerCase().includes(phrase.toLowerCase()));
     throw new SnapshotError(label, `the read reported an error: ${said}`, { absent });
   }
   return toPayload(raw);

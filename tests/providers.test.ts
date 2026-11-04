@@ -475,6 +475,35 @@ describe("anything OpenAI-compatible", () => {
   const local = (server: FakeModel, extra: Record<string, unknown> = {}) =>
     createOpenAICompatibleProvider({ model: "qwen3:8b", baseURL: `${server.url}/v1`, ...extra });
 
+  it("says so when the server reports an error inside the stream", async () => {
+    // A 200, then an error frame with no choices: skipped, it ended the turn
+    // empty, and the person saw nothing at all.
+    const server = await serving(() => ({
+      sse: [openAIEvent({ error: { code: 429, message: "upstream rate limit" } }), "data: [DONE]\n\n"],
+    }));
+    await expect(local(server).respond(ask([{ role: "user", text: "hi" }]))).rejects.toThrow(/upstream rate limit/);
+  });
+
+  it("reads a last line that has no newline after it", async () => {
+    const server = await serving(() => ({
+      sse: [`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "the end" } }] })}`],
+    }));
+    const turn = await local(server).respond(ask([{ role: "user", text: "hi" }]));
+    expect(turn.text).toBe("the end");
+  });
+
+  it("keeps two calls apart when the second reuses the first one's index", async () => {
+    const call = (id: string, name: string, args: string): string =>
+      openAIEvent({
+        choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id, function: { name, arguments: args } }] } }],
+      });
+    const server = await serving(() => ({
+      sse: [call("a", "fs__read_file", '{"path":"/a"}'), call("b", "fs__read_file", '{"path":"/b"}'), "data: [DONE]\n\n"],
+    }));
+    const turn = await local(server).respond(ask([{ role: "user", text: "read both" }]));
+    expect(turn.calls.map((one) => one.args)).toEqual([{ path: "/a" }, { path: "/b" }]);
+  });
+
   it("assembles an event that arrived in two packets", async () => {
     const whole = openAIEvent({
       choices: [{ index: 0, delta: { content: "half and half" } }],
@@ -676,3 +705,37 @@ describe("the model picker", () => {
     }
   });
 });
+
+describe("an Anthropic reply cut off while writing a tool call", () => {
+  it("marks that call malformed, so a half-written file is never sent", () => {
+    const message: Anthropic.Message = {
+      id: "msg_2",
+      type: "message",
+      role: "assistant",
+      model: "claude-opus-5",
+      stop_reason: "max_tokens",
+      stop_sequence: null,
+      stop_details: null,
+      container: null,
+      usage: {
+        input_tokens: 10,
+        output_tokens: 20,
+        cache_creation: null,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        inference_geo: null,
+        output_tokens_details: null,
+        server_tool_use: null,
+        service_tier: null,
+      },
+      content: [
+        { type: "tool_use", id: "toolu_a", name: "fs__read_file", input: { path: "/a" }, caller: { type: "direct" } },
+        { type: "tool_use", id: "toolu_b", name: "fs__write_file", input: { path: "/x", content: "half of a fi" }, caller: { type: "direct" } },
+      ],
+    };
+    const turn = toTurn(message);
+    expect(turn.calls[0]?.malformed).toBeUndefined();
+    expect(turn.calls[1]?.malformed).toMatch(/length limit/);
+  });
+});
+

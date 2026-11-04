@@ -52,3 +52,26 @@ describe("losing the claim on an approval", () => {
     expect(waiting[0]?.id).not.toBe(held);
   });
 });
+
+describe("two identical calls waiting on one approval in a window", () => {
+  it("sends one, not both", async () => {
+    // The window's gate waits on the row rather than refusing. Two identical
+    // calls share one row, and both saw it approved: one yes, two emails.
+    harness = await createHarness({ gate: "journal", gateTimeoutMs: 4000 });
+    const journal = harness.journal;
+    const agent = harness.proxied;
+    const email = { name: "send_email", arguments: { to: "ada@example.com", subject: "s", body: "b" } };
+    const both = Promise.all([0, 1].map(() => agent.callTool(email).then(() => "sent", () => "refused")));
+    for (let i = 0; i < 100 && journal.listGated().length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const held = journal.listGated();
+    expect(held).toHaveLength(1);
+    expect(journal.approve(held[0]?.id ?? "", "arhaan")).toBe(true);
+    const results = await both;
+
+    expect(harness.store.__snapshot().outbox).toHaveLength(1);
+    expect(results.sort()).toEqual(["refused", "sent"]);
+  });
+});

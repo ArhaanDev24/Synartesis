@@ -50,8 +50,16 @@ const NAME_MAX = 60;
  * `evil.tool` render as something else entirely -- and the result is cut.
  */
 export function shown(name: string): string {
-  const clean = name.replace(/[\u0000-\u001f\u007f‪-‮⁦-⁩]/g, "");
+  // And the marks that are invisible but still steer the text: U+200E/200F
+  // and U+061C reorder it, and the zero-width ones hide a character that is
+  // really there.
+  const clean = name.replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\u061c\ufeff]/g, "");
   return clean.length > NAME_MAX ? `${clean.slice(0, NAME_MAX - 1)}…` : clean;
+}
+
+/** Off, said any of the ways people say off. Only `0` counted. */
+function switchedOff(env: Readonly<Record<string, string | undefined>>): boolean {
+  return ["0", "false", "off", "no"].includes((env["SYNARTESIS_NOTIFY"] ?? "").trim().toLowerCase());
 }
 
 /** notify-send renders a body as markup on most servers. */
@@ -99,7 +107,7 @@ export function desktopNotifier(
   /** The command that opens Synartesis on the waiting call. */
   open?: string,
 ): Notifier {
-  if (env["SYNARTESIS_NOTIFY"] === "0") {
+  if (switchedOff(env)) {
     return SILENT;
   }
   if (os === "darwin") {
@@ -129,8 +137,8 @@ export function desktopNotifier(
 
 /** Whether this machine has a way to notify at all, for `notify --test`. */
 export function canNotify(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  if (env["SYNARTESIS_NOTIFY"] === "0") {
-    return "switched off by SYNARTESIS_NOTIFY=0";
+  if (switchedOff(env)) {
+    return `switched off by SYNARTESIS_NOTIFY=${env["SYNARTESIS_NOTIFY"] ?? ""}`;
   }
   const os = platform();
   if (os === "darwin" || os === "linux") {

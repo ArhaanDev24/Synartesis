@@ -125,13 +125,33 @@ export function createJournalGate(journal: Journal, options: JournalGateOptions 
           return { approved: false, reason: "the journal entry disappeared while awaiting approval" };
         }
         if (action.status !== "gated") {
-          return action.status === "denied"
-            ? {
-                approved: false,
-                ...(action.approvedBy === undefined ? {} : { by: action.approvedBy }),
-                reason: action.error ?? "denied",
-              }
-            : { approved: true, by: action.approvedBy ?? "unknown" };
+          if (action.status === "denied") {
+            return {
+              approved: false,
+              ...(action.approvedBy === undefined ? {} : { by: action.approvedBy }),
+              reason: action.error ?? "denied",
+            };
+          }
+          // Claimed, not just seen. Two identical calls waiting on one row
+          // both saw it approved and both went out: one yes, two deletes. The
+          // one that claims it goes; the other is told the yes was used.
+          if (action.status !== "approved") {
+            // In flight already means somebody else's call claimed it.
+            return {
+              approved: false,
+              reason:
+                action.status === "pending"
+                  ? "that approval was used by another identical call; ask the person again"
+                  : `it was settled as ${action.status} before it could be sent`,
+            };
+          }
+          if (!journal.markInFlight(request.actionId)) {
+            return {
+              approved: false,
+              reason: "that approval was used by another identical call; ask the person again",
+            };
+          }
+          return { approved: true, by: action.approvedBy ?? "unknown" };
         }
 
         if (request.signal.aborted) {

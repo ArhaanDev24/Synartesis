@@ -164,14 +164,18 @@ function Ask({
       {error === "" ? null : <p role="alert">{error}</p>}
       <div className="ask-row">
         <button className="act" disabled={pending} onClick={() => { answer(false); }}>Deny call</button>
-        <button
-          className="act"
-          disabled={pending}
-          title={`Allow this call, and stop asking about ${ask.server} · ${ask.tool} for an hour`}
-          onClick={() => { answer(true, true); }}
-        >
-          Allow for an hour
-        </button>
+        {/* Not for the app's own tools: an hour of undo_session let the model
+            undo any session it liked without asking. */}
+        {ask.server === "synartesis" ? null : (
+          <button
+            className="act"
+            disabled={pending}
+            title={`Allow this call, and stop asking about ${ask.server} · ${ask.tool} for an hour`}
+            onClick={() => { answer(true, true); }}
+          >
+            Allow for an hour
+          </button>
+        )}
         <button
           className="act"
           data-weight="heavy"
@@ -221,6 +225,19 @@ export function App(): React.JSX.Element {
   const sending = useRef(false);
   const [activity, setActivity] = useState<"checking" | "planning" | "undoing" | undefined>(undefined);
   const [sheet, setSheet] = useState<Sheet | undefined>(undefined);
+  // A new sheet's confirm button waits a moment before it answers. Step 2's
+  // "Put it back" sits exactly where step 1's "Continue" was, so the second
+  // click of a double click ran the undo.
+  const [armed, setArmed] = useState(true);
+  useEffect(() => {
+    setArmed(false);
+    const timer = setTimeout(() => {
+      setArmed(true);
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [sheet]);
   const [folder, setFolder] = useState<FolderReport | undefined>(undefined);
   const [keys, setKeys] = useState(false);
   /** The model whose name is being retyped, and what it has been retyped to. */
@@ -263,7 +280,9 @@ export function App(): React.JSX.Element {
     const text = error instanceof Error ? error.message : String(error);
     setMessages((was) => [
       ...was,
-      { id: `note-${String(Date.now())}`, role: "note", text, calls: [] },
+      // Not the time alone: two notes in one millisecond -- both startup
+      // requests failing -- shared an id, and React a key.
+      { id: `note-${String(Date.now())}-${Math.random().toString(36).slice(2, 8)}`, role: "note", text, calls: [] },
     ]);
   }, []);
 
@@ -1292,7 +1311,7 @@ export function App(): React.JSX.Element {
                 {sheet.confirm === undefined ? "Close" : "Cancel"}
               </button>
               {sheet.confirm === undefined ? null : (
-                <button className="act" data-weight="heavy" onClick={sheet.confirm.go}>
+                <button className="act" data-weight="heavy" disabled={!armed} onClick={sheet.confirm.go}>
                   {sheet.confirm.label}
                 </button>
               )}

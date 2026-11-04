@@ -192,3 +192,16 @@ describe("allow, before any agent has run", () => {
     expect(ran.stdout).toContain("Nothing is being let through");
   });
 });
+
+describe("the proxy's own flags", () => {
+  it("refuses a flag whose value is another flag, rather than making a file named after it", () => {
+    const where = space();
+    const ran = spawnSync("node", [CLI, "proxy", "--manifest", where.manifest, "--journal", "--log-level", "debug"], {
+      encoding: "utf8",
+      cwd: where.dir,
+      input: "",
+    });
+    expect(ran.stderr).toContain("--journal needs a value");
+    expect(existsSync(join(where.dir, "--log-level"))).toBe(false);
+  });
+});

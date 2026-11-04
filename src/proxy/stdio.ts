@@ -67,11 +67,31 @@ interface Argv {
   readonly logLevel: LogLevel;
 }
 
-function parseArgv(argv: readonly string[]): Argv {
+function parseArgv(given: readonly string[]): Argv {
+  // `--flag=value` is the same as `--flag value`, as most tools read it.
+  const argv = given.flatMap((token) => {
+    const at = token.indexOf("=");
+    return token.startsWith("--") && at > 2 ? [token.slice(0, at), token.slice(at + 1)] : [token];
+  });
+  // A flag's value is never the next flag. `--journal --log-level debug`
+  // made a journal file named `--log-level`, and a `--manifest` left at the
+  // end fell back to whatever policy the walk-up found.
   const read = (flag: string): string | undefined => {
     const at = argv.indexOf(flag);
-    return at === -1 ? undefined : argv[at + 1];
+    if (at === -1) {
+      return undefined;
+    }
+    const value = argv[at + 1];
+    if (value === undefined || value.startsWith("--")) {
+      throw new Error(`${flag} needs a value`);
+    }
+    return value;
   };
+  if (argv.includes("--token")) {
+    // On the command line the token is in the process list, readable by
+    // every account on the machine. Accepted, and said once.
+    process.stderr.write("synartesis: --token is visible to other users in the process list; prefer SYNARTESIS_TOKEN\n");
+  }
   const known: readonly string[] = PROXY_FLAGS;
   const unknown = argv.find((token) => token.startsWith("--") && !known.includes(token));
   if (unknown !== undefined) {

@@ -718,6 +718,47 @@ describe("recovering from a policy that was wrong at the time", () => {
   });
 });
 
+describe("--to 1", () => {
+  it("undoes the whole session, and says so, rather than calling it partial", async () => {
+    const active = await session();
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", notes: "one" } });
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", notes: "two" } });
+    const report = await rollback({ journal: active.journal, router: active.router, runId: active.runId, toSeq: 1 });
+    expect(report.status).toBe("rolled_back");
+    expect(active.journal.getRun(active.runId)?.status).toBe("rolled_back");
+  });
+});
+
+describe("replanning under a policy that now says something different", () => {
+  async function recorded(): Promise<Session> {
+    const active = await session();
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } });
+    return active;
+  }
+
+  it("believes a corrected policy that says there is no undo, rather than running the old one", async () => {
+    const active = await recorded();
+    const noUndo = parseManifest(
+      `version: 1\nservers:\n  crm:\n    command: node\ntools:\n  - match: "crm.update_customer"\n    class: irreversible\n`,
+      "m.yaml",
+    );
+    const report = await rollback({ journal: active.journal, router: active.router, runId: active.runId, replanWith: noUndo });
+    expect(report.steps.find((step) => step.seq === 1)?.kind).toBe("permanent");
+    expect(active.store.__snapshot()).not.toEqual(active.before);
+  });
+
+  it("stops and says why when the corrected policy cannot build an undo", async () => {
+    const active = await recorded();
+    const unbuildable = parseManifest(
+      WRONG_POLICY.replace("$snapshot.wrong_field", "$result.not_there"),
+      "m.yaml",
+    );
+    const report = await rollback({ journal: active.journal, router: active.router, runId: active.runId, replanWith: unbuildable });
+    expect(report.halted?.reason).toMatch(/corrected policy could not build an undo/);
+    expect(active.store.__snapshot()).not.toEqual(active.before);
+  });
+});
+
 describe("planning with --to", () => {
   it("shows what it is leaving behind, not only what it will touch", async () => {
     // A dry run listed the actions above the floor and said nothing at all

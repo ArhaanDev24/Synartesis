@@ -38,6 +38,7 @@ const toolPolicy = z.strictObject({
   snapshot: callTemplate.optional(),
   inverse: callTemplate.optional(),
   verify: callTemplate.optional(),
+  undo_requires_absent: callTemplate.optional(),
 });
 
 const serverSpec = z.strictObject({
@@ -381,6 +382,12 @@ function validate(source: Source, manifest: Manifest): void {
       }
       checkCall(source, [...path, "verify"], policy.verify, servers, allowed);
     }
+    if (policy.undoRequiresAbsent !== undefined) {
+      if (policy.inverse === undefined) {
+        source.fail([...path, "undo_requires_absent"], "this guards an undo, and the rule declares none");
+      }
+      checkCall(source, [...path, "undo_requires_absent"], policy.undoRequiresAbsent, servers, ["$.", "$result."]);
+    }
   });
 }
 
@@ -414,6 +421,7 @@ function withGate(policy: z.infer<typeof toolPolicy>): ToolPolicy {
     ...(policy.snapshot === undefined ? {} : { snapshot: toCall(policy.snapshot) }),
     ...(policy.inverse === undefined ? {} : { inverse: toCall(policy.inverse) }),
     ...(policy.verify === undefined ? {} : { verify: toCall(policy.verify) }),
+    ...(policy.undo_requires_absent === undefined ? {} : { undoRequiresAbsent: toCall(policy.undo_requires_absent) }),
   };
 }
 

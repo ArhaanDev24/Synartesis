@@ -76,7 +76,12 @@ function sameState(a: unknown, b: unknown): boolean {
 
 /** The state the recorded undo would produce, which is the pre-write one. */
 function intended(action: ActionRow): StateObservation | undefined {
-  return action.snapshot === undefined ? undefined : { present: true, value: action.snapshot };
+  if (action.snapshot !== undefined) {
+    return { present: true, value: action.snapshot };
+  }
+  // As in rollback: a reversible write whose pre-read found nothing -- a move
+  // onto a free path -- is undone when that path is empty again.
+  return action.class === "reversible" && action.verify !== undefined ? { present: false } : undefined;
 }
 
 /**
@@ -99,7 +104,8 @@ export async function inspect(options: InspectOptions): Promise<Inspection> {
   const signal = options.signal ?? new AbortController().signal;
   const actions = journal.getActions(runId);
   const resources: Resource[] = [];
-  const seen = new Set<string>();
+  // The newest write to each resource, by the read that identifies it.
+  const seen = new Map<string, ActionRow>();
 
   // Newest first, so the write that owns the current state is the one asked
   // about. The list is turned back the right way up before returning: reading
@@ -157,11 +163,26 @@ export async function inspect(options: InspectOptions): Promise<Inspection> {
     }
 
     const key = resourceKey(toResolvedRead(verify.data));
-    if (seen.has(key)) {
+    const newer = seen.get(key);
+    if (newer !== undefined) {
+      // Superseded only if the agent's next write started from exactly what
+      // this one left. Somebody's edit in between -- X to Y by the agent,
+      // Y to W by a person, W to Z by the agent -- was reported as nothing
+      // touched, and the undo then stopped on it.
+      const between = newer.snapshot === undefined ? undefined : { present: true, value: newer.snapshot };
+      if (between !== undefined && !sameState(between, post.data)) {
+        resources.push({
+          ...at,
+          condition: "changed",
+          note: "changed between two of the agent's writes",
+          diff: changedLines(post.data, between),
+        });
+        continue;
+      }
       resources.push({ ...at, condition: "superseded" });
       continue;
     }
-    seen.add(key);
+    seen.set(key, action);
 
     let current: StateObservation;
     try {

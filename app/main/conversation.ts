@@ -5,6 +5,7 @@ import type { Engine } from "./engine.js";
 import { SEPARATOR } from "../../src/proxy/routing.js";
 import { briefing } from "./briefing.js";
 import { explain } from "../providers/explain.js";
+import { canonical } from "../../src/canonical.js";
 import type { Exchange, Provider, Reasoning } from "../providers/index.js";
 import type { ChangeSummary, ChatMessage, Recorded, SessionEvent } from "../shared/ipc.js";
 import { fold } from "../shared/transcript.js";
@@ -186,12 +187,16 @@ export class Conversation {
    * agent runs calls one at a time for reasons of its own, which happens to
    * make "newest" exact rather than merely likely.
    */
-  #recorded(server: string, tool: string, from: number): Recorded | undefined {
+  #recorded(server: string, tool: string, args: unknown, from: number): Recorded | undefined {
     const engine = this.options.engine();
     const actions = engine.journal.getActions(engine.runId);
+    // The same arguments too. By tool alone, a call that was never sent --
+    // or one the proxy refused before recording it -- borrowed the label of
+    // the last call to that tool and showed "Can be put back".
+    const wanted = canonical(args);
     for (let at = actions.length - 1; at >= from; at -= 1) {
       const action = actions[at];
-      if (action !== undefined && action.tool === tool && action.server === server) {
+      if (action !== undefined && action.tool === tool && action.server === server && canonical(action.args) === wanted) {
         return {
           class: action.class,
           status: action.status,
@@ -204,6 +209,11 @@ export class Conversation {
 
   stop(): void {
     this.#stopping?.abort();
+  }
+
+  /** Whether a turn is running now. */
+  get busy(): boolean {
+    return this.#stopping !== undefined;
   }
 
   async send(text: string, provider: Provider, reasoning: Reasoning): Promise<void> {
@@ -263,7 +273,9 @@ export class Conversation {
             }
             if (event.kind === "result" && event.call !== undefined && event.result !== undefined) {
               const [server, tool] = split(event.call.name);
-              const found = this.#recorded(server, tool, before);
+              // Never sent, so never recorded: nothing to look up.
+              const found =
+                event.call.malformed === undefined ? this.#recorded(server, tool, event.call.args, before) : undefined;
               emit({
                 kind: "result",
                 call: {
@@ -293,11 +305,18 @@ export class Conversation {
       // has its own dialect for, because "404 NOT_FOUND {json}" tells nobody
       // that the model was retired last week and what to put in its place.
       const raw = error instanceof Error ? error.message : String(error);
+      // Stopped, not broken: the person pressed Stop, and the SDK's "Request
+      // was aborted." read as an error they had caused something to throw.
+      if (controller.signal.aborted) {
+        this.#history = [...sofar, { role: "assistant", text: "(This turn was stopped by the person.)" }];
+        emit({ kind: "stopped", why: "you stopped it" });
+        return;
+      }
       // Kept, ending on a line of the model's own, so the next request is a
       // well-formed conversation and the model knows this one was cut short.
       this.#history = [
         ...sofar,
-        { role: "assistant", text: `(This turn stopped before it finished: ${controller.signal.aborted ? "the person stopped it" : raw})` },
+        { role: "assistant", text: `(This turn stopped before it finished: ${raw})` },
       ];
       const read = explain(provider.id, raw);
       emit({

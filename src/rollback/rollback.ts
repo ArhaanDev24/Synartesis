@@ -7,6 +7,7 @@ import { labelFor, type ActionRow, type ActionStatus, type Journal, type Lease }
 import type { Router } from "../proxy/routing.js";
 import { CALL_TIMEOUT_MS } from "../proxy/upstream.js";
 import {
+  guardedInverse,
   observeState,
   planInverse,
   planRead,
@@ -75,10 +76,24 @@ export interface RollbackReport {
   readonly halted?: RollbackHalt;
 }
 
+/**
+ * What a preview expects each resource to look like once the undos it has
+ * planned so far have run. Passed from one dry run to the next when several
+ * sessions are previewed as one undo, newest first.
+ */
+export type Projection = Map<string, StateObservation | symbol>;
+
 export interface RollbackOptions {
   readonly journal: Journal;
   readonly router: Router;
   readonly runId: string;
+  /**
+   * Shared across the dry runs of several sessions undone together. Each
+   * session was previewed against the live world, so an older session's
+   * edit to a file a newer one had also changed showed as drift a real
+   * undo -- reverting the newer one first -- never meets.
+   */
+  readonly projection?: Projection;
   /** Lowest sequence to undo. Sequences below it are left in place. */
   readonly toSeq?: number;
   readonly dryRun?: boolean;
@@ -235,25 +250,54 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
    */
   const replan = (
     action: ActionRow,
-  ): { inverse?: InversePlan; verify?: InversePlan; error?: string } => {
+  ): {
+    inverse?: InversePlan;
+    verify?: InversePlan;
+    error?: string;
+    /** The corrected policy says this cannot be undone. */
+    permanent?: true;
+    cls?: ActionRow["class"];
+  } => {
     if (policies === undefined) {
       return {};
     }
     const policy = policies.resolve(qualify(action.server, action.tool)).policy;
+    // A policy corrected to say there is no undo is believed. Falling back
+    // to the recorded inverse ran the very undo the correction was for.
+    //
+    // And a write capture declared beyond undo stays there: a move onto a
+    // file that already existed recorded no inverse and no snapshot, because
+    // putting it back would leave nothing where the old contents were.
+    // Rebuilding one from the arguments brought that undo back, halted for
+    // want of a post-state, and offered --force -- which destroyed the file
+    // the rule exists to protect.
+    const overwrote = action.inverse === undefined && policy.snapshot?.expect === "absent";
+    if (policy.inverse === undefined || overwrote) {
+      return { permanent: true, cls: policy.class };
+    }
     const context = {
       args: action.args,
       ...(action.snapshot === undefined ? {} : { snapshot: action.snapshot }),
       ...(action.result === undefined ? {} : { result: toPayload(action.result) }),
     };
     try {
+      // The read the capture would have used: the pre-read where there is
+      // one, and the policy's post-call read where there is not. Rebuilding
+      // only from `snapshot` compared a recorded post-state against a read of
+      // a different shape, and reported drift that was not there.
+      const verify =
+        policy.snapshot !== undefined
+          ? planRead(policy.snapshot, { args: action.args })
+          : policy.verify !== undefined
+            ? planRead(policy.verify, context)
+            : undefined;
       return {
-        ...(policy.inverse === undefined ? {} : { inverse: planInverse(policy.inverse, context) }),
-        ...(policy.snapshot === undefined
-          ? {}
-          : { verify: planRead(policy.snapshot, { args: action.args }) }),
+        inverse: guardedInverse(planInverse(policy.inverse, context), policy.undoRequiresAbsent, context),
+        ...(verify === undefined ? {} : { verify }),
+        cls: policy.class,
       };
     } catch (error: unknown) {
-      return { error: describe(error) };
+      return { error: describe(error), cls: policy.class };
     }
   };
 
@@ -280,7 +324,7 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
    * reaches it. Only ever consulted on a dry run: a real rollback reads the
    * world, because the world is what it is about to change.
    */
-  const projected = new Map<string, StateObservation | typeof UNFORESEEABLE>();
+  const projected: Projection = options.projection ?? new Map<string, StateObservation | symbol>();
 
   for (const action of inScope) {
     // Between actions, where stopping costs nothing: everything below this
@@ -305,6 +349,16 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     // because something was being *read* would be stopping on nothing.
     if (action.class === "readonly") {
       steps.push({ ...describeStep(action), kind: "skip", reason: "readonly", verified: true });
+      continue;
+    }
+
+    // The desktop app's own operations -- asking what changed, and undoing --
+    // are recorded like any call but change nothing an undo could put back.
+    // Its undo_session is in flight inside the very session it is undoing,
+    // and stopping on it as an outcome nobody knows stopped every undo the
+    // model was asked to make.
+    if (action.server === OWN_SERVER) {
+      steps.push({ ...describeStep(action), kind: "skip", reason: "the app's own operation", verified: true });
       continue;
     }
 
@@ -334,7 +388,17 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     }
 
     const rebuilt = replan(action);
-    const parsedPlan = inversePlan.safeParse(rebuilt.inverse ?? action.inverse);
+    // The corrected policy could not build an undo from what was captured.
+    // Said, and stopped on: falling back to the recorded inverse quietly ran
+    // the one the person had asked to replace.
+    if (rebuilt.error !== undefined) {
+      const reason = `the corrected policy could not build an undo for this: ${rebuilt.error}`;
+      halted = { seq: action.seq, reason, detail: "" };
+      steps.push({ ...describeStep(action), kind: "halt", reason, verified: false });
+      break;
+    }
+    const cls = rebuilt.cls ?? action.class;
+    const parsedPlan = inversePlan.safeParse(rebuilt.permanent === true ? undefined : (rebuilt.inverse ?? action.inverse));
     if (!parsedPlan.success) {
       // An applied action with nothing to undo. Nothing here is uncertain: the
       // email was sent, and no amount of stopping un-sends it. Stopping only
@@ -344,14 +408,14 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       const approved =
         action.approvedBy === undefined ? "" : `, approved by ${action.approvedBy}`;
       const reason =
-        action.class === "irreversible"
+        cls === "irreversible"
           ? `cannot be undone${approved}; left in place`
           : `no usable inverse was recorded${action.error === undefined ? "" : `: ${action.error}`}; left in place`;
       // Only for the irreversible branch: the other one already quotes the row
       // and a note would say it twice. This is the worst case of the lot -- a
       // permanent action nothing confirmed, which is somebody asking whether
       // the email went out and getting a line that does not say.
-      const unconfirmed = action.class === "irreversible" ? caveat(action) : undefined;
+      const unconfirmed = cls === "irreversible" ? caveat(action) : undefined;
       steps.push({
         ...describeStep(action),
         kind: "permanent",
@@ -387,6 +451,12 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     const verifyRead = resolvedRead.safeParse(rebuilt.verify ?? action.verify);
     const recordedPost = observation.safeParse(action.postSnapshot);
     let verified = false;
+    // In a preview, set where the undo above this one leaves the resource in
+    // a state nobody can foresee -- a compensation says nothing about the
+    // value it leaves. Reading the live world instead compared against the
+    // newest write, and reported "already undone" or drift that a real undo,
+    // putting the states back on its way down, never meets.
+    let unforeseeable = false;
 
     if (recordedPost.success && verifyRead.success) {
       // In a preview the inverses above this one have not been sent, so the
@@ -399,11 +469,16 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
         ? projected.get(resourceKey(toResolvedRead(verifyRead.data)))
         : undefined;
       let current: StateObservation;
+      if (foreseen === UNFORESEEABLE) {
+        unforeseeable = true;
+      }
       try {
         current =
-          foreseen !== undefined && foreseen !== UNFORESEEABLE
-            ? foreseen
-            : await observeState(router, toResolvedRead(verifyRead.data), signal);
+          foreseen === UNFORESEEABLE
+            ? recordedPost.data
+            : foreseen !== undefined && typeof foreseen !== "symbol"
+              ? foreseen
+              : await observeState(router, toResolvedRead(verifyRead.data), signal);
       } catch (error: unknown) {
         // Not written back, for the reason the `pending` halt is not: the read
         // never happened, so nothing was learned about the resource. Recording
@@ -484,7 +559,7 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     //
     // A compensable action is a different case and must not be caught by this:
     // its policy declares no pre-read at all, so nothing was promised.
-    if (!verified && action.class === "reversible" && !force) {
+    if (!verified && cls === "reversible" && !force) {
       const reason = unverifiedBecause(action);
       // The row usually knows why there is no post-state, and saying only the
       // consequence reads as an oversight -- as though a reading was simply
@@ -512,15 +587,20 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
       break;
     }
 
-    if (!verified && action.status === "rolling_back") {
+    // The same halt, from an earlier attempt that wrote it down: the row is
+    // `unrecoverable` by then, and --replan, which may claim such rows, sent
+    // the compensation a second time. Correcting a policy says nothing about
+    // whether the first one landed; only --force takes that risk.
+    const sentBefore =
+      action.status === "rolling_back" || (action.status === "unrecoverable" && action.error === ALREADY_SENT && !force);
+    if (!verified && sentBefore) {
       // An inverse was already sent for this action before something
       // interrupted us, and there is no declared read to tell us whether it
       // landed. Sending it again could double-apply, so a human decides.
-      const reason =
-        "an inverse was already sent before an interruption and no pre-read is declared, so whether it applied cannot be determined";
-      halted = { seq: action.seq, reason, detail: action.error ?? "" };
+      const reason = ALREADY_SENT;
+      halted = { seq: action.seq, reason, detail: action.error === ALREADY_SENT ? "" : (action.error ?? "") };
       steps.push({ ...describeStep(action), kind: "halt", reason, verified: false, plan });
-      if (!dryRun) {
+      if (!dryRun && action.status === "rolling_back") {
         journal.markUnrecoverable(action.id, reason);
       }
       break;
@@ -540,10 +620,12 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     steps.push({
       ...describeStep(action),
       kind: "revert",
-      reason: verified
-        ? "unchanged since, so safe to put back"
-        : (forcedOver ?? unverifiedBecause(action)),
-      verified,
+      reason: unforeseeable
+        ? "checked when it runs: the undo above it leaves this in a state a preview cannot foresee"
+        : verified
+          ? "unchanged since, so safe to put back"
+          : (forcedOver ?? unverifiedBecause(action)),
+      verified: verified && !unforeseeable,
       plan,
       ...(rebuilt.inverse === undefined ? {} : { replanned: true }),
       ...(recordedWith === undefined ? {} : { note: recordedWith }),
@@ -593,6 +675,35 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     // Note this is not `--force`. Forcing past drift and resuming after a
     // crash are different intents that happened to share a flag, and a
     // forced claim of a live row is the double-send the claim exists to stop.
+    // Where the undo would put something back must be empty. Moving a file
+    // back renames it over whatever is at its old path by then -- a file the
+    // agent made there later, or a person did -- and rename replaces without
+    // asking. Nothing overrides this, --force included: what is in the way is
+    // not the agent's to lose.
+    const guard = guardOf(rebuilt.inverse ?? action.inverse);
+    if (guard !== undefined) {
+      let occupied: boolean;
+      try {
+        occupied = (await observeState(router, guard, signal)).present;
+      } catch (error: unknown) {
+        const reason = `could not check that the place it would put this back is free: ${describe(error)}`;
+        halted = { seq: action.seq, reason, detail: "" };
+        steps.push({ ...describeStep(action), kind: "halt", reason, verified: false, plan });
+        break;
+      }
+      if (occupied) {
+        const reason = `something is now where this would be put back (${describeRead(guard)}), and undoing would replace it`;
+        halted = {
+          seq: action.seq,
+          reason,
+          detail: "Move or remove what is there, if it should not be kept, and run undo again.",
+          conflict: true,
+        };
+        steps.push({ ...describeStep(action), kind: "halt", reason, verified, plan });
+        break;
+      }
+    }
+
     const lease = action.status === "rolling_back" ? journal.leaseFor(action.id) : undefined;
     const abandoned = verified && lease?.alive === false;
     const claimable: readonly ActionStatus[] = [
@@ -685,8 +796,10 @@ export async function rollback(options: RollbackOptions): Promise<RollbackReport
     });
   }
 
+  // A floor at the first action is no floor: `--to 1` undoes everything, and
+  // calling that partial left a fully reversed session looking half done.
   const completedWholeRun =
-    halted === undefined && !leftInPlace && options.toSeq === undefined;
+    halted === undefined && !leftInPlace && (options.toSeq === undefined || options.toSeq <= 1);
   const status = completedWholeRun ? "rolled_back" : "partial";
   if (!dryRun) {
     // Unrestricted, deliberately: a rollback's verdict on a run is the whole
@@ -813,12 +926,39 @@ function looksUndone(now: StateObservation, action: ActionRow): boolean {
   return action.class === "compensable" && !now.present;
 }
 
+/** The read an undo needs to find nothing, when its policy declared one. */
+function guardOf(inverse: unknown): ResolvedRead | undefined {
+  const parsed = z.looseObject({ requiresAbsent: resolvedRead.optional() }).safeParse(inverse);
+  return parsed.success && parsed.data.requiresAbsent !== undefined ? toResolvedRead(parsed.data.requiresAbsent) : undefined;
+}
+
+/** A read, as a person would recognise it: its arguments, briefly. */
+function describeRead(read: ResolvedRead): string {
+  const shown = Object.values(read.args).filter((value) => typeof value === "string").join(", ");
+  return shown === "" ? `${read.server}.${read.tool}` : shown;
+}
+
+/** The server name the desktop app gives its own tools. */
+const OWN_SERVER = "synartesis";
+
+/** Why an action whose inverse may already have landed was stopped on. */
+const ALREADY_SENT =
+  "an inverse was already sent before an interruption and no pre-read is declared, so whether it applied cannot be determined";
+
 function truncated(text: string): string {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
 function intendedAfterInverse(action: ActionRow): StateObservation | undefined {
-  return action.snapshot === undefined ? undefined : { present: true, value: action.snapshot };
+  if (action.snapshot !== undefined) {
+    return { present: true, value: action.snapshot };
+  }
+  // A reversible write with a drift read but nothing captured before it is
+  // one whose pre-read was meant to find nothing -- a move onto a free path
+  // -- and its undo leaves that path empty again. Reading no state here
+  // meant a move already put back, by hand or by an undo that was killed,
+  // was taken for drift, and forcing it sent the move a second time.
+  return action.class === "reversible" && action.verify !== undefined ? { present: false } : undefined;
 }
 
 /**

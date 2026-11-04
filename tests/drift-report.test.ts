@@ -94,3 +94,28 @@ describe("what a drift halt tells you", () => {
     expect(new DriftConflict(3, undefined, undefined).message).toContain("undefined");
   });
 });
+
+describe("a drift report on a snapshot that is one long line", () => {
+  it("shows the stretch where they differ, not the whole file twice", () => {
+    const long = "x".repeat(50_000);
+    const message = new DriftConflict(
+      1,
+      { present: true, value: { content: `${long}A${long}` } },
+      { present: true, value: { content: `${long}B${long}` } },
+    ).message;
+    expect(message.length).toBeLessThan(2_000);
+    expect(message).toContain("A");
+    expect(message).toContain("B");
+  });
+
+  it("compares the same field on both sides, and finds a change outside the longest text", () => {
+    const body = "the same long body text ".repeat(20);
+    const message = new DriftConflict(
+      1,
+      { present: true, value: { body, title: "Plan" } },
+      { present: true, value: { body, title: "Plan, edited" } },
+    ).message;
+    expect(message).toContain("title");
+    expect(message).toContain("Plan, edited");
+  });
+});

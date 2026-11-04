@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { GoogleGenAI, ThinkingLevel, type Content, type Part, type Tool } from "@google/genai";
 
 import type { Ask, Exchange, Provider, ProviderTool, Reasoning, ToolCall, Turn } from "./types.js";
@@ -34,6 +36,15 @@ const DEFAULT_MODEL = "gemini-3.8-flash";
  * does not recognise. So the synthetic ones are recognisable and stripped.
  */
 const INVENTED = "gemini-call-";
+
+/** Finish reasons that mean the reply was not given, in words. */
+const STOPPED: Readonly<Record<string, string>> = {
+  MALFORMED_FUNCTION_CALL: "wrote a tool call that could not be read; ask again, or try another model",
+  SAFETY: "stopped this reply for safety reasons",
+  RECITATION: "stopped this reply because it was repeating published material",
+  BLOCKLIST: "stopped this reply because it contained blocked terms",
+  PROHIBITED_CONTENT: "stopped this reply as prohibited content",
+};
 
 const LEVEL: Record<Reasoning, ThinkingLevel> = {
   brief: ThinkingLevel.LOW,
@@ -159,8 +170,11 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
 
       let text = "";
       const calls: ToolCall[] = [];
+      const turnId = randomUUID().slice(0, 8);
       let usage: Turn["usage"];
+      let finish: string | undefined;
       for await (const chunk of stream) {
+        finish = chunk.candidates?.[0]?.finishReason ?? finish;
         const said = chunk.text;
         if (said !== undefined && said !== "") {
           text += said;
@@ -177,7 +191,10 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
             continue;
           }
           calls.push({
-            id: call.id ?? `${INVENTED}${String(calls.length)}`,
+            // Unique past this turn: numbered from zero every round, two
+            // rounds' calls shared an id, and the second round's card
+            // replaced the first's in the window and in the saved chat.
+            id: call.id ?? `${INVENTED}${turnId}-${String(calls.length)}`,
             name: call.name,
             args: call.args ?? {},
             ...(part.thoughtSignature === undefined
@@ -195,6 +212,13 @@ export function createGeminiProvider(options: GeminiOptions): Provider {
             output: (counted.candidatesTokenCount ?? 0) + (counted.thoughtsTokenCount ?? 0),
           };
         }
+      }
+      // A reply that stopped for a reason of its own arrives with no parts, and
+      // read as an empty turn: no error, nothing on screen, and the model
+      // never told its call could not be read.
+      const stopped = finish === undefined ? undefined : STOPPED[finish];
+      if (stopped !== undefined && calls.length === 0 && text === "") {
+        throw new Error(`${model} ${stopped}`);
       }
       return { text, calls, ...(usage === undefined ? {} : { usage }) };
     },

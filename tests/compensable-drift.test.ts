@@ -301,3 +301,65 @@ describe("a crash part-way through compensating", () => {
     expect(active.journal.getActions(active.runId)[0]?.status).toBe("rolling_back");
   });
 });
+
+describe("a compensation that may already have landed, replanned", () => {
+  it("is not sent again on --replan; only --force takes that risk", async () => {
+    // Halted once as "already sent, and nothing to check it by", written down
+    // as unrecoverable -- and --replan, which may claim such rows, sent it a
+    // second time.
+    const active = await session(WITHOUT_VERIFY);
+    await createOne(active);
+    const row = active.journal.getActions(active.runId)[0];
+    if (row === undefined) {
+      throw new Error("expected an action");
+    }
+    // As an earlier undo leaves it after stopping there: unrecoverable, with
+    // the reason it stopped.
+    active.journal.markRollingBack(row.id);
+    active.journal.markUnrecoverable(
+      row.id,
+      "an inverse was already sent before an interruption and no pre-read is declared, so whether it applied cannot be determined",
+    );
+
+    let deletes = 0;
+    const real = active.store.deleteCustomer.bind(active.store);
+    active.store.deleteCustomer = (id: string) => {
+      deletes += 1;
+      return real(id);
+    };
+    const replanned = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      replanWith: WITHOUT_VERIFY,
+    });
+    expect(replanned.halted?.reason).toMatch(/already sent/);
+    expect(deletes).toBe(0);
+  });
+});
+
+describe("previewing an undo below one it cannot foresee", () => {
+  it("does not read the live world in its place and call the older one already undone", async () => {
+    // Delete a customer, then restore them. The preview of undoing the delete
+    // compared against the world as it is -- restored -- and said the delete
+    // was already undone; the real undo deletes and then restores.
+    const active = await session(WITH_VERIFY);
+    const before = active.store.__snapshot().customers["c_001"];
+    await active.client.callTool({ name: "delete_customer", arguments: { id: "c_001" } });
+    await active.client.callTool({
+      name: "restore_customer",
+      arguments: {
+        id: "c_001",
+        name: before?.name,
+        email: before?.email,
+        plan: before?.plan,
+        notes: before?.notes,
+      },
+    });
+
+    const preview = await rollback({ journal: active.journal, router: active.router, runId: active.runId, dryRun: true });
+    const deleted = preview.steps.find((step) => step.tool === "delete_customer");
+    expect(deleted?.kind).toBe("revert");
+    expect(deleted?.reason).toMatch(/cannot foresee/);
+  });
+});

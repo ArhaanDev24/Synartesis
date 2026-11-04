@@ -725,3 +725,45 @@ describe("a conversations file that will not parse", () => {
     expect(kept).toHaveLength(1);
   });
 });
+
+describe("previewing the undo of a chat picked back up", () => {
+  it("checks the older session against what the newer one's undo leaves, as the real undo does", async () => {
+    // Each session was previewed against the live world, so the older one's
+    // edit showed as drift that the real undo -- newer session first --
+    // never meets.
+    const first = await bench();
+    const path = join(first.files, "twice.txt");
+    writeFileSync(path, "zero\n");
+    const opened = await first.desk.start();
+    first.script.calls = [{ name: WRITE, args: { path, content: "one\n" } }];
+    await first.desk.send(opened.id, "first edit");
+    await first.desk.close();
+    desks.length = 0;
+
+    const again = first.reopen();
+    await again.open(opened.id);
+    first.script.calls = [{ name: WRITE, args: { path, content: "two\n" } }];
+    await again.send(opened.id, "second edit");
+
+    const plan = await again.previewUndo(opened.id);
+    expect(plan).not.toMatch(/would stop/);
+    await again.undo(opened.id);
+    expect(readFileSync(path, "utf8")).toBe("zero\n");
+  });
+});
+
+describe("a second message while the model is still answering", () => {
+  it("is refused, so the first turn can still be stopped", async () => {
+    const { desk, files, script, events } = await bench({ gateTimeoutMs: 4000 });
+    const opened = await desk.start();
+    script.calls = [{ name: WRITE, args: { path: join(files, "held.txt"), content: "x\n" } }];
+    const first = desk.send(opened.id, "make a file");
+    for (let i = 0; i < 200 && !events.some((one) => one.event.kind === "approval"); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    await expect(desk.send(opened.id, "and another")).rejects.toThrow(/still answering/);
+    await expect(desk.undo(opened.id)).rejects.toThrow(/still working/);
+    desk.stop(opened.id);
+    await first;
+  });
+});

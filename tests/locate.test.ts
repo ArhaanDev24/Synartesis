@@ -1,9 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+
+import Database from "better-sqlite3";
 import { join } from "node:path";
 
-import { findJournal, findManifest } from "../src/locate.js";
+import { openJournal } from "../src/journal/journal.js";
+import { findJournal, findManifest, home } from "../src/locate.js";
 
 const originalCwd = process.cwd();
 const dirs: string[] = [];
@@ -112,5 +115,56 @@ describe("when the work is not happening in a project at all", () => {
     process.chdir(project);
 
     expect(findManifest()).toBe(join(project, "synartesis.yaml"));
+  });
+});
+
+describe("files found by walking up that belong to someone else", () => {
+  it("are passed over, so a policy planted in a shared directory is never used", () => {
+    // On a shared machine /tmp is writable by anybody. A policy planted there
+    // names the commands the proxy starts.
+    const dir = workspace();
+    const inner = join(dir, "project");
+    mkdirSync(inner);
+    writeFileSync(join(dir, "synartesis.yaml"), "version: 1\n");
+    process.chdir(inner);
+    const real = process.getuid?.bind(process);
+    if (real === undefined) {
+      return;
+    }
+    const spy = vi.spyOn(process, "getuid").mockReturnValue(real() + 1);
+    try {
+      expect(findManifest()).not.toBe(join(dir, "synartesis.yaml"));
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("SYNARTESIS_HOME set to nothing", () => {
+  it("is the same as unset, not the current directory", () => {
+    const saved = process.env["SYNARTESIS_HOME"];
+    process.env["SYNARTESIS_HOME"] = "";
+    try {
+      expect(home()).toBe(join(homedir(), ".synartesis"));
+    } finally {
+      if (saved === undefined) {
+        delete process.env["SYNARTESIS_HOME"];
+      } else {
+        process.env["SYNARTESIS_HOME"] = saved;
+      }
+    }
+  });
+});
+
+describe("a database that is somebody else's, at a journal's path", () => {
+  it("is refused and left exactly as it was", () => {
+    const dir = workspace();
+    const path = join(dir, "journal.db");
+    const other = new Database(path);
+    other.exec("CREATE TABLE photos (id INTEGER)");
+    other.close();
+    const before = readFileSync(path);
+    expect(() => openJournal(path)).toThrow(/not a Synartesis journal/);
+    expect(readFileSync(path).equals(before)).toBe(true);
   });
 });

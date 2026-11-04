@@ -323,3 +323,20 @@ describe("what the person approving is told", () => {
     expect(held[0]?.error ?? "").toMatch(/nothing was captured/i);
   });
 });
+
+describe("the on_write heuristic, on quoting it used to misread", () => {
+  it("reads PostgreSQL dollar quoting as a string", () => {
+    expect(shouldGateOnWrite({ sql: "SELECT $$ ' $$; DELETE FROM users" })).toBe(true);
+    expect(shouldGateOnWrite({ sql: "SELECT $tag$ ' $tag$; DROP TABLE x" })).toBe(true);
+    expect(shouldGateOnWrite({ sql: "SELECT $$it's fine$$" })).toBe(false);
+  });
+
+  it("holds a literal with a backslash, whose end depends on the database", () => {
+    expect(shouldGateOnWrite({ sql: "SELECT E'\\'', 1; DELETE FROM users; --'" })).toBe(true);
+  });
+
+  it("reads every string, not only the top-level ones", () => {
+    expect(shouldGateOnWrite({ statements: ["DROP TABLE x"], label: "select 1" })).toBe(true);
+    expect(shouldGateOnWrite({ statements: ["SELECT 1", "SELECT 2"] })).toBe(false);
+  });
+});

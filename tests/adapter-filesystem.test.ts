@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -203,5 +203,96 @@ describe(`the shipped filesystem policy, against server ${TESTED_AGAINST}`, () =
     expect(write?.class).toBe("reversible");
     expect(write?.snapshot?.tool).toBe("fs.read_text_file");
     expect(write?.snapshot?.absentWhen ?? []).not.toHaveLength(0);
+  });
+});
+
+describe("undoing a move when something has since appeared at the old path", () => {
+  it("stops, and leaves what is there, rather than renaming over it", async () => {
+    // rename replaces without asking, and the drift check looked only at
+    // where the file went: a file put back where the old one was would have
+    // been destroyed by the undo, with nothing said.
+    const active = await bench();
+    const from = join(active.root, "draft.md");
+    const to = join(active.root, "final.md");
+    writeFileSync(from, "the draft\n");
+    await active.client.callTool({ name: "move_file", arguments: { source: from, destination: to } });
+    expect(existsSync(from)).toBe(false);
+
+    writeFileSync(from, "a new draft, written since\n");
+    const report = await rollback({ journal: active.journal, router: active.router, runId: active.runId });
+
+    expect(report.halted?.reason).toMatch(/something is now where this would be put back/);
+    expect(readFileSync(from, "utf8")).toBe("a new draft, written since\n");
+    expect(readFileSync(to, "utf8")).toBe("the draft\n");
+
+    // Not even when forced: what is in the way is not the agent's.
+    const forced = await rollback({ journal: active.journal, router: active.router, runId: active.runId, force: true });
+    expect(forced.halted).toBeDefined();
+    expect(readFileSync(from, "utf8")).toBe("a new draft, written since\n");
+  });
+
+  it("still moves it back when the old path is free", async () => {
+    const active = await bench();
+    const from = join(active.root, "a.md");
+    const to = join(active.root, "b.md");
+    writeFileSync(from, "a\n");
+    await active.client.callTool({ name: "move_file", arguments: { source: from, destination: to } });
+    const report = await rollback({ journal: active.journal, router: active.router, runId: active.runId });
+    expect(report.status).toBe("rolled_back");
+    expect(readFileSync(from, "utf8")).toBe("a\n");
+  });
+});
+
+describe("a move already put back by hand", () => {
+  it("is recognised as undone, not taken for drift", async () => {
+    // No state was recorded for where it moved from, so a move put back by a
+    // person -- or by an undo that was killed after sending it -- read as
+    // drift, and forcing it sent the move again into a file that was gone.
+    const active = await bench();
+    const from = join(active.root, "x.md");
+    const to = join(active.root, "y.md");
+    writeFileSync(from, "x\n");
+    await active.client.callTool({ name: "move_file", arguments: { source: from, destination: to } });
+    renameSync(to, from);
+
+    const report = await rollback({ journal: active.journal, router: active.router, runId: active.runId });
+    expect(report.halted).toBeUndefined();
+    expect(report.steps.find((step) => step.tool === "move_file")?.kind).toBe("already-reverted");
+    expect(readFileSync(from, "utf8")).toBe("x\n");
+  });
+});
+
+describe("a move onto a file that was already there", () => {
+  it("keeps what was overwritten, and no replan brings back an undo that would lose it", async () => {
+    const active = await bench();
+    const from = join(active.root, "new.md");
+    const to = join(active.root, "old.md");
+    writeFileSync(from, "new\n");
+    writeFileSync(to, "the only copy of the old file\n");
+    await active.client.callTool({ name: "move_file", arguments: { source: from, destination: to } });
+
+    // The read of what was there is kept as evidence: it is the only copy.
+    const row = active.journal.getActions(active.runId).find((one) => one.tool === "move_file");
+    expect(JSON.stringify(row?.snapshot)).toContain("the only copy of the old file");
+
+    // Replanned and forced, it is still not moved back over: the rule says
+    // this one has no undo, and rebuilding one from the arguments lost the
+    // overwritten file for good.
+    const policy = parseManifest(
+      readFileSync("manifests/filesystem.yaml", "utf8").replace(
+        /servers:\n  fs:\n    command:.*\n    args:.*\n/,
+        `servers:\n  fs:\n    command: "node"\n    args: []\n`,
+      ),
+      "fs.yaml",
+    );
+    const report = await rollback({
+      journal: active.journal,
+      router: active.router,
+      runId: active.runId,
+      replanWith: policy,
+      force: true,
+    });
+    expect(report.steps.find((step) => step.tool === "move_file")?.kind).toBe("permanent");
+    expect(readFileSync(to, "utf8")).toBe("new\n");
   });
 });

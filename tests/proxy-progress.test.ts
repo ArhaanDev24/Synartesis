@@ -9,7 +9,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Progress } from "@modelcontextprotocol/sdk/types.js";
 
 import { openJournal } from "../src/journal/journal.js";
-import { parseManifest } from "../src/manifest/load.js";
+import { loadManifest, parseManifest } from "../src/manifest/load.js";
+import { createRouter } from "../src/proxy/routing.js";
+import { rollback } from "../src/rollback/rollback.js";
 import { createProxyServer } from "../src/proxy/proxy.js";
 import { CALL_TIMEOUT_MS } from "../src/proxy/upstream.js";
 import { autoApproveGate, createHarness, inMemoryUpstream } from "./helpers/harness.js";
@@ -134,5 +136,41 @@ describe("a write the agent cancels", () => {
       status = harness.journal.getActions(runId).find((row) => row.tool === "update_customer")?.status;
     }
     expect(status).toBe("failed");
+  });
+});
+
+describe("a write that landed while its answer was lost", () => {
+  it("keeps what the read-back saw, so undoing it needs no --force", async () => {
+    // The read that settled "it applied" was thrown away, so the row had no
+    // post-state and every undo of it stopped and asked to be forced.
+    const harness = await createHarness();
+    cleanups.push(() => harness.dispose());
+    const client = harness.upstream.client;
+    const real = client.request.bind(client);
+    client.request = async (request, schema, options) => {
+      if (request.method === "tools/call" && request.params?.["name"] === "update_customer") {
+        await real(request, schema, options);
+        throw new Error("Request timed out");
+      }
+      return real(request, schema, options);
+    };
+    const before = harness.store.__snapshot();
+    await harness.proxied
+      .callTool({ name: "update_customer", arguments: { id: "c_001", plan: "free" } })
+      .catch(() => undefined);
+
+    const runId = harness.journal.listRuns()[0]?.id ?? "";
+    const row = harness.journal.getActions(runId).find((one) => one.tool === "update_customer");
+    expect(row?.status).toBe("applied");
+    expect(row?.postSnapshot).toBeDefined();
+
+    client.request = real;
+    const report = await rollback({
+      journal: harness.journal,
+      router: createRouter([harness.upstream], loadManifest("manifests/toy-crm.yaml")),
+      runId,
+    });
+    expect(report.status).toBe("rolled_back");
+    expect(harness.store.__snapshot()).toEqual(before);
   });
 });

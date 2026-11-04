@@ -149,3 +149,20 @@ describe("asking what has happened since, without undoing anything", () => {
     expect(found.resources.map((one) => one.seq)).toEqual([1, 2]);
   });
 });
+
+describe("a person's edit between two of the agent's writes", () => {
+  it("is reported as a change, not as nothing touched", async () => {
+    // Agent X to Y, person Y to W, agent W to Z. The older write was called
+    // superseded, the verdict said everything would undo cleanly, and the
+    // undo then stopped on exactly this.
+    const active = await session();
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", notes: "agent, first" } });
+    active.store.updateCustomer("c_001", { notes: "a person, in between" });
+    await active.client.callTool({ name: "update_customer", arguments: { id: "c_001", notes: "agent, second" } });
+
+    const seen = await inspect({ journal: active.journal, router: active.router, runId: active.runId });
+    const first = seen.resources.find((one) => one.seq === 1);
+    expect(first?.condition).toBe("changed");
+    expect(verdict(seen)).not.toMatch(/would undo cleanly/);
+  });
+});

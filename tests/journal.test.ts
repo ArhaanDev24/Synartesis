@@ -517,3 +517,22 @@ describe("the lookups a person waits on", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe("a call a person settled while it was still running", () => {
+  it("keeps the person's verdict when the call's own answer arrives later", () => {
+    const dir = mkdtempSync(join(tmpdir(), "synartesis-settled-"));
+    const journal = openJournal(join(dir, "journal.db"));
+    try {
+      const runId = journal.beginRun("agent");
+      const sent = journal.recordPending({ runId, server: "fs", tool: "write_file", args: {}, class: "reversible" });
+      expect(journal.settleByHand(sent.actionId, "failed", "resolved as failed by arhaan")).toBe(true);
+      journal.markApplied(sent.actionId, { result: { ok: true } });
+      const row = journal.getAction(sent.actionId);
+      expect(row?.status).toBe("failed");
+      expect(row?.result).toEqual({ ok: true });
+    } finally {
+      journal.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

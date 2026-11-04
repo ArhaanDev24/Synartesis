@@ -13,7 +13,7 @@ import { openJournal } from "../../src/journal/journal.js";
 import { Library, type SecretStore } from "./settings.js";
 import { touchedUnder } from "./touched.js";
 import { inspect, tally, verdict } from "../../src/rollback/inspect.js";
-import { rollback } from "../../src/rollback/rollback.js";
+import { rollback, type Projection } from "../../src/rollback/rollback.js";
 import type {
   Answered,
   ChatMessage,
@@ -465,6 +465,12 @@ export class Desk {
     if (live === undefined || live.conversation.id !== id) {
       throw new Error("That conversation is not open.");
     }
+    // One turn at a time, whatever the window lets through. A second send
+    // replaced the first turn's Stop, so it could no longer be stopped, and
+    // both wrote to the model's history at once.
+    if (live.conversation.busy) {
+      throw new Error("The model is still answering. Wait for it, or press Stop first.");
+    }
     // Built per turn rather than held, so a model or a key changed in the
     // settings pane takes effect on the next thing said rather than on the
     // next restart.
@@ -497,6 +503,12 @@ export class Desk {
     // For an hour: the same row `synartesis allow --for 1h` writes, so the
     // window, the terminal and the console all agree on what is let through.
     const action = journal.getAction(actionId);
+    // The app's own tools are answered one at a time. Allowed for an hour,
+    // undo_session would let the model undo any session it chose, without
+    // a person, until the hour was up.
+    if (options.forAnHour === true && action?.server === "synartesis") {
+      throw new Error("Synartesis's own actions are approved one at a time, not for an hour.");
+    }
     const changed = journal.approve(actionId, this.#signed.actor);
     if (changed && options.forAnHour === true && action !== undefined) {
       journal.allow(
@@ -565,12 +577,16 @@ export class Desk {
   async previewUndo(id: string): Promise<string> {
     const { conversation, engine } = this.#open(id);
     const lines: string[] = [];
+    // One projection across every session, as the real undo walks them: newest
+    // first, each one's undo leaving the state the next is checked against.
+    const projection: Projection = new Map();
     for (const session of [...conversation.sessions].reverse()) {
       const plan = await rollback({
         journal: engine.journal,
         router: engine.router,
         runId: session,
         dryRun: true,
+        projection,
       });
       for (const step of plan.steps) {
         lines.push(
@@ -580,6 +596,9 @@ export class Desk {
       }
       if (plan.halted !== undefined) {
         lines.push(`It would stop at step ${String(plan.halted.seq)}: ${plan.halted.reason}`);
+        // And stop there, as the real undo does. Carrying on listed undos of
+        // older sessions that would never happen.
+        break;
       }
     }
     return lines.length === 0 ? "There is nothing to put back." : lines.join("\n");
@@ -595,6 +614,11 @@ export class Desk {
    */
   async undo(id: string): Promise<string> {
     const { conversation, engine } = this.#open(id);
+    // Not under a turn that is still making changes: the undo would race
+    // the model's next write to the same files.
+    if (conversation.busy) {
+      throw new Error("The model is still working. Wait for it, or press Stop, before putting anything back.");
+    }
     const lines: string[] = [];
     for (const session of [...conversation.sessions].reverse()) {
       const report = await rollback({

@@ -128,6 +128,14 @@ tools:
       args:
         source: "$.destination"
         destination: "$.source"
+    # Moving it back renames it over whatever is at the old path by then, and
+    # rename replaces without asking: a file the agent or a person put there
+    # since would be destroyed by the undo. So that path must be empty first.
+    undo_requires_absent:
+      tool: "fs.read_text_file"
+      args:
+        path: "$.source"
+      absent_when: ["ENOENT", "no such file"]
 
   # No rmdir exists on this server, so a directory once created stays.
   - match: "fs.create_directory"

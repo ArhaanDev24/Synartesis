@@ -148,7 +148,10 @@ export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
   const sweep = setInterval(() => {
     const deadline = Date.now() - options.idleSeconds * 1000;
     for (const [id, live] of sessions) {
-      if (live.lastSeen < deadline) {
+      // Quiet, not busy: a call still running for minutes -- a build, a
+      // migration -- sends nothing while it works, and sweeping its session
+      // ended its run under it and lost the answer.
+      if (live.lastSeen < deadline && !live.proxy.busy()) {
         sessions.delete(id);
         options.log.info({ session: id }, "http session swept after going quiet");
         void live.transport.close().catch(() => undefined);
@@ -172,7 +175,9 @@ export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
           return;
         }
 
-        const origin = `http://${options.host}:${String(options.port)}`;
+        // Bracketed when it is an IPv6 address, or `new URL` refuses it and
+        // every request came back as a 400.
+        const origin = `http://${options.host.includes(":") ? `[${options.host}]` : options.host}:${String(options.port)}`;
         const raw = await readRaw(req);
         const sessionId = req.headers["mcp-session-id"];
         const existing = typeof sessionId === "string" ? sessions.get(sessionId) : undefined;
@@ -236,7 +241,7 @@ export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
   const address = server.address();
   const port = typeof address === "object" && address !== null ? address.port : options.port;
 
-  if (options.host !== "127.0.0.1" && options.host !== "localhost") {
+  if (!["127.0.0.1", "localhost", "::1"].includes(options.host)) {
     options.log.warn(
       `listening on ${options.host}, which is not loopback: anything that can reach this port and holds the token can write through your servers`,
     );
@@ -247,6 +252,12 @@ export async function serveHttp(options: HttpOptions): Promise<HttpServer> {
     port,
     close: async (): Promise<void> => {
       clearInterval(sweep);
+      // The calls still running finish first, as on stdio: closing under
+      // them cut writes off with nothing recorded about how they ended.
+      await Promise.race([
+        Promise.all([...sessions.values()].map(({ proxy }) => proxy.whenIdle())),
+        new Promise<void>((resolve) => setTimeout(resolve, 5000).unref()),
+      ]);
       for (const { transport } of sessions.values()) {
         await transport.close().catch(() => undefined);
       }

@@ -140,6 +140,16 @@ export interface ToolPolicy {
    * can never override a working pre-read with a differently shaped one.
    */
   readonly verify?: CallTemplate;
+  /**
+   * A read that must find nothing before the undo may run.
+   *
+   * An inverse that moves a file back renames it over whatever is at the
+   * original path by then, and rename replaces without asking. The drift
+   * check looks only at where the file went; this looks at where it would go
+   * back to. Something there stops the undo, and no flag overrides it: the
+   * thing in the way is not the agent's.
+   */
+  readonly undoRequiresAbsent?: CallTemplate;
 }
 
 export interface Manifest {

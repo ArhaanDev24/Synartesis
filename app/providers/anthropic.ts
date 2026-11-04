@@ -156,15 +156,21 @@ export function toTurn(message: Anthropic.Message): Turn {
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
     .map((block) => block.text)
     .join("");
-  const calls: ToolCall[] = message.content
-    .filter((block): block is Anthropic.ToolUseBlock => block.type === "tool_use")
-    .map((block) => ({
-      id: block.id,
-      name: block.name,
-      // The SDK types tool input as `unknown` because a tool's schema is the
-      // user's. Anything that is not an object is not arguments.
-      args: isRecord(block.input) ? block.input : {},
-    }));
+  const uses = message.content.filter((block): block is Anthropic.ToolUseBlock => block.type === "tool_use");
+  // Cut off mid-call by the token limit. The SDK parses what arrived
+  // leniently, so a half-written file came through as ordinary arguments --
+  // a string ending wherever the limit fell -- and went to a real disk.
+  const cut = message.stop_reason === "max_tokens" ? uses.at(-1) : undefined;
+  const calls: ToolCall[] = uses.map((block) => ({
+    id: block.id,
+    name: block.name,
+    // The SDK types tool input as `unknown` because a tool's schema is the
+    // user's. Anything that is not an object is not arguments.
+    args: isRecord(block.input) ? block.input : {},
+    ...(block === cut
+      ? { malformed: "the reply hit its length limit while writing this call, so its arguments are incomplete" }
+      : {}),
+  }));
   const thoughts = toThoughts(message);
   return {
     text,

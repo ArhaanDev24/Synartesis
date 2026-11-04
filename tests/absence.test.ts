@@ -9,6 +9,8 @@ import { openJournal, type Journal } from "../src/journal/journal.js";
 import { parseManifest } from "../src/manifest/load.js";
 import { createRouter, type Router } from "../src/proxy/routing.js";
 import { rollback } from "../src/rollback/rollback.js";
+import { runRead } from "../src/proxy/snapshot.js";
+import { SnapshotError } from "../src/errors.js";
 import { inspect, tally, verdict } from "../src/rollback/inspect.js";
 import { inMemoryUpstream } from "./helpers/harness.js";
 
@@ -153,5 +155,27 @@ describe("what a summary is allowed to claim", () => {
     const found = await inspect({ journal, router, runId });
     expect(found.resources[0]?.note ?? "").toMatch(/post-state/);
     expect(found.resources[0]?.note ?? "").not.toMatch(/no pre-read was declared/);
+  });
+});
+
+describe("an error that quotes what it was asked about", () => {
+  it("is not read as absence because the name it quotes happens to say so", async () => {
+    // A permission error on a file named "not found.txt" contains the words
+    // the policy uses for absence -- in the path, not in what went wrong.
+    const server = new McpServer({ name: "vault", version: "1.0.0" }, { capabilities: { tools: {} } });
+    server.registerTool("get", { description: "Read.", inputSchema: { key: z.string() } }, ({ key }) => ({
+      content: [{ type: "text", text: `permission denied: ${key}` }],
+      isError: true,
+    }));
+    const upstream = await inMemoryUpstream(server, "vault");
+    cleanups.push(() => upstream.close());
+    const router = createRouter([upstream], parseManifest(POLICY, "m.yaml"));
+    const read = { server: "vault", tool: "get", args: { key: "not found.txt" }, absentWhen: ["not found"] };
+    const failed = await runRead(router, read, new AbortController().signal).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failed).toBeInstanceOf(SnapshotError);
+    expect(failed instanceof SnapshotError ? failed.absent : undefined).toBe(false);
   });
 });

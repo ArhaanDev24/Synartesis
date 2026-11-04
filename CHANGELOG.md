@@ -2,6 +2,93 @@
 
 What changed, and why it mattered. Dates are release dates.
 
+## 0.9.6 — 2026-11-04
+
+Bug fixes from a sweep of the whole codebase: the undo engine and the policies
+that ship with it, the path every tool call takes, and the desktop app's model
+adapters and window. Each fix has a test that fails without it.
+
+### Fixed: undo
+
+- **`--replan` ran the very undo the corrected policy was meant to replace.**
+  - When the corrected policy says a tool has no undo, it is now left in place.
+  - When the corrected policy can't build an undo, the undo stops and says why.
+  - The corrected policy's class and drift read are now used.
+- **`--replan` could undo a move that overwrote a file**, losing the
+  overwritten file for good. Capture declares those beyond undo, and replan
+  now agrees.
+- **`--replan` could send a compensation a second time** when the first may
+  already have landed. Only `--force` takes that risk now.
+- **Undoing `move_file` could destroy a file at the original path.** Rename
+  replaces without asking, and only the destination was checked. A new policy
+  field, `undo_requires_absent`, says where must be empty first. The filesystem
+  policy uses it, and nothing overrides it, `--force` included.
+- **A move already put back**, by hand or by an undo that was killed, is
+  recognised as undone instead of being taken for drift.
+- **The preview no longer reads the live world where it can't foresee**, so it
+  stops reporting false "already undone" results or false drift.
+- **`inspect` called a person's edit between two of the agent's writes
+  "superseded"**, and said everything would undo cleanly. It reports it as a
+  change now.
+- **Drift reports:**
+  - A one-line file is shown around where the two versions differ, not whole,
+    twice.
+  - Both sides are compared field by field, so the right change is shown.
+- **A write whose answer was lost** keeps what the read-back saw, so undoing it
+  no longer needs `--force`.
+- `--to 1` undoes the whole session and says so.
+- An error that quotes a path with "no such file" in it is no longer read as
+  the file being absent.
+
+### Fixed: the call path
+
+- **In the desktop app, one approval let two identical calls through.**
+  Approving now claims the call; the other is asked again.
+- **A move onto an existing file threw away its read** of what was there. That
+  read is the only copy, and it is kept now.
+- **A policy or journal planted in a shared folder** such as `/tmp` could be
+  picked up by the walk-up. Only files you own are used. A database at a
+  journal's path that isn't a Synartesis journal is never written into.
+  `SYNARTESIS_HOME=""` counts as unset.
+- **The SQL check** now reads PostgreSQL `$$` quoting, holds statements whose
+  quoting depends on the database, and checks strings at any depth.
+- **A call's own answer arriving late no longer overwrites a person's
+  `resolve`.**
+- **HTTP mode:**
+  - A long call's session is no longer swept as idle.
+  - Shutdown waits for running calls.
+  - An IPv6 host works.
+- **The proxy's flags:** a flag's value can't be another flag, `--flag=value`
+  works, and `--token` on the command line warns that other users can see it.
+- **Notifications:** `SYNARTESIS_NOTIFY` accepts `false`, `off` and `no`, and
+  more invisible characters are removed from the names shown.
+
+### Fixed: the desktop app
+
+- **Tool cards from different rounds overwrote each other**, because invented
+  call ids restarted at zero each round.
+- **Anthropic: a tool call cut off at the length limit** was sent
+  half-written. It is refused now.
+- **OpenAI-compatible:**
+  - An error sent inside the stream is shown, not an empty turn.
+  - Two calls sharing an index stay two calls.
+  - A last line with no newline is read.
+  - The connection is closed when the reply ends.
+- **Gemini:** a reply stopped as malformed, or for safety, says so instead of
+  ending silently.
+- **"Allow for an hour" is no longer offered for the app's own actions.** On
+  `undo_session` it let the model undo any session for an hour without asking.
+- **The undo preview now matches the undo**: it stops where the undo would, and
+  checks older sessions against what newer ones leave.
+- **A call that was never sent no longer shows "Can be put back".**
+- **Window:**
+  - A double click on the undo plan no longer runs the undo.
+  - Stop reads as stopped, not as an error.
+  - Two error notes in the same millisecond no longer clash.
+  - "try again in 1m26s" is understood.
+- **A second message, or an undo, while the model is still answering is
+  refused**, so the turn can still be stopped.
+
 ## 0.9.5 — 2026-10-20
 
 Bug fixes in the commands people type when something has gone wrong, in

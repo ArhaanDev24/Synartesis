@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { Ask, Exchange, Provider, ProviderTool, Reasoning, ToolCall, Turn } from "./types.js";
 
 /**
@@ -180,7 +182,16 @@ async function* events(body: ReadableStream<Uint8Array>): AsyncGenerator<string>
         cut = buffer.indexOf("\n");
       }
     }
+    // A last line with no newline after it is still a line: dropped, a
+    // server that closes straight after its final frame lost that frame.
+    const last = (buffer + decoder.decode()).trim();
+    if (last.startsWith("data:")) {
+      yield last.slice(5).trim();
+    }
   } finally {
+    // Cancelled, not only released: stopping at [DONE] left the connection
+    // open until the server chose to close it.
+    await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }
@@ -246,6 +257,12 @@ export function createOpenAICompatibleProvider(options: OpenAICompatibleOptions)
           continue;
         }
 
+        // A failure reported inside the stream, on a 200: skipped as a frame
+        // with no choices, it ended the turn empty with nothing said.
+        const failure = record(frame["error"]);
+        if (failure !== undefined) {
+          throw new Error(`${options.model} reported an error mid-reply: ${text(failure["message"]) ?? JSON.stringify(failure)}`);
+        }
         const counted = record(frame["usage"]);
         if (counted !== undefined) {
           usage = {
@@ -277,9 +294,15 @@ export function createOpenAICompatibleProvider(options: OpenAICompatibleOptions)
             if (fragment === undefined) {
               continue;
             }
-            const at = count(fragment["index"]) ?? building.size;
-            const soFar = building.get(at) ?? { id: "", name: "", args: "" };
             const id = text(fragment["id"]);
+            // No index continues the call being built; a new id at an index
+            // already used is a new call, not more of the old one's arguments.
+            let at = count(fragment["index"]) ?? Math.max(0, building.size - 1);
+            const existing = building.get(at);
+            if (existing !== undefined && id !== undefined && id !== "" && existing.id !== "" && existing.id !== id) {
+              at = Math.max(...building.keys()) + 1;
+            }
+            const soFar = building.get(at) ?? { id: "", name: "", args: "" };
             if (id !== undefined && id !== "") {
               soFar.id = id;
             }
@@ -294,13 +317,17 @@ export function createOpenAICompatibleProvider(options: OpenAICompatibleOptions)
         }
       }
 
+      // Unique past this turn, for the same reason as Gemini's: numbered from
+      // zero every round, two rounds' calls shared an id and one card
+      // replaced the other.
+      const turnId = randomUUID().slice(0, 8);
       const calls = [...building.entries()]
         .sort(([a], [b]) => a - b)
         .map(([at, one]) =>
           // Some servers -- Ollama among them -- send no id at all, and a tool
           // result has to be addressed to something. The index is stable
           // within the turn, which is as much as the result needs.
-          finish(one.id === "" ? { ...one, id: `call-${String(at)}` } : one),
+          finish(one.id === "" ? { ...one, id: `call-${turnId}-${String(at)}` } : one),
         )
         .filter((call) => call.name !== "");
 

@@ -51,6 +51,12 @@ export function namely(id: string): string {
 export function retryAfter(said: string): number | undefined {
   const structured = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec(said);
   const prose = /(?:retry|try again|wait)\s+(?:in|after)\s+(\d+(?:\.\d+)?)\s*(s\b|sec|second)/i.exec(said);
+  // "try again in 1m26s", which is how Groq and OpenAI put a longer wait.
+  const minutes = /(?:retry|try again|wait)\s+(?:in|after)\s+(\d+)m(\d+(?:\.\d+)?)s/i.exec(said);
+  if (minutes !== null) {
+    const total = Number(minutes[1]) * 60 + Number(minutes[2]);
+    return Number.isFinite(total) && total > 0 ? Math.ceil(total * 1000) : undefined;
+  }
   const found = structured?.[1] ?? prose?.[1];
   if (found === undefined) {
     return undefined;

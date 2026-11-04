@@ -746,6 +746,27 @@ function isSqlite(path: string): boolean {
   }
 }
 
+/** A readable SQLite database with tables in it and no `runs` table among them. */
+function foreignDatabase(path: string): boolean {
+  if (!isSqlite(path)) {
+    return false;
+  }
+  let db: Database.Database | undefined;
+  try {
+    db = new Database(path, { readonly: true, fileMustExist: true });
+    const names = z
+      .array(z.object({ name: z.string() }))
+      .parse(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all())
+      .map((row) => row.name);
+    return names.length > 0 && !names.includes("runs");
+  } catch {
+    // Damaged, or locked: what the ordinary open makes of it is the answer.
+    return false;
+  } finally {
+    db?.close();
+  }
+}
+
 /** SQLite's words for a file that is not, or is no longer, a readable database. */
 function damaged(detail: string): boolean {
   return /not a database|malformed|disk image/i.test(detail);
@@ -765,6 +786,16 @@ class SqliteJournal implements Journal {
     // entirely -- and it was the one step whose errors went out raw, as a bare
     // "file is not a database" naming neither the file nor the tool.
     // WAL so a reader (the CLI) never blocks the proxy mid-run.
+    // A database already, and not one of ours: `journal.db` is a common
+    // name, and a first run that found somebody else's wrote this schema into
+    // it, switched its journal mode and made it owner-only. Asked before
+    // anything is opened for writing, so it is left exactly as it was.
+    if (path !== ":memory:" && foreignDatabase(path)) {
+      throw new JournalError(
+        "open",
+        `${path} is a database, but not a Synartesis journal, so it was not touched. Point --journal at a journal, or at a new file to start one.`,
+      );
+    }
     this.#db = openDatabase(path);
 
     // Everything up to the version check reads the schema, so damage past the
@@ -933,7 +964,13 @@ class SqliteJournal implements Journal {
 
   markApplied(actionId: string, outcome: AppliedOutcome): void {
     this.#run("markApplied", () => {
-      this.#db
+      const values = [
+        JSON.stringify(outcome.result ?? null),
+        outcome.inverse === undefined ? null : JSON.stringify(outcome.inverse),
+        outcome.verify === undefined ? null : JSON.stringify(outcome.verify),
+        outcome.postSnapshot === undefined ? null : JSON.stringify(outcome.postSnapshot),
+      ];
+      const moved = this.#db
         .prepare(
           `UPDATE actions
              SET status = 'applied',
@@ -942,16 +979,22 @@ class SqliteJournal implements Journal {
                  verify_json = ?,
                  post_snapshot_json = ?,
                  error = ?
-           WHERE id = ?`,
+           WHERE id = ? AND status IN ('pending', 'approved')`,
         )
-        .run(
-          JSON.stringify(outcome.result ?? null),
-          outcome.inverse === undefined ? null : JSON.stringify(outcome.inverse),
-          outcome.verify === undefined ? null : JSON.stringify(outcome.verify),
-          outcome.postSnapshot === undefined ? null : JSON.stringify(outcome.postSnapshot),
-          outcome.warning ?? null,
-          actionId,
-        );
+        .run(...values, outcome.warning ?? null, actionId).changes;
+      if (moved === 0) {
+        // Settled by somebody else first -- a person's `resolve` while a slow
+        // call was still running. Their status stands; what the call
+        // returned is still worth keeping beside it. Overwritten, a person's
+        // "it failed" became "applied" under them with nothing said.
+        this.#db
+          .prepare(
+            `UPDATE actions
+               SET result_json = ?, inverse_json = ?, verify_json = ?, post_snapshot_json = ?
+             WHERE id = ?`,
+          )
+          .run(...values, actionId);
+      }
     });
   }
 

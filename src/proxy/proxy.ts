@@ -42,6 +42,7 @@ import { qualify, type Manifest, type ToolPolicy } from "../manifest/types.js";
 import { createRouter, type Router } from "./routing.js";
 import {
   observeState,
+  guardedInverse,
   planInverse,
   isDisconnected,
   planRead,
@@ -224,6 +225,8 @@ async function whatHappened(
   verify: ResolvedRead | undefined,
   before: StateObservation,
   signal: AbortSignal,
+  /** Filled with what the read found, for a caller that can keep it. */
+  seen?: { now?: StateObservation },
 ): Promise<Outcome> {
   if (verify === undefined) {
     // No declared read, so nothing to ask. Uncertainty is the honest answer,
@@ -232,6 +235,9 @@ async function whatHappened(
   }
   try {
     const now = await observeState(router, verify, signal);
+    if (seen !== undefined) {
+      seen.now = now;
+    }
     return canonical(now) === canonical(before) ? "none" : "applied";
   } catch {
     // The resource cannot be read, so what happened to it is unknown. That is
@@ -418,7 +424,8 @@ export function recoverInverse(
     return {};
   }
   try {
-    return { inverse: planInverse(policy.inverse, { ...captured, result: undefined }) };
+    const context = { ...captured, result: undefined };
+    return { inverse: guardedInverse(planInverse(policy.inverse, context), policy.undoRequiresAbsent, context) };
   } catch (error: unknown) {
     return {
       warning: `and its inverse could not be resolved without that answer: ${describe(error)}`,
@@ -1000,6 +1007,9 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
                   `and no single inverse can put both back`,
               };
               verify = undefined;
+              // Kept, as the comment above promises: what was overwritten is
+              // gone from the world after this call, and this is the only copy.
+              journal.attachSnapshot(pending.actionId, snapshot);
             } else {
               journal.attachSnapshot(pending.actionId, snapshot);
             }
@@ -1247,7 +1257,7 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
           let inverse: unknown;
           if (policy.inverse !== undefined && noWayBack === undefined) {
             try {
-              inverse = planInverse(policy.inverse, context);
+              inverse = guardedInverse(planInverse(policy.inverse, context), policy.undoRequiresAbsent, context);
             } catch (error: unknown) {
               warnings.push(`inverse could not be resolved: ${describe(error)}`);
             }
@@ -1310,7 +1320,8 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
             // transport that closed while a reply was owed. Ask the resource
             // what is true rather than asserting that nothing happened, and
             // keep the uncertainty when it cannot say.
-            const settled = await whatHappened(router, probe, priorState, AbortSignal.timeout(READ_BACK_MS));
+            const seen: { now?: StateObservation } = {};
+            const settled = await whatHappened(router, probe, priorState, AbortSignal.timeout(READ_BACK_MS), seen);
             if (settled === "none") {
               journal.markFailed(pending.actionId, describe(error));
             } else if (settled === "unknown") {
@@ -1332,6 +1343,10 @@ export function createProxyServer(options: ProxyOptions): ProxyServer {
                 result: undefined,
                 ...(recovered.inverse === undefined ? {} : { inverse: recovered.inverse }),
                 ...(verify === undefined ? {} : { verify }),
+                // What the read that settled it found is the state the call
+                // left. Thrown away, every write recovered this way had no
+                // post-state, and undoing it stopped and asked for --force.
+                ...(verify === undefined || seen.now === undefined ? {} : { postSnapshot: seen.now }),
                 warning: [
                   `the call applied but its answer never arrived: ${describe(error)}`,
                   ...(recovered.warning === undefined ? [] : [recovered.warning]),

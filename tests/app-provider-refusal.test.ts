@@ -142,3 +142,10 @@ describe("reading a provider's refusal", () => {
     expect(namely("qwen3:8b")).toBe("qwen3:8b");
   });
 });
+
+describe("a wait given in minutes and seconds", () => {
+  it("is understood, rather than read as no wait at all", () => {
+    expect(retryAfter("Rate limit reached. Please try again in 1m26s.")).toBe(86000);
+    expect(retryAfter("Please try again in 2m0.5s")).toBe(120500);
+  });
+});

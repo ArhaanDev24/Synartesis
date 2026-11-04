@@ -57,12 +57,13 @@ const WRITES =
  * Both doublings (`''` and `""`) are the escapes SQL defines. An unterminated
  * literal or comment runs to the end, which leaves nothing to call a read.
  */
-function code(text: string): string {
+function code(text: string): string | undefined {
   let out = "";
   let i = 0;
   while (i < text.length) {
     const here = text.charAt(i);
     const next = text.charAt(i + 1);
+    const dollar = here === "$" ? /^\$([A-Za-z_][A-Za-z0-9_]*)?\$/.exec(text.slice(i)) : null;
     if (here === "-" && next === "-") {
       const end = text.indexOf("\n", i);
       i = end === -1 ? text.length : end;
@@ -71,6 +72,16 @@ function code(text: string): string {
       const end = text.indexOf("*/", i + 2);
       i = end === -1 ? text.length : end + 2;
       out += " ";
+    } else if (dollar !== null) {
+      // PostgreSQL's dollar quoting, `$$ ... $$` or `$tag$ ... $tag$`. Read
+      // as code, a quote inside one opened a literal that swallowed the rest:
+      // `SELECT $$ ' $$; DELETE FROM users` read as a single SELECT.
+      const end = text.indexOf(dollar[0], i + dollar[0].length);
+      if (end === -1) {
+        return undefined;
+      }
+      i = end + dollar[0].length;
+      out += " ";
     } else if (here === "'" || here === '"') {
       let j = i + 1;
       for (;;) {
@@ -78,11 +89,19 @@ function code(text: string): string {
         if (close === -1) {
           // Never closed: whatever follows is inside it, as far as the
           // database is concerned, and is an error rather than a read.
-          return `${out} ${here}`.trim();
+          return undefined;
         }
         if (text[close + 1] === here) {
           j = close + 2;
           continue;
+        }
+        // A backslash in a literal means different things to different
+        // databases: an escape to MySQL and to PostgreSQL's E'' strings, a
+        // plain character to standard SQL. Which one this is cannot be
+        // known from here, and guessing wrong ends the literal in the wrong
+        // place, so a statement with one is not read as a read.
+        if (text.slice(i + 1, close).includes("\\")) {
+          return undefined;
         }
         i = close + 1;
         break;
@@ -98,6 +117,9 @@ function code(text: string): string {
 
 function isReadOnlyStatement(text: string): boolean {
   const stripped = code(text);
+  if (stripped === undefined) {
+    return false;
+  }
   if (!READ_ONLY.test(stripped.toLowerCase())) {
     return false;
   }
@@ -113,11 +135,34 @@ export function shouldGateOnWrite(args: unknown): boolean {
   if (typeof args !== "object" || args === null) {
     return true;
   }
-  const strings = Object.values(args).filter(
-    (value): value is string => typeof value === "string",
-  );
+  // Every string, at any depth. Only the top level was read, so a call with
+  // `{statements: ["DROP TABLE x"], label: "select 1"}` was judged on its
+  // label.
+  const strings = stringsIn(args);
   if (strings.length === 0) {
     return true;
   }
   return !strings.every(isReadOnlyStatement);
+}
+
+function stringsIn(value: unknown): string[] {
+  const found: string[] = [];
+  const pending: unknown[] = [value];
+  let visited = 0;
+  while (pending.length > 0 && visited < 10_000) {
+    const item = pending.pop();
+    visited += 1;
+    if (typeof item === "string") {
+      found.push(item);
+    } else if (Array.isArray(item)) {
+      for (const child of item) {
+        pending.push(child);
+      }
+    } else if (typeof item === "object" && item !== null) {
+      for (const child of Object.values(item)) {
+        pending.push(child);
+      }
+    }
+  }
+  return found;
 }

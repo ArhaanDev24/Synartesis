@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -23,14 +23,38 @@ const NESTED_JOURNAL = join(".synartesis", JOURNAL_NAME);
 
 /** Overridable, so a test never has to touch the real one. */
 export function home(): string {
-  return process.env["SYNARTESIS_HOME"] ?? join(homedir(), ".synartesis");
+  // Empty is unset. `??` let "" through, and the policy and journal became
+  // relative paths that the proxy and the CLI resolved from different places.
+  const given = process.env["SYNARTESIS_HOME"];
+  return given === undefined || given.trim() === "" ? join(homedir(), ".synartesis") : resolve(given);
+}
+
+/**
+ * Whether a file found by walking up may be used: one this user owns.
+ *
+ * The walk climbs to the root, and on a shared machine the directories on the
+ * way -- /tmp above all -- are writable by anybody. A policy planted there
+ * names the commands the proxy will start; a journal planted there can carry
+ * approvals. Neither is taken from someone else. Where ownership cannot be
+ * asked (Windows), anything found is used, as before.
+ */
+function ours(path: string): boolean {
+  const uid = process.getuid?.();
+  if (uid === undefined) {
+    return true;
+  }
+  try {
+    return statSync(path).uid === uid;
+  } catch {
+    return false;
+  }
 }
 
 function walkUp(from: string, name: string): string | undefined {
   let dir = resolve(from);
   for (;;) {
     const candidate = join(dir, name);
-    if (existsSync(candidate)) {
+    if (existsSync(candidate) && ours(candidate)) {
       return candidate;
     }
     const parent = dirname(dir);
@@ -65,7 +89,7 @@ export function findJournal(given?: string, manifest?: string): string {
     }
     for (const name of [JOURNAL_NAME, NESTED_JOURNAL]) {
       const candidate = join(dir, name);
-      if (existsSync(candidate)) {
+      if (existsSync(candidate) && ours(candidate)) {
         return candidate;
       }
     }

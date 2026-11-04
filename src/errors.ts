@@ -146,10 +146,24 @@ function lineDiff(before: string, after: string): string {
     tail += 1;
   }
 
-  const removed = a.slice(head, a.length - tail);
-  const added = b.slice(head, b.length - tail);
+  let removed = a.slice(head, a.length - tail);
+  let added = b.slice(head, b.length - tail);
+  // One long line each side -- a minified file, a JSON blob -- is cut to the
+  // stretch around where they part, not printed whole: the budget counted
+  // lines, and one line could be the entire file, twice.
+  const [one] = removed;
+  const [two] = added;
+  if (removed.length === 1 && added.length === 1 && one !== undefined && two !== undefined) {
+    let same = 0;
+    while (same < one.length && same < two.length && one[same] === two[same]) {
+      same += 1;
+    }
+    const from = Math.max(0, same - 40);
+    removed = [around(one, from)];
+    added = [around(two, from)];
+  }
   const show = (lines: readonly string[], mark: string): string[] => [
-    ...lines.slice(0, DIFF_BUDGET).map((line) => `  ${mark} ${line}`),
+    ...lines.slice(0, DIFF_BUDGET).map((line) => `  ${mark} ${clip(line)}`),
     ...(lines.length > DIFF_BUDGET
       ? [`  ${mark} ... ${String(lines.length - DIFF_BUDGET)} more`]
       : []),
@@ -161,6 +175,57 @@ function lineDiff(before: string, after: string): string {
     ...show(added, "+"),
     `  ${String(removed.length)} removed, ${String(added.length)} added.`,
   ].join("\n");
+}
+
+/** How much of one line is worth printing. */
+const LINE_BUDGET = 160;
+
+function clip(line: string): string {
+  return line.length <= LINE_BUDGET ? line : `${line.slice(0, LINE_BUDGET - 3)}...`;
+}
+
+/** A stretch of a long line starting near `from`, marked where it was cut. */
+function around(line: string, from: number): string {
+  const piece = line.slice(from, from + LINE_BUDGET - 6);
+  return `${from > 0 ? "..." : ""}${piece}${from + piece.length < line.length ? "..." : ""}`;
+}
+
+/**
+ * Where two recorded states differ: each path, and the value on each side
+ * there, up to a few of them. Walked breadth-first with the same caps as the
+ * text search, so a pathological snapshot is still a report and not a hang.
+ */
+function differences(
+  expected: unknown,
+  actual: unknown,
+): { readonly path: string; readonly before: unknown; readonly after: unknown }[] {
+  const found: { path: string; before: unknown; after: unknown }[] = [];
+  const pending: { path: string; a: unknown; b: unknown }[] = [{ path: "", a: expected, b: actual }];
+  let visited = 0;
+  while (pending.length > 0 && visited < MAX_SNAPSHOT_NODES && found.length < DIFF_BUDGET) {
+    const item = pending.shift();
+    visited += 1;
+    if (item === undefined) {
+      break;
+    }
+    const { a, b } = item;
+    const aObject = typeof a === "object" && a !== null;
+    const bObject = typeof b === "object" && b !== null;
+    if (aObject && bObject && Array.isArray(a) === Array.isArray(b)) {
+      for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+        pending.push({
+          path: Array.isArray(a) ? `${item.path}[${key}]` : item.path === "" ? key : `${item.path}.${key}`,
+          a: Object.getOwnPropertyDescriptor(a, key)?.value,
+          b: Object.getOwnPropertyDescriptor(b, key)?.value,
+        });
+      }
+      continue;
+    }
+    if (aObject || bObject || !Object.is(a, b)) {
+      found.push({ path: item.path, before: a, after: b });
+    }
+  }
+  return found;
 }
 
 /** A value with no text in it, kept short enough to read. */
@@ -200,6 +265,22 @@ function brief(value: unknown): string {
  * to undo anyway needs the second one, and it is the same rendering.
  */
 export function changedLines(expected: unknown, actual: unknown): string {
+  // The same place on both sides. Comparing each side's longest string
+  // compared two different things wherever a snapshot held several -- two
+  // observations in a memory graph -- and showed an unrelated line as
+  // removed; and where the change was outside the longest string, both
+  // printed values could read identically.
+  const found = differences(expected, actual);
+  // A resource that came or went is not a field that changed: said whole.
+  if (found.length > 0 && !found.some((one) => one.path === "" || one.path === "present")) {
+    return found
+      .map((one) =>
+        typeof one.before === "string" && typeof one.after === "string"
+          ? `  in ${one.path}:\n${lineDiff(one.before, one.after)}`
+          : `  in ${one.path}:\n  expected: ${brief(one.before)}\n  actual:   ${brief(one.after)}`,
+      )
+      .join("\n");
+  }
   const before = longestString(expected);
   const after = longestString(actual);
   // Two texts to compare, and they are not the same text. Anything else --

@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { createRetryGate } from "../src/gate/gate.js";
 import { openJournal } from "../src/journal/journal.js";
-import { desktopNotifier, shown, type HeldNotice } from "../src/notify.js";
+import { canNotify, desktopNotifier, shown, type HeldNotice } from "../src/notify.js";
 
 /**
  * Telling the person a call is waiting. Nothing did: whether anybody heard
@@ -170,5 +170,20 @@ describe.runIf(platform() !== "win32")("the Linux notifier", () => {
     expect(() => {
       desktopNotifier({}, "win32")({ server: "a", tool: "b", actionId: "c", approve: "d" });
     }).not.toThrow();
+  });
+});
+
+describe("turning notifications off, and what a name may hide", () => {
+  it("is off for any of the usual ways of saying so", () => {
+    for (const said of ["0", "false", "off", "no", "OFF"]) {
+      expect(canNotify({ SYNARTESIS_NOTIFY: said }), said).toMatch(/switched off/);
+    }
+    expect(canNotify({ SYNARTESIS_NOTIFY: "1" }) ?? "").not.toMatch(/switched off/);
+  });
+
+  it("removes the invisible marks that reorder or hide characters", () => {
+    expect(shown("evil‎.tool")).toBe("evil.tool");
+    expect(shown("de​lete")).toBe("delete");
+    expect(shown("a؜b")).toBe("ab");
   });
 });

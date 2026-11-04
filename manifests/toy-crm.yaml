@@ -26,6 +26,9 @@ tools:
       tool: "crm.get_customer"
       args:
         id: "$result.id"
+      # Only this means gone. Any other error -- a server briefly unwell --
+      # read as absence, and absence is what proves a compensation landed.
+      absent_when: ["no customer with id"]
 
   # A patch, so the inverse has to restore every field rather than re-apply the
   # patch: fields the agent did not touch must still come back unchanged if the
@@ -74,6 +77,9 @@ tools:
       tool: "crm.get_customer"
       args:
         id: "$.id"
+      # Only this means gone. Any other error -- a server briefly unwell --
+      # read as absence, and absence is what proves a compensation landed.
+      absent_when: ["no customer with id"]
 
   - match: "crm.send_email"
     class: irreversible
